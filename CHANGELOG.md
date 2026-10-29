@@ -2,6 +2,56 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.1.1] - 2026-10-29
+
+### Added
+
+- **"DSH-side constraints" (中文：DSH 侧限制与说明) sections** in `README.md` and
+  `README.zh.md`, recording verified facts instead of implying the mode is
+  unrestricted: Agent Team member/task/message limits from the profile's
+  `@deepseek-ai/dsh-experimental-agent-team-profile` configuration
+  (`maxMembers: 8`, `maxTasks: 256`, `maxMessageBytes: 65536`,
+  `disposalTimeoutMs: 5000`; the deployment default for `maxMembers` is 16 and this
+  desktop profile sets 8), the Team-tool dependency on that profile bundle,
+  permission/sandbox ownership by DSH permission presets, the trusted-configuration
+  warning, and the no-OS-restriction / no-plugin-allowlist / no-npm-account facts.
+- **No DSH version gate.** The package declares no `engines.dsh` and no DSH
+  `peerDependencies`; the README no longer pins a DSH version and explains how to
+  adapt the 22 plugin rows if a DSH version ships a different built-in Standard Mode
+  plugin set. 0.2.1-rc.3 is recorded as the **tested reference only**; no
+  multi-version testing has been performed.
+
+### Changed
+
+- **F1 (documentation timeliness):** `README.md`, `README.zh.md` and
+  `docs/cross-platform.md` now record the Windows-tested GitHub Release asset URL
+  installation and the real `dsh plugin --profile desktop add` (2026-10-29,
+  `dsh plugin --profile desktop list` = 3 packages). Linux and macOS remain
+  code-level inferences and are still marked as not tested.
+- **F3 (docs wording/paths):** local absolute paths in `docs/cross-platform.md` are
+  generalized to `<DSH_HOME>` / `<repo>` placeholders; README wording changed from
+  "ships no JavaScript" to "no plugin-runtime JavaScript (no `main`/`lib`); optional
+  Node.js fallback scripts only".
+- Version bump to **0.1.1**; release URL and tarball filename examples in both
+  READMEs now point at `v0.1.1` / `dsh-cabinet-mode-0.1.1.tgz`.
+
+### Fixed
+
+- **F2 (backup timestamp granularity):** `scripts/install.mjs` and
+  `scripts/uninstall.mjs` backup names now use second-granularity timestamps
+  (`YYYYMMDD-HHMMSS`) plus a short random suffix, so install → uninstall → install
+  within the same minute never overwrites an earlier backup. Size and SHA-256
+  verification are unchanged.
+- `scripts/verify.mjs`: the DSH version check is informational only (no version
+  gate, never fails on a different DSH version); added assertions for the absence of
+  DSH version-gate fields, the DSH-side constraints sections, `<DSH_HOME>`
+  placeholder usage, and version consistency across `package.json`, READMEs and
+  `CHANGELOG.md`.
+
+The preset itself is unchanged: the 22-row plugin list, the cross-platform
+`!!js process.platform` guards for `tool-bash`/`tool-pwsh`, and the dual-identity
+persona are byte-identical to 0.1.0.
+
 ## [0.1.0] - 2026-10-29
 
 First public release.

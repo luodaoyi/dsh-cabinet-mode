@@ -1,26 +1,28 @@
 # 跨平台兼容性（Windows / Linux / macOS）
 
-> 基线：DeepSeek Harness 0.2.1-rc.3（Desktop 安装包）。本机仅有 Windows，**下文 Linux/macOS 结论均为代码级论证，未在本机实测**，逐条标注「实测/代码级推断」。
+> 基线：DeepSeek Harness 0.2.1-rc.3（Desktop 安装包，**实测参照，不是版本限制**）。本包不声明 DSH 版本门禁：`package.json` 无 `engines.dsh`、无 DSH `peerDependencies`，`scripts/verify.mjs` 的 DSH 版本检查仅为信息性 WARN，不因版本不同而失败；其他带声明式 preset 机制的 DSH 版本可尝试，但**未做多版本实测**。本机仅有 Windows，**下文 Linux/macOS 结论均为代码级论证，未在本机实测**，逐条标注「实测/代码级推断」。
 > 本文只讨论本插件（纯 YAML bundle：`package.json` + `cordis.patch.yml`）与 DSH 宿主安装链；不修改仓库其它文件。
-> 证据约定：`P = dsh/node_modules/@deepseek-ai/` 为 app.asar 内路径（全文 `P/...:行号`）；本机复核用 `C:\Users\tb16p\.dsh\cabinet-mode\_work\asar-read.js`（`cat/list` 读取 app.asar 内文件）。实跑命令以 `>` 标注。
+> 证据约定：`P = dsh/node_modules/@deepseek-ai/` 为 app.asar 内路径（全文 `P/...:行号`）；本机复核用 `<work-dir>/_work/asar-read.js`（`cat/list` 读取 app.asar 内文件）。实跑命令以 `>` 标注。
 
 ## 结论矩阵
 
 | # | 项目 | Windows | Linux | macOS | 证据 | 实测程度 |
 |---|---|---|---|---|---|---|
 | 1 | 插件本体（纯 YAML bundle，零原生依赖） | 同一份产物 / 实测组合校验通过 | 同 | 同 | 本仓库 `package.json:39-43`（`dsh.bundle.patch`）、`cordis.patch.yml`；DSH 侧 bundle 加载只读 YAML（`P/dsh-app-boot/lib/index.js:488-497`） | Windows 实跑 `dsh --profile web --patch <本仓库 cordis.patch.yml> --dump-config` → exit 0（66794 字节，含 `preset-cabinet`/`内阁模式`）；Linux/macOS 同命令未实测 |
-| 2 | `dsh plugin add` 的 pnpm 来源（Desktop 载体） | 安装包自带 pnpm 11.28.5 | 同机制，按平台运行时载荷 | 同 | `P/dsh-desktop-host/lib/cli.js:94-107`；本机 `C:\Users\tb16p\AppData\Local\Programs\DeepSeek Harness\resources\runtime\primary-runtime\dependencies\pnpm\package.json` = 11.28.5 | Windows 实跑 `list`/`add --help` exit 0；Linux/macOS 代码级 |
+| 2 | `dsh plugin add` 的 pnpm 来源（Desktop 载体） | 安装包自带 pnpm 11.28.5 | 同机制，按平台运行时载荷 | 同 | `P/dsh-desktop-host/lib/cli.js:94-107`；本机 `<DSH_INSTALL>/resources/runtime/primary-runtime/dependencies/pnpm/package.json` = 11.28.5 | Windows 实跑 `list`/`add --help` exit 0；Linux/macOS 代码级 |
 | 3 | `dsh plugin add` 的 pnpm 来源（通用 CLI） | PATH 中的 `pnpm` | PATH 中的 `pnpm` | PATH 中的 `pnpm` | `P/dsh/lib/plugin-BiveYA7h.js:63-94`（exit 127 提示装 pnpm）；`P/dsh-plugin-manager/README.zh.md:81`（`pnpmCommand` 默认 `pnpm`，经 PATH 解析） | 代码级 |
 | 4 | 路径分隔符 / PATH 拼接 | `;`（`node:path.delimiter`） | `:` | `:` | `P/dsh-desktop-host/lib/cli.js:2,104` | Windows 实跑正常；POSIX 代码级 |
-| 5 | Harness 家目录 | `%USERPROFILE%\.dsh`（`homedir()`） | `$HOME/.dsh` | `$HOME/.dsh` | `P/dsh-home-paths/lib/index.js:11,15,55-57,70-73` | Windows 实跑（本机 profile 在 `C:\Users\tb16p\.dsh`）；POSIX 代码级 |
-| 6 | profile 目录与用户 patch 文件 | `$DSH_HOME\profiles\<name>\cordis.patch.yml` | `$DSH_HOME/profiles/<name>/cordis.patch.yml` | 同 Linux | `P/dsh-app-boot/lib/index.js:488-497,507-509` | Windows 实跑（`D:\...\profiles\desktop\cordis.patch.yml` 存在）；POSIX 代码级 |
+| 5 | Harness 家目录 | `%USERPROFILE%\.dsh`（`homedir()`） | `$HOME/.dsh` | `$HOME/.dsh` | `P/dsh-home-paths/lib/index.js:11,15,55-57,70-73` | Windows 实跑（本机 profile 在 `<DSH_HOME>`）；POSIX 代码级 |
+| 6 | profile 目录与用户 patch 文件 | `$DSH_HOME\profiles\<name>\cordis.patch.yml` | `$DSH_HOME/profiles/<name>/cordis.patch.yml` | 同 Linux | `P/dsh-app-boot/lib/index.js:488-497,507-509` | Windows 实跑（`<DSH_HOME>/profiles/desktop/cordis.patch.yml` 存在）；POSIX 代码级 |
 | 7 | preset 内 `tool-bash` / `tool-pwsh` 启用 | pwsh 启用，bash 禁用 | bash 启用，pwsh 禁用 | bash 启用，pwsh 禁用 | `P/dsh-web-app/presets/standard.patch.yml:21-26`；宿主执行器同规则 `P/dsh-base/cordis.patch.yml:249-257` | Windows 实跑（本会话为 pwsh 工具）；Linux/macOS 代码级 |
 | 8 | persona / 技能 / 上下文平台假设 | 无 | 无 | 无 | `P/dsh-system-prompt/README.zh.md:72,78`；`P/dsh-web-app/presets/standard.patch.yml:11-14` | 代码级（Windows 实跑未见异常） |
 | 9 | 直装回退：向 `cordis.patch.yml` 追加 `insert` | 支持 | 支持 | 支持 | `P/dsh-app-boot/lib/index.js:61-101,488-497` | Windows 已用 `--patch` 等价路径实跑 exit 0；POSIX 代码级 |
-| 10 | 安装后生效 | 重启 Host → 新会话可选 | 同 | 同 | `P/dsh-plugin-manager/README.zh.md:14,73`；`P/dsh-plugin-manager/lib/index.js:2381` | 本调研（只读）未执行真实 `add`；仓库 README.md:77 称 Windows 已实测安装+组合检查（据其声明，未独立复核）；后段代码级 |
+| 10 | 安装后生效 | 重启 Host → 新会话可选 | 同 | 同 | `P/dsh-plugin-manager/README.zh.md:14,73`；`P/dsh-plugin-manager/lib/index.js:2381` | Windows 已实测真实 `add`（2026-10-29，本地目录与 Release 资产 URL；`dsh plugin --profile desktop list` = 3 packages、bundles 写入）；重启后新会话出现模式未实测，后段代码级 |
 | 11 | 是否需要 postinstall / build | 否（纯 YAML） | 否 | 否 | `P/dsh-plugin-manager/lib/types/build-approval.js:1,7-10`；README.zh:64 | 代码级 |
-| 12 | GitHub Release `.tgz` 直接安装 | 预期可用（未实跑 URL） | 同 | 同 | `P/dsh-plugin-manager/lib/types/install-spec.js:16-17,62-76`；`pnpm add <tarball url>`（本机 `dsh plugin ... add --help` 实跑输出含 `<tarball url>`） | 代码级 + pnpm 帮助实测 |
+| 12 | GitHub Release `.tgz` 直接安装 | 实测可用（Release 资产 URL 直装，2026-10-29） | 同 | 同 | `P/dsh-plugin-manager/lib/types/install-spec.js:16-17,62-76`；`pnpm add <tarball url>`（本机 `dsh plugin ... add --help` 实跑输出含 `<tarball url>`） | Windows 实测 + pnpm 帮助实测；Linux/macOS 代码级 |
 | 13 | npm publish 所需字段 | 条件见「发布与分享」 | 同 | 同 | `P/dsh-app-boot/lib/index.js:252,280-304`；`P/dsh-plugin-manager/lib/index.js:313,335-337` | 仅文档条件，未发布 |
+
+> 附加（不属于平台列）：本包不声明 DSH 版本门禁（`package.json` 无 `engines.dsh`/DSH `peerDependencies`，`scripts/verify.mjs` 版本检查仅信息性 WARN）；本文所有结论以 DSH 0.2.1-rc.3 实测为参照，其他 DSH 版本若内置插件集合不同，需按该版本 `presets/standard.patch.yml` 调整插件行——**未做多版本实测**。
 
 ## 逐项论证
 
@@ -111,11 +113,11 @@ async function runDesktopCli(runtimeDir, supportDir) {
 
 ### 6. 发布与分享条件
 
-- **GitHub Release `.tgz`**：`P/dsh-plugin-manager/lib/types/install-spec.js:16-17` 定义 tarball 形态 `\.(?:tgz|tar\.gz)(?:#.*)?$`；`:62-76` 接受「绝对本地路径」或「http(s) 且以 .tgz 结尾」的 spec。pnpm 原生支持 `pnpm add <tarball url>`（本机 `dsh plugin --profile desktop add --help` 实跑输出含 `<tarball url>` 行）。因此预期可直接：
+- **GitHub Release `.tgz`**：`P/dsh-plugin-manager/lib/types/install-spec.js:16-17` 定义 tarball 形态 `\.(?:tgz|tar\.gz)(?:#.*)?$`；`:62-76` 接受「绝对本地路径」或「http(s) 且以 .tgz 结尾」的 spec。pnpm 原生支持 `pnpm add <tarball url>`（本机 `dsh plugin --profile desktop add --help` 实跑输出含 `<tarball url>` 行）。**Windows 已实测** Release 资产 URL 直装成功（2026-10-29），可直接用：
   ```
   dsh plugin --profile web add https://github.com/<owner>/<repo>/releases/download/v<ver>/dsh-cabinet-mode-<ver>.tgz
   ```
-  （Windows 未实跑该 URL；Linux/macOS 未实测。私仓/代理/认证未验证。）本地文件须用**绝对路径**（`install-spec.js:63-65` 明确拒绝相对路径）。
+  （Linux/macOS 未实测；私仓/代理/认证未验证。）本地文件须用**绝对路径**（`install-spec.js:63-65` 明确拒绝相对路径）。
 - **npm 发布（仅列条件，本机无凭证、未发布、未实测）**：
   - 必需：`name`、`version`；`private` 不得为 true；scoped 包加 `publishConfig.access: "public"`。
   - bundle 身份：`dsh.bundle.patch` 指向 `cordis.patch.yml`（字符串或有序数组）。这是插件管理器识别「组合包层」的充要字段（`P/dsh-plugin-manager/lib/index.js:313,335-337`）；缺它只会被当作普通依赖安装。
@@ -124,15 +126,15 @@ async function runDesktopCli(runtimeDir, supportDir) {
   - **现状对照（本仓库 `package.json` 已满足）**：`name`/`version`/`private: false`/`files` 含 `cordis.patch.yml`/`dsh.bundle.patch` 均在；未声明 `peerDependencies` 与 `engines.dsh`，因此 DSH 兼容性判定不触发（`P/dsh-app-boot/lib/index.js:280-304`）；未声明 `os`/`cpu`；`engines.node` 只对 npm/yarn 安装器有意义，DSH 兼容性判定不读。发布前仅剩 npm 凭证与 `npm publish`（未做）。
   - 不要声明 `os`/`cpu` 限制字段；纯 YAML 无平台二进制。
   - 可选元数据：`description`、`icon`（相对路径，须位于包内，`P/dsh-app-boot/lib/index.js:2074-2097`）、`locale/*.json`（`P/dsh-app-boot/lib/index.js:574` 附近）。
-- **桌面端**：`dsh plugin --profile desktop add` 在 Desktop 载体下可用（Windows 实测 `list`、`add --help` exit 0；`P/dsh-desktop-host/lib/cli.js:97` 的 `manageDesktopProfile: true` 是放行来源）。真实 `add`+重启生效未实测。
+- **桌面端**：`dsh plugin --profile desktop add` 在 Desktop 载体下可用（Windows 实测 `list`、`add --help` exit 0；`P/dsh-desktop-host/lib/cli.js:97` 的 `manageDesktopProfile: true` 是放行来源）。Windows 已实测本地目录与 Release 资产 URL 两种真实安装（2026-10-29，`dsh plugin --profile desktop list` = 3 packages）；重启后新会话出现内阁模式仍未实测。
 
 ## 未在本机实测清单
 
 1. Linux / macOS 上任何 `dsh plugin add` 实跑（无对应平台机器）。
 2. Linux / macOS 上 bash 工具真实执行（依赖系统 bash；Alpine 等无 bash 发行版未证）。
 3. Linux / macOS 桌面端运行时载荷（`primary-runtime` 按平台交付）实际内容。
-4. GitHub Release `.tgz` URL 的真实安装（仅校验了 spec 解析与 pnpm 能力）。
-5. 真实 `dsh plugin --profile desktop add <bundle>` 安装 + 重启 + 新会话出现内阁模式：本调研为只读，未执行；仓库 README.md:77 声明 Windows 已实测（bundle install + `dsh plugin list` + 组合检查），本文未独立复核该声明。
+4. ~~GitHub Release `.tgz` URL 的真实安装~~ → **Windows 已实测**（Release 资产 URL 直装成功，2026-10-29）；Linux/macOS 未实测。
+5. ~~真实 `dsh plugin --profile desktop add <bundle>` 安装~~ → **Windows 已实测**（本地目录与 Release URL 两种方式，`list` = 3 packages、bundles 写入，2026-10-29）；重启后新会话出现内阁模式仍未实测。
 6. Linux / macOS 上对 `<本仓库 cordis.patch.yml>` 执行 `dsh --profile web --patch ... --dump-config` 的组合校验（Windows 已实跑 exit 0）。
 7. npm publish 流程与安装验证（无 npm 凭证，未发布）。
 8. HMR 开启时 preset 声明的热生效（仅代码级阅读 README 与注册表语义，未实跑）。
@@ -162,7 +164,7 @@ async function runDesktopCli(runtimeDir, supportDir) {
 | 本仓库 `package.json:30-47` | 纯 YAML bundle 声明：`files`、`dsh.bundle.patch`、`scripts`（仅 verify/pack，无安装生命周期） |
 | 本仓库 `cordis.patch.yml:1-21` | 唯一的 `preset-cabinet` 声明与平台注释 |
 | 本仓库 `scripts/install.mjs:31-36,62-63,103,173`、`uninstall.mjs:24,52-53,106`、`verify.mjs:23-28` | 脚本已用 `fileURLToPath`/`homedir`/`DSH_HOME`/`join`，无手写分隔符 |
-| 实跑：`> dsh --profile web --patch D:\sources\repos\dsh-cabinet-mode\cordis.patch.yml --dump-config` → exit 0（66794 字节，含 `preset-cabinet`、`id: cabinet`、`name: 内阁模式`） | Windows 实测：成品补丁可被 rc.3 组合（不启动服务） |
+| 实跑：`> dsh --profile web --patch <repo>/cordis.patch.yml --dump-config` → exit 0（66794 字节，含 `preset-cabinet`、`id: cabinet`、`name: 内阁模式`） | Windows 实测：成品补丁可被 rc.3 组合（不启动服务） |
 | 实跑：`> dsh --version` → 0.2.1-rc.3；`> dsh plugin --profile desktop list` → exit 0；`> dsh plugin --profile desktop add --help` → exit 0（pnpm add 帮助）` | Windows 实测 |
 
 > README 引用锚点：`docs/cross-platform.md#结论矩阵`、`docs/cross-platform.md#未在本机实测清单`、`docs/cross-platform.md#依据索引`。

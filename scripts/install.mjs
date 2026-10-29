@@ -214,8 +214,9 @@ try {
     .replace(/[-:]/g, '')
     .replace(/\..+$/, '')
     .replace('T', '-')
-    .slice(0, 13);
-  const backupPath = `${target}.bak-${stamp}`;
+    .slice(0, 15); // YYYYMMDD-HHMMSS
+  const suffix = Math.random().toString(16).slice(2, 6); // unique short suffix: rapid repeated runs never reuse a backup name
+  const backupPath = `${target}.bak-${stamp}-${suffix}`;
 
   console.log('== dsh-cabinet-mode fallback installer ==');
   console.log(`  mode       : ${write ? 'APPLY (writes the profile patch)' : 'DRY RUN (default; nothing is written)'}`);

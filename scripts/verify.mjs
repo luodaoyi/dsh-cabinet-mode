@@ -4,15 +4,21 @@
  *
  * Structural checks (always):
  *  - package.json fields for npm + DSH bundle semantics, no runtime dependencies,
- *    no main/lib JavaScript (this is a pure YAML bundle)
+ *    no main/lib JavaScript (this is a pure YAML bundle), and no DSH version gate
+ *    (no `engines.dsh`, no DSH `peerDependencies`)
  *  - cordis.patch.yml preset declaration, 22-row plugin list, dual-identity persona,
  *    cross-platform `!!js process.platform` guards, no absolute paths / template vars
  *  - fallback scripts present and documented markers intact
+ *  - README/docs consistency: DSH-side constraints sections, no hard DSH version
+ *    gate, generalization of local paths, release URL matching package.version,
+ *    CHANGELOG section for package.version
  *
  * Composition check (only when `dsh` is on PATH):
  *  - `dsh --profile web --patch ./cordis.patch.yml --dump-config`
  *    must exit 0, contain exactly one `preset-cabinet`, and keep the four shipped
  *    presets (standard/ptc/minimal/cordis) exactly once each.
+ *  - The DSH version is printed informationally only. This repository declares no
+ *    DSH version gate: running a different DSH version must not fail verification.
  *
  * Usage: node scripts/verify.mjs
  * Exit codes: 0 = all checks pass, 1 = failures.
@@ -26,6 +32,7 @@ import { join } from 'node:path';
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const PATCH_PATH = join(ROOT, 'cordis.patch.yml');
 const PACKAGE_PATH = join(ROOT, 'package.json');
+const TESTS_ON = '0.2.1-rc.3';
 const EXPECTED_PLUGINS = [
   'persona', 'agent-instructions', 'time-context', 'tool-bash', 'tool-pwsh',
   'tool-fs', 'tool-fs-search', 'tool-jobs', 'tool-schedule',
@@ -56,14 +63,6 @@ function warning(name, detail = '') {
 function countOccurrences(text, needle) {
   return text.split(needle).length - 1;
 }
-function firstSignificantChar(text) {
-  for (const line of text.split(/\r?\n/)) {
-    const value = line.trim();
-    if (value === '' || value.startsWith('#')) continue;
-    return value[0];
-  }
-  return '';
-}
 function findDsh() {
   const result = spawnSync('dsh --version', { shell: true, encoding: 'utf8', timeout: 30000, windowsHide: true });
   return result.status === 0 ? (result.stdout ?? '').trim() : null;
@@ -71,6 +70,7 @@ function findDsh() {
 
 console.log('== dsh-cabinet-mode verification ==');
 console.log(`  repository: ${ROOT}`);
+console.log(`  DSH reference version (tested, NOT enforced): ${TESTS_ON}`);
 console.log('');
 
 // ---------- package.json ----------
@@ -85,7 +85,7 @@ try {
 if (pkg) {
   const problems = [];
   if (pkg.name !== 'dsh-cabinet-mode') problems.push(`name is ${pkg.name}`);
-  if (pkg.version !== '0.1.0') problems.push(`version is ${pkg.version}`);
+  if (pkg.version !== '0.1.1') problems.push(`version is ${pkg.version}`);
   if (pkg.license !== 'MIT') problems.push('license is not MIT');
   if (pkg.private !== false) problems.push('private is not false');
   if (!pkg.description) problems.push('description missing');
@@ -100,6 +100,13 @@ if (pkg) {
   if (pkg.main || pkg.types || pkg.exports) problems.push('main/types/exports present; pure YAML bundle should not ship JS');
   if (problems.length === 0) ok('package.json fields (npm + DSH bundle, no runtime deps, no JS entry)');
   else bad('package.json fields', problems.join('; '));
+
+  // No DSH version gate: docs claim the bundle declares no DSH version dependency.
+  const gateFields = [];
+  if (pkg.engines && pkg.engines.dsh) gateFields.push('engines.dsh');
+  if (pkg.peerDependencies && Object.keys(pkg.peerDependencies).length > 0) gateFields.push('peerDependencies');
+  if (gateFields.length === 0) ok('no DSH version gate declared (no engines.dsh / DSH peerDependencies)');
+  else bad('no DSH version gate declared', gateFields.join(', '));
 
   const libDir = join(ROOT, 'lib');
   if (existsSync(libDir) && readdirSync(libDir).length > 0) bad('no lib/ build output in repository');
@@ -136,7 +143,7 @@ if (existsSync(PATCH_PATH)) {
     if (match) pluginIds.push(match[1]);
   }
   if (pluginIds.join('|') === EXPECTED_PLUGINS.join('|')) {
-    ok('22-row plugin list order matches DSH 0.2.1-rc.3 Standard Mode');
+    ok(`22-row plugin list order matches the DSH ${TESTS_ON} reference Standard Mode`);
   } else {
     bad('22-row plugin list order', `actual: ${pluginIds.join(',')}`);
   }
@@ -193,25 +200,62 @@ if (scriptProblems.length === 0) {
   if (!uninstall.includes('--apply')) scriptProblems.push('uninstall.mjs lacks --apply');
   if (!install.includes('dsh-cabinet-mode: preset-cabinet BEGIN')) scriptProblems.push('install.mjs marker missing');
   if (!uninstall.includes('dsh-cabinet-mode: preset-cabinet BEGIN')) scriptProblems.push('uninstall.mjs marker missing');
+  if (!install.includes('slice(0, 15)')) scriptProblems.push('install.mjs backup timestamp is not second-granularity');
+  if (!uninstall.includes('slice(0, 15)')) scriptProblems.push('uninstall.mjs backup timestamp is not second-granularity');
 }
-if (scriptProblems.length === 0) ok('fallback scripts present (node, dry-run default, markers)');
+if (scriptProblems.length === 0) ok('fallback scripts present (node, dry-run default, markers, second-granularity backups)');
 else bad('fallback scripts', scriptProblems.join('; '));
 
-// ---------- docs + release assets ----------
+// ---------- docs + READMEs + release assets ----------
 const docsPath = join(ROOT, 'docs', 'cross-platform.md');
+let docsText = '';
 if (existsSync(docsPath)) {
-  const docs = readFileSync(docsPath, 'utf8');
-  if (docs.includes('未实测') || /not tested/i.test(docs)) ok('docs/cross-platform.md marks untested platforms');
+  docsText = readFileSync(docsPath, 'utf8');
+  if (docsText.includes('未实测') || /not tested/i.test(docsText)) ok('docs/cross-platform.md marks untested platforms');
   else warning('docs/cross-platform.md', 'does not mention "未实测"/not tested');
+  const docsProblems = [];
+  if (!docsText.includes('<DSH_HOME>')) docsProblems.push('no <DSH_HOME> placeholder');
+  if (/[A-Z]:[\\/](Users|sources)/i.test(docsText)) docsProblems.push('contains a local absolute path');
+  if (docsProblems.length === 0) ok('docs/cross-platform.md generalizes local paths to <DSH_HOME>/<repo>');
+  else bad('docs/cross-platform.md paths', docsProblems.join('; '));
 } else {
-  warning('docs/cross-platform.md', 'not present yet (owned by a parallel task)');
+  warning('docs/cross-platform.md', 'not present');
 }
+
+const readmePath = join(ROOT, 'README.md');
+const readmeZhPath = join(ROOT, 'README.zh.md');
+if (existsSync(readmePath) && existsSync(readmeZhPath)) {
+  const readme = readFileSync(readmePath, 'utf8');
+  const readmeZh = readFileSync(readmeZhPath, 'utf8');
+  const consistency = [];
+  if (!readme.includes('DSH-side constraints')) consistency.push('README.md lacks the "DSH-side constraints" section');
+  if (!readmeZh.includes('DSH 侧限制与说明')) consistency.push('README.zh.md lacks the "DSH 侧限制与说明" section');
+  if (!readme.includes('no hard DSH version gate')) consistency.push('README.md lacks the no-hard-DSH-version-gate statement');
+  if (!readmeZh.includes('无 DSH 版本硬限制')) consistency.push('README.zh.md lacks the no-DSH-version-gate statement');
+  if (pkg && pkg.version) {
+    const url = `releases/download/v${pkg.version}/dsh-cabinet-mode-${pkg.version}.tgz`;
+    if (!readme.includes(url)) consistency.push(`README.md release URL is not v${pkg.version}`);
+    if (!readmeZh.includes(url)) consistency.push(`README.zh.md release URL is not v${pkg.version}`);
+  }
+  if (consistency.length === 0) ok('READMEs: constraints sections, no version gate, release URL matches package.version');
+  else bad('README consistency', consistency.join('; '));
+} else bad('README.md/README.zh.md exist');
+
+if (existsSync(join(ROOT, 'CHANGELOG.md')) && pkg?.version) {
+  const changelog = readFileSync(join(ROOT, 'CHANGELOG.md'), 'utf8');
+  if (changelog.includes(`## [${pkg.version}]`)) ok(`CHANGELOG has a [${pkg.version}] section`);
+  else bad('CHANGELOG version section', `missing [${pkg.version}]`);
+} else bad('CHANGELOG.md exists');
+
 const workflowPath = join(ROOT, '.github', 'workflows', 'release.yml');
 if (existsSync(workflowPath)) {
   const workflow = readFileSync(workflowPath, 'utf8');
   if (workflow.includes('npm pack') && workflow.includes('SHA256SUMS') && workflow.includes('GITHUB_TOKEN')) {
     ok('.github/workflows/release.yml has pack + checksums + token');
   } else bad('.github/workflows/release.yml incomplete');
+  if (/dsh[\s._-]*version/i.test(workflow) || workflow.includes('allow-version')) {
+    bad('.github/workflows/release.yml has no DSH version gate');
+  } else ok('.github/workflows/release.yml has no DSH version gate');
 } else bad('.github/workflows/release.yml exists');
 
 // ---------- composition check (needs dsh) ----------
@@ -219,8 +263,12 @@ const dshVersion = findDsh();
 if (!dshVersion) {
   warning('composition check skipped', 'dsh CLI not on PATH; structural checks only');
 } else {
-  console.log(`  dsh version: ${dshVersion}`);
-  if (!dshVersion.includes('0.2.1-rc.3')) warning('dsh version', `expected 0.2.1-rc.3, got ${dshVersion}`);
+  console.log(`  dsh version (informational only, no gate): ${dshVersion}`);
+  if (dshVersion.includes(TESTS_ON)) {
+    console.log(`  matches the tested reference DSH ${TESTS_ON}`);
+  } else {
+    warning('dsh version differs from the tested reference', `${TESTS_ON} tested, running ${dshVersion}; informational only, no version gate and no failure`);
+  }
   const patchArg = PATCH_PATH.includes(' ') ? `"${PATCH_PATH}"` : PATCH_PATH;
   const command = `dsh --profile web --patch ${patchArg} --dump-config`;
   const result = spawnSync(command, {
