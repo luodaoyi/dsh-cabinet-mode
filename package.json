@@ -1,0 +1,48 @@
+{
+  "name": "dsh-cabinet-mode",
+  "version": "0.1.0",
+  "description": "Cabinet Mode (内阁模式) for DeepSeek Harness: a declarative DSH bundle that adds a dual-identity Lead/teammate agent preset for the Great Ming Research Bureau cabinet team.",
+  "license": "MIT",
+  "private": false,
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/luodaoyi/dsh-cabinet-mode.git"
+  },
+  "homepage": "https://github.com/luodaoyi/dsh-cabinet-mode#readme",
+  "bugs": {
+    "url": "https://github.com/luodaoyi/dsh-cabinet-mode/issues"
+  },
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "dsh-bundle",
+    "dsh-plugin",
+    "dsh-agent-preset",
+    "cabinet-mode",
+    "persona",
+    "agent-team",
+    "research-team"
+  ],
+  "files": [
+    "cordis.patch.yml",
+    "README.md",
+    "README.zh.md",
+    "LICENSE",
+    "CHANGELOG.md",
+    "docs",
+    "scripts"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "scripts": {
+    "verify": "node scripts/verify.mjs",
+    "pack:dry-run": "npm pack --dry-run"
+  }
+}

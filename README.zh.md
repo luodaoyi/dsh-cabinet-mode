@@ -1,0 +1,140 @@
+# 内阁模式（Cabinet Mode）· DeepSeek Harness 插件
+
+[English](README.md) | 中文
+
+一个纯声明式 **DSH bundle**：给 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 0.2.1-rc.3 增加 **内阁模式**（`config.id: cabinet`）。安装本 bundle、重启 DSH，新建会话时在模式选择器里选「内阁模式」即可。
+
+模式设定取自大明科研司·内阁：首辅（Lead）统摄，阁臣（成员）分曹——翰林院编修主调研、工部主事主执行、大理寺评事主核验、都察院御史主验收；默认只调研不改码，不编造数据来源。
+
+本包不含任何 JavaScript、无运行时依赖：它只声明一条 `@deepseek-ai/dsh-agent-preset`，并复用 DSH **标准模式**（Standard Mode）出厂的 22 行插件清单，因此工具与标准模式一致，仅 persona 不同。
+
+---
+
+## 让 AI 帮你安装（复制下面这段提示词）
+
+```text
+请帮我安装 DeepSeek Harness 的「内阁模式」（Cabinet Mode）bundle。
+
+1. 先检查 `dsh --version` 是否为 0.2.1-rc.3；不是的话先告诉我，不要继续。
+2. 把 bundle 装进我的 DSH profile：
+   dsh plugin --profile desktop add <dsh-cabinet-mode 仓库或 .tgz 的绝对路径>
+   （有 release tgz 的 URL 时，也可用该 URL 代替本地路径。）
+   若 `dsh` CLI 不可用：打开 DSH 设置 → 插件 → 添加插件 → 选择「本地目录」，
+   指向 dsh-cabinet-mode 仓库的绝对路径。
+3. 运行 `dsh plugin --profile desktop list`，确认出现 dsh-cabinet-mode。
+4. 不要同时把 cordis.patch.yml 追加到我的 profile patch：两种安装方式互斥，
+   同时装会让 preset 重复而加载失败。
+5. 安装完成后提醒我完全退出并重启 DSH；然后在新建任务时选择「内阁模式」
+   （preset id: cabinet）。
+
+任何一步失败请贴原始错误并停止，不要连续重试超过一次。
+```
+
+## 手动安装（3 行）
+
+```sh
+dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.1.0/dsh-cabinet-mode-0.1.0.tgz
+# 完全退出并重启 DeepSeek Harness
+# 新建任务 -> 模式选择器 -> 内阁模式
+```
+
+本地目录安装：把上面的 tgz URL 换成仓库绝对路径即可。Windows 上 CLI 为 `dsh`（经 `dsh.cmd`），Linux/macOS 命令相同。
+
+---
+
+## 你会得到什么
+
+| | |
+|---|---|
+| 模式 | 内阁模式（**Cabinet Mode**），preset id `cabinet`，order 5 |
+| 身份 | 同一段 persona 由首辅与所有阁臣共享：首辅（Lead）审题、拟旨拆解、分派、裁断、汇总、闭环；阁臣（翰林院编修/工部主事/大理寺评事/都察院御史）按衙门办事，禁止自称首辅。 |
+| 默认姿态 | 默认只调研不改码；每条结论锚定路径、行号、命令输出或原文；不确定处标「未验证」；不编造数据来源。 |
+| 工具 | 与标准模式相同的 22 行插件（shell、文件系统、后台任务、定时、技能、目标、计划模式、压缩、委派/工作流、ask-user、todo、web、present）。 |
+| 平台 | 跨平台：`tool-bash` 在 Linux/macOS 启用、`tool-pwsh` 在 Windows 启用，与标准模式一致；无绝对路径、无 shell 专用安装步骤、无构建步骤。 |
+| 团队工具 | 九个 Agent Team 工具来自 `@deepseek-ai/dsh-experimental-agent-team-profile` 这个 profile bundle，不由本 preset 提供。若你的 DSH profile 未启用该 bundle，则没有 teammate 工具，但 persona 规则仍生效。 |
+
+## 前置条件
+
+- **DeepSeek Harness 0.2.1-rc.3**。其它版本未验证：preset 声明格式是 0.2.1 的特性。
+- Node.js **>= 20**，仅回退脚本（`scripts/*.mjs`）需要；推荐的插件安装方式不直接依赖 Node。
+- 可选：启用 **Agent Teams**（智能体团队）获得完整首辅/阁臣流程。
+
+## 安装方式（三平台矩阵）
+
+| 方式 | Windows | Linux | macOS | 说明 |
+|---|---|---|---|---|
+| **A. DSH 插件管理器**（推荐）：插件页「添加插件 → 本地目录/包」，或 `dsh plugin --profile <profile> add <绝对路径 / .tgz / release URL>` | ✅ 本机实测（bundle 安装 + `dsh plugin list` + 合成校验） | ⚙️ 代码级推断，**未在本机实测** | ⚙️ 代码级推断，**未在本机实测** | 纯 YAML bundle：无构建、无依赖、无 OS 专用代码。见 [docs/cross-platform.md](docs/cross-platform.md)。 |
+| **B. 回退 node 脚本**（无插件管理器时）：`node scripts/install.mjs --profile <profile>` 演练后 `--apply`，写入 profile 的 `cordis.patch.yml` | ✅ 脚本已在 Windows 实测（演练 + 临时副本） | ⚙️ 代码级推断，**未实测** | ⚙️ 代码级推断，**未实测** | 三平台同一路径：`<DSH_HOME>/profiles/<profile>/cordis.patch.yml`。 |
+
+**方式 A 与方式 B 二选一，不可叠加。** 两种方式都会声明 `config.id: cabinet`；同时装会让 preset id 重复，声明加载失败。切换前先卸载旧方式。
+
+### A. 作为 DSH bundle 安装（推荐，全平台）
+
+1. 安装到你在用的 profile：
+   - **插件页**：设置 → 插件 → 添加插件 → 本地目录/包，选择本仓库（或其 `.tgz`）。
+   - **命令行**：`dsh plugin --profile desktop add <仓库绝对路径、.tgz 或 release URL>`
+2. 确认：`dsh plugin --profile desktop list` 出现 `dsh-cabinet-mode`。
+3. 完全退出并重启 DeepSeek Harness。
+4. 新建任务，在模式选择器中选择 **内阁模式**。
+
+### B. 回退：写入 profile patch 层（无插件管理器时）
+
+需要 Node.js >= 20。脚本跨平台，默认演练。
+
+```sh
+node scripts/install.mjs --profile desktop          # 演练：只打印计划，不写文件
+node scripts/install.mjs --profile desktop --apply  # 备份 → 写入 → 写后自检
+node scripts/verify.mjs                             # 仓库校验 + dsh 合成校验
+# 完全退出并重启 DeepSeek Harness
+```
+
+脚本写入 `<DSH_HOME>/profiles/<profile>/cordis.patch.yml`（Windows 默认 `%USERPROFILE%\.dsh`，Linux/macOS 为 `~/.dsh`）。它会：拒绝在已装 bundle 的 profile 上重复安装；拒绝目标已含 `preset-cabinet`；写前备份并校验 SHA-256；用 `BEGIN/END` 标记包裹 insert；目标为空/`[]`/仅注释时整文件替换（此时追加会产出非法 YAML）；写后结构自检失败自动从备份还原。
+
+## 启用与验证
+
+- **必须重启**：preset 声明在启动时加载，变更只影响之后创建的会话。
+- 新建任务 → 模式选择器 → **内阁模式**（`cabinet`）。会话一旦产出内容，模式在会话生命周期内固定。
+- 设置 → Agent 预设中应出现「内阁模式」卡片，配置查看为只读。
+- 仓库校验：`node scripts/verify.mjs`，检查 package 字段、preset 声明、22 行插件清单、双身份 persona、跨平台 guard，并在本机有 `dsh` 时运行
+  `dsh --profile web --patch ./cordis.patch.yml --dump-config`，断言 exit 0、`preset-cabinet` 恰 1 条、出厂 4 个 preset 未减。
+
+## 回退 / 卸载
+
+| 安装方式 | 卸载命令 | 之后 |
+|---|---|---|
+| 方式 A（bundle） | `dsh plugin --profile desktop remove dsh-cabinet-mode` | 完全重启 DSH |
+| 方式 B（node 脚本） | `node scripts/uninstall.mjs --profile desktop --apply` | 完全重启 DSH |
+
+回退卸载脚本只删除自己写入的 `BEGIN/END` 标记块；遇到不是它写入的 `preset-cabinet`（bundle 或手工安装）会拒绝处理，请改用插件页卸载。两个脚本默认演练，加 `--apply` 才写。
+
+## 未实测项（不得冒充已验证）
+
+- **Linux / macOS** 上的真实 bundle 安装与重启后模式选择器（本机仅 Windows 实测，Linux/macOS 为代码级推断）。
+- 0.2.1-rc.3 以外版本的安装/重启/UI 行为。
+- teammate 实测行为：被 spawn 的成员是否继承同一 persona 并真的按阁臣身份行事、不称首辅。
+- DSH 升级后已装 bundle 或回退 patch 是否保留。
+- `config.id` 语法校验规则（本 id 为 `cabinet`，仅小写字母）。
+- 从 GitHub Release 资产 URL 安装（发布工作流已备好，但首版发布后尚未用它做安装测试）。
+
+## 已知限制
+
+- preset **不是安全沙箱**：声明属于受信任配置，可执行宿主代码；安装前请审阅 bundle。
+- 用户覆盖本 preset 时会替换整份插件清单，不会合并上游后续更新。
+- persona 由首辅与所有阁臣共享，只能依靠 Agent Team runtime context 的精确短语判身份
+  （`You are the Team Lead named "lead".`、`You are teammate "<name>".`、`Your Team Lead is named "lead".`）；
+  阁臣禁止自称首辅。
+- persona 不得含 `{{cwd}}` 等未注册提示词变量；0.2.1-rc.3 会在首次模型请求前因组装失败报错。
+- 团队流程依赖 Agent Teams profile bundle 已启用。
+
+## 跨平台说明
+
+详见 [docs/cross-platform.md](docs/cross-platform.md)：插件安装链、`!!js process.platform` guard、回退 patch 路径的代码级分析，以及「Windows 已实测 / Linux、macOS 为推断」的分界。分节：
+
+- [结论矩阵](docs/cross-platform.md#结论矩阵)（平台 × 13 项，含实测程度列）
+- [逐项论证](docs/cross-platform.md#逐项论证)
+- [未在本机实测清单](docs/cross-platform.md#未在本机实测清单)
+- [依据索引](docs/cross-platform.md#依据索引)
+
+## 许可证
+
+[MIT](LICENSE)
