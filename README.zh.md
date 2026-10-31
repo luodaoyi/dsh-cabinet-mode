@@ -85,7 +85,8 @@ dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/re
 ```
 
 `dsh plugin --profile desktop list` 应显示新版本。升级已在 Windows 实测：
-v0.1.1 → v0.1.2、v0.1.2 → v0.1.3（rc.3 走插件 CLI，rc.5 走内嵌 pnpm）。
+v0.1.0 → v0.1.1 走插件 CLI（DSH 0.2.1-rc.3）；v0.1.1 → v0.1.2 与
+v0.1.2 → v0.1.3 走内嵌 pnpm（DSH 0.2.1-rc.5）。
 
 ---
 
@@ -160,7 +161,7 @@ node scripts/verify.mjs                             # 仓库校验 + dsh 合成�
 
 本模式是 DSH 的 preset；DSH 自身的限制仍在。以下事实在本机 DSH 0.2.1-rc.3 已核，描述的是 DSH 行为，不是本 bundle 添加的限制。
 
-- **无 DSH 版本硬限制。** 本包没有 `engines.dsh`、没有 DSH `peerDependencies`，安装时也不做版本检查；仅在 DSH 0.2.1-rc.3 实测，**未做多版本实测**。22 行插件清单取自 0.2.1-rc.3 出厂标准模式；若你的 DSH 版本内置插件集合不同（多/少行）导致声明无法加载，请按你版本的 `presets/standard.patch.yml` 调整 `cordis.patch.yml`：保留 `persona` 行及其配置，增删对应插件行，使清单与该版本一致。
+- **无 DSH 版本硬限制。** 本包没有 `engines.dsh`、没有 DSH `peerDependencies`，安装时也不做版本检查；已在 DSH **0.2.1-rc.3**（组合参照）与 **0.2.1-rc.5**（真实安装/升级，Windows 桌面端）实测，其他版本与多版本组合仍未实测。22 行插件清单取自 0.2.1-rc.3 出厂标准模式；若你的 DSH 版本内置插件集合不同（多/少行）导致声明无法加载，请按你版本的 `presets/standard.patch.yml` 调整 `cordis.patch.yml`：保留 `persona` 行及其配置，增删对应插件行，使清单与该版本一致。
 - **Agent Team 上限**来自 profile 中的 `@deepseek-ai/dsh-experimental-agent-team-profile` bundle 配置（已核默认值，桌面 profile 设置）：`maxMembers: 8`、`maxTasks: 256`、`maxMessageBytes: 65536`、`disposalTimeoutMs: 5000`。deployment 默认 `maxMembers` 为 16，本机桌面 profile 设为 8。`maxMembers` 含失败的 teammate；单条 Team 消息 ≤ 64 KiB。
 - **Team 工具依赖该 profile bundle。** 九个 Agent Team 工具（`spawn_teammate`、`send_message`、`list_agents`、`interrupt_agent`、`wait_agent`、`team_task_*` 等）仅在 profile 含 `@deepseek-ai/dsh-experimental-agent-team-profile` 时可用；否则内阁模式没有团队工具，persona 规则仍生效但无法实现首辅/阁臣分工。
 - **权限/沙箱由 DSH 决定。** 沙箱与审批行为由 DSH permission preset 决定（本机 desktop profile 用户层为 `danger-full-access`）；本模式**不添加**任何沙箱限制，也不放宽 DSH 策略。

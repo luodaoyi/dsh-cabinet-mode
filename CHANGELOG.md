@@ -20,8 +20,10 @@ All notable changes to this project are documented in this file.
 ### Added
 
 - Explicit **Upgrade** section: the same install command with the new version
-  URL, then fully quit and restart. Upgrades v0.1.1 → v0.1.2 (rc.3, plugin CLI)
-  and v0.1.2 → v0.1.3 (rc.5, embedded pnpm) were performed and verified.
+  URL, then fully quit and restart. Upgrades were performed and verified on
+  Windows: v0.1.0 → v0.1.1 via the plugin CLI on DSH 0.2.1-rc.3, then
+  v0.1.1 → v0.1.2 and v0.1.2 → v0.1.3 via the embedded-pnpm route on
+  DSH 0.2.1-rc.5.
 
 ### Changed
 

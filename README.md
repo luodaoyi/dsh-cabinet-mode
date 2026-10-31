@@ -100,8 +100,9 @@ dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/re
 ```
 
 `dsh plugin --profile desktop list` should report the new version. Upgrades were
-confirmed working on Windows: v0.1.1 → v0.1.2 and v0.1.2 → v0.1.3 (rc.3 via the
-plugin CLI, rc.5 via the embedded pnpm route).
+performed and verified on Windows: v0.1.0 → v0.1.1 via the plugin CLI on DSH
+0.2.1-rc.3, then v0.1.1 → v0.1.2 and v0.1.2 → v0.1.3 via the embedded-pnpm route
+on DSH 0.2.1-rc.5.
 
 ---
 
