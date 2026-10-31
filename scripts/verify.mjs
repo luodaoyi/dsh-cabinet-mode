@@ -85,7 +85,7 @@ try {
 if (pkg) {
   const problems = [];
   if (pkg.name !== 'dsh-cabinet-mode') problems.push(`name is ${pkg.name}`);
-  if (pkg.version !== '0.1.1') problems.push(`version is ${pkg.version}`);
+  if (pkg.version !== '0.1.2') problems.push(`version is ${pkg.version}`);
   if (pkg.license !== 'MIT') problems.push('license is not MIT');
   if (pkg.private !== false) problems.push('private is not false');
   if (!pkg.description) problems.push('description missing');
@@ -94,6 +94,9 @@ if (pkg) {
   if (!pkg.bugs?.url) problems.push('bugs.url missing');
   if (!Array.isArray(pkg.keywords) || pkg.keywords.length === 0) problems.push('keywords missing');
   if (!Array.isArray(pkg.files) || !pkg.files.includes('cordis.patch.yml')) problems.push('files does not include cordis.patch.yml');
+  if (!existsSync(join(ROOT, 'icon.svg'))) problems.push('icon.svg missing at package root');
+  if (pkg.icon !== './icon.svg') problems.push(`package.json icon is ${JSON.stringify(pkg.icon) ?? 'missing'}, expected './icon.svg'`);
+  if (Array.isArray(pkg.files) && !pkg.files.includes('icon.svg')) problems.push('files does not include icon.svg');
   if (!/>=?\s*20/.test(String(pkg.engines?.node ?? ''))) problems.push('engines.node is not >=20');
   if (pkg.dsh?.bundle?.patch !== './cordis.patch.yml') problems.push('dsh.bundle.patch is not ./cordis.patch.yml');
   if (Object.keys(pkg.dependencies ?? {}).length > 0) problems.push('runtime dependencies are not empty');

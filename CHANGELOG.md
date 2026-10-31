@@ -2,6 +2,27 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.1.2] - 2026-10-31
+
+### Added
+
+- **Bundle icon**: the package now ships `icon.svg` (a Ming-dynasty
+  grand-secretary portrait provided by the project owner, embedded as a bitmap
+  inside the SVG) and declares it via `"icon": "./icon.svg"`, following the same
+  convention as the shipped `dsh-experimental-agent-team-profile` bundle.
+- **README hero image** (`docs/images/cabinet-portrait.jpg`) and a team-layout
+  diagram (`docs/images/cabinet-team.svg`) in both READMEs, plus a Screenshots
+  section inviting real runtime captures.
+- **DSH 0.2.1-rc.5 install note**: desktop builds at rc.5 reject
+  `dsh plugin --profile desktop ...`; the READMEs now document the plugin-page
+  route and the embedded-pnpm route (with `dsh.profile.bundles` kept).
+
+### Fixed
+
+- `scripts/verify.mjs` now also asserts the icon file, the `icon` field and the
+  `files` entry, and the package version was bumped so the release URLs in the
+  READMEs stay in sync (`v0.1.2`).
+
 ## [0.1.1] - 2026-10-29
 
 ### Added

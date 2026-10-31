@@ -2,6 +2,11 @@
 
 [中文](README.zh.md) | English
 
+<p align="center">
+  <img src="docs/images/cabinet-portrait.jpg" width="200" alt="Cabinet Mode — grand-secretary portrait, shipped as the bundle icon (icon.svg)"/>
+</p>
+<p align="center"><sub>Icon: Ming-dynasty grand-secretary portrait provided by the project owner (shipped as <code>icon.svg</code>).</sub></p>
+
 A small **declarative DSH bundle** that adds **Cabinet Mode** (`内阁模式`) to
 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness). Install the
 bundle, restart DSH, and pick **内阁模式** when starting a new session. The mode is
@@ -19,6 +24,16 @@ This bundle declares **no hard DSH version gate**: no `engines.dsh`, no DSH
 `peerDependencies`, no install-time version check. It was tested on DSH
 **0.2.1-rc.3**; other DSH versions that provide the declarative preset mechanism
 may work, but are **not verified** (see [DSH-side constraints](#dsh-side-constraints)).
+
+## The cabinet at a glance
+
+![Cabinet team layout](docs/images/cabinet-team.svg)
+
+### Screenshots
+
+Real runtime captures (mode picker, Agent-preset card, a cabinet session) are
+welcome — open a PR or send them to us and we will include them here. The image
+above is a layout diagram of the persona, not a screenshot.
 
 ---
 
@@ -46,7 +61,7 @@ If any step fails, show the exact error and stop. Do not retry more than once.
 ## Manual install (3 lines)
 
 ```sh
-dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.1.1/dsh-cabinet-mode-0.1.1.tgz
+dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.1.2/dsh-cabinet-mode-0.1.2.tgz
 # fully quit and restart DeepSeek Harness
 # New session -> mode picker -> 内阁模式
 ```
@@ -54,6 +69,19 @@ dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/re
 For a local checkout, replace the tarball URL with the absolute path of this
 repository. On Windows the CLI is `dsh` (runs through `dsh.cmd`); the same
 commands work on Linux and macOS.
+
+> **DSH 0.2.1-rc.5 desktop note:** newer desktop builds reject
+> `dsh plugin --profile desktop ...` ("managed exclusively by the Electron
+> application"). On those builds install via the plugin page
+> (Settings → Plugins → Add plugin → local directory / tarball URL), or with the
+> pnpm shipped inside DeepSeek Harness — make sure `dsh-cabinet-mode` ends up in
+> the `dsh.profile.bundles` array of the profile's `package.json`:
+>
+> ```sh
+> node "<DeepSeek Harness install>\resources\runtime\primary-runtime\dependencies\pnpm\bin\pnpm.mjs" --dir "%USERPROFILE%\.dsh\profiles\desktop" add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.1.2/dsh-cabinet-mode-0.1.2.tgz
+> ```
+>
+> Back up the profile's `package.json` / `pnpm-lock.yaml` first.
 
 ---
 

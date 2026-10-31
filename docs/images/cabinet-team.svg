@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 430" font-family="'Microsoft YaHei','PingFang SC',sans-serif">
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#8a6d3b"/>
+    </marker>
+  </defs>
+  <rect x="0" y="0" width="920" height="430" fill="#faf6ec"/>
+  <text x="460" y="42" text-anchor="middle" font-size="24" font-weight="bold" fill="#5a4632">内阁模式 · 团队结构（示意图）</text>
+
+  <rect x="330" y="70" width="260" height="70" rx="10" fill="#b03a2e" stroke="#7c241b" stroke-width="2"/>
+  <text x="460" y="100" text-anchor="middle" font-size="19" font-weight="bold" fill="#fff">内阁首辅（Lead）</text>
+  <text x="460" y="124" text-anchor="middle" font-size="13" fill="#ffe9d8">审题 · 拆解 · 分派 · 裁断 · 汇总 · 闭环</text>
+
+  <g font-size="15" fill="#fff" text-anchor="middle" font-weight="bold">
+    <rect x="40"  y="240" width="190" height="64" rx="10" fill="#1f618d" stroke="#14405e" stroke-width="2"/>
+    <text x="135" y="268">翰林院编修</text>
+    <text x="135" y="290" font-size="12" font-weight="normal">调研 · 撰稿</text>
+
+    <rect x="270" y="240" width="190" height="64" rx="10" fill="#1e8449" stroke="#145a32" stroke-width="2"/>
+    <text x="365" y="268">工部主事</text>
+    <text x="365" y="290" font-size="12" font-weight="normal">执行 · 产出</text>
+
+    <rect x="500" y="240" width="190" height="64" rx="10" fill="#6c3483" stroke="#4a235a" stroke-width="2"/>
+    <text x="595" y="268">大理寺评事</text>
+    <text x="595" y="290" font-size="12" font-weight="normal">结论核验</text>
+
+    <rect x="730" y="240" width="190" height="64" rx="10" fill="#b9770e" stroke="#8a5a08" stroke-width="2"/>
+    <text x="825" y="268">都察院御史</text>
+    <text x="825" y="290" font-size="12" font-weight="normal">监督验收</text>
+  </g>
+
+  <g stroke="#8a6d3b" stroke-width="2" fill="none">
+    <line x1="400" y1="140" x2="150" y2="236" marker-end="url(#arrow)"/>
+    <line x1="440" y1="140" x2="360" y2="236" marker-end="url(#arrow)"/>
+    <line x1="480" y1="140" x2="570" y2="236" marker-end="url(#arrow)"/>
+    <line x1="520" y1="140" x2="810" y2="236" marker-end="url(#arrow)"/>
+  </g>
+
+  <g font-size="13" fill="#5a4632">
+    <text x="460" y="345" text-anchor="middle">成员经 spawn_teammate 创建，继承同一 persona，按 Team 身份短语自认阁臣；</text>
+    <text x="460" y="368" text-anchor="middle">默认只调研不改码；结论必须锚定路径、行号、命令输出；未验证必须标注。</text>
+    <text x="460" y="398" text-anchor="middle" fill="#9a8262">示意图仅描述 persona 约定，非运行截图。</text>
+  </g>
+</svg>
