@@ -2,6 +2,33 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.1.3] - 2026-10-31
+
+### Fixed
+
+- **rc.5 install notes are now conditional and match observed behavior.** The
+  desktop-carrier `dsh` CLI runs `dsh plugin --profile desktop list/add ...`
+  (exit 0, verified on DSH 0.2.1-rc.5); the real gates are the profile
+  initialization prompt (fully quit DeepSeek Harness before installing/upgrading)
+  and the `--dump-config` rejection on desktop profiles. The previous blanket
+  "rc.5 rejects `dsh plugin`" wording was wrong.
+- **The unverified list now reflects reality**: DSH 0.2.1-rc.5 real install and
+  upgrade were tested on Windows (2026-10-31); what remains untested is the
+  post-restart UI (mode picker / preset card / icon display), teammate behavior,
+  Linux/macOS, real `remove`, and other DSH versions.
+
+### Added
+
+- Explicit **Upgrade** section: the same install command with the new version
+  URL, then fully quit and restart. Upgrades v0.1.1 → v0.1.2 (rc.3, plugin CLI)
+  and v0.1.2 → v0.1.3 (rc.5, embedded pnpm) were performed and verified.
+
+### Changed
+
+- `scripts/verify.mjs` no longer hard-codes the package version; version sync is
+  enforced by the CHANGELOG-section check and the README release-URL checks,
+  both derived from `package.json`.
+
 ## [0.1.2] - 2026-10-31
 
 ### Added

@@ -85,7 +85,6 @@ try {
 if (pkg) {
   const problems = [];
   if (pkg.name !== 'dsh-cabinet-mode') problems.push(`name is ${pkg.name}`);
-  if (pkg.version !== '0.1.2') problems.push(`version is ${pkg.version}`);
   if (pkg.license !== 'MIT') problems.push('license is not MIT');
   if (pkg.private !== false) problems.push('private is not false');
   if (!pkg.description) problems.push('description missing');

@@ -49,23 +49,43 @@
 ## 手动安装（3 行）
 
 ```sh
-dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.1.2/dsh-cabinet-mode-0.1.2.tgz
+dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.1.3/dsh-cabinet-mode-0.1.3.tgz
 # 完全退出并重启 DeepSeek Harness
 # 新建任务 -> 模式选择器 -> 内阁模式
 ```
 
 本地目录安装：把上面的 tgz URL 换成仓库绝对路径即可。Windows 上 CLI 为 `dsh`（经 `dsh.cmd`），Linux/macOS 命令相同。
 
-> **DSH 0.2.1-rc.5 桌面端注意**：rc.5 起 desktop profile 会拒绝 `dsh plugin --profile desktop ...`
-> （"managed exclusively by the Electron application"）。此时改用插件页
-> （设置 → 插件 → 添加插件 → 本地目录 / tgz URL），或用 DeepSeek Harness 自带的 pnpm 安装——
-> 装完确认 profile `package.json` 的 `dsh.profile.bundles` 里保留了 `dsh-cabinet-mode`：
+> **DSH 0.2.1-rc.5 桌面端实测（2026-10-31）：**
+>
+> - 桌面端自带的 `dsh` CLI 跑 `dsh plugin --profile desktop list/add ...` 正常
+>   （exit 0）。首次使用可能要求先初始化 profile（提示「Open DeepSeek Harness
+>   Desktop once … then fully quit it」），并可能等待 profile 锁最多 120 秒——
+>   所以**安装/升级前先完全退出 DeepSeek Harness**。
+> - 桌面 profile 真正被拒的是 `dsh --profile desktop --dump-config`
+>   （"managed exclusively by the Electron application"）；组合校验请用 `web`
+>   profile。
+> - 备选：插件页（设置 → 插件 → 添加插件 → 本地目录 / tgz URL），或 DeepSeek
+>   Harness 自带的 pnpm——装完确认 profile `package.json` 的
+>   `dsh.profile.bundles` 里保留了 `dsh-cabinet-mode`：
 >
 > ```sh
-> node "<DeepSeek Harness 安装目录>\resources\runtime\primary-runtime\dependencies\pnpm\bin\pnpm.mjs" --dir "%USERPROFILE%\.dsh\profiles\desktop" add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.1.2/dsh-cabinet-mode-0.1.2.tgz
+> node "<DeepSeek Harness 安装目录>\resources\runtime\primary-runtime\dependencies\pnpm\bin\pnpm.mjs" --dir "%USERPROFILE%\.dsh\profiles\desktop" add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.1.3/dsh-cabinet-mode-0.1.3.tgz
 > ```
 >
 > 操作前先备份该 profile 的 `package.json` / `pnpm-lock.yaml`。
+
+## 升级
+
+用同一条安装命令换新版本 URL（或在插件页选新 `.tgz`），然后完全退出并重启
+DeepSeek Harness：
+
+```sh
+dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.1.3/dsh-cabinet-mode-0.1.3.tgz
+```
+
+`dsh plugin --profile desktop list` 应显示新版本。升级已在 Windows 实测：
+v0.1.1 → v0.1.2、v0.1.2 → v0.1.3（rc.3 走插件 CLI，rc.5 走内嵌 pnpm）。
 
 ---
 
@@ -82,10 +102,12 @@ dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/re
 
 ## 前置条件
 
-- **带声明式 agent preset 的 DeepSeek Harness**。本机在 DSH **0.2.1-rc.3** 实测。
+- **带声明式 agent preset 的 DeepSeek Harness**。preset 声明以 0.2.1-rc.3 为组合
+  参照；**真实安装/升级已在 Windows 桌面端用 DSH 0.2.1-rc.3 与 0.2.1-rc.5 实测**
+  （本地目录、Release 资产 URL、内嵌 pnpm 三种途径；2026-10-29 与 2026-10-31）。
   本包**不声明 DSH 版本依赖、不做 DSH 版本硬限制**（没有 `engines.dsh`、没有 DSH
-  `peerDependencies`）；其他带声明式 preset 机制的 DSH 版本可以尝试，但**未验证**，
-  且没有做多版本实测。
+  `peerDependencies`）；其他带声明式 preset 机制的 DSH 版本可以尝试，但**未验证**。
+  仍未实测：重启后的 UI（模式选择器 / 预设卡片 / 图标显示）与非 Windows 宿主。
 - 其他 DSH 版本内置的标准模式插件集合可能不同。若声明加载失败，请按你所用版本的
   `presets/standard.patch.yml` 调整插件行（保留 `persona` 行及其配置，增删对应工具行；
   详见 [DSH 侧限制与说明](#dsh-侧限制与说明)）。
@@ -157,9 +179,12 @@ node scripts/verify.mjs                             # 仓库校验 + dsh 合成�
 
 ## 未实测项（不得冒充已验证）
 
-- **多版本兼容**：仅 DSH 0.2.1-rc.3 实测；其他 DSH 版本与 DSH 升级路径均未验证。
-- **Linux / macOS** 上的真实 bundle 安装与重启后模式选择器（本机仅 Windows 实测，Linux/macOS 为代码级推断）。
-- 0.2.1-rc.3 以外版本的安装/重启/UI 行为。
+- **多版本兼容**：DSH 0.2.1-rc.3（组合校验、插件 CLI 安装）与 0.2.1-rc.5（真实
+  安装 + 升级，Windows 桌面端，2026-10-31）已实测；其他 DSH 版本与升级路径未验证。
+- **重启后的 UI 与图标显示**——模式选择器、Agent 预设卡片、bundle 图标在任何
+  机器上都尚未重启验证。
+- **Linux / macOS** 上的真实 bundle 安装与重启后模式选择器（本机仅 Windows 实测，
+  Linux/macOS 为代码级推断）。
 - teammate 实测行为：被 spawn 的成员是否继承同一 persona 并真的按阁臣身份行事、不称首辅。
 - DSH 升级后已装 bundle 或回退 patch 是否保留。
 - `config.id` 语法校验规则（本 id 为 `cabinet`，仅小写字母）。

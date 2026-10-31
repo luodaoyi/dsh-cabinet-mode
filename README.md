@@ -61,7 +61,7 @@ If any step fails, show the exact error and stop. Do not retry more than once.
 ## Manual install (3 lines)
 
 ```sh
-dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.1.2/dsh-cabinet-mode-0.1.2.tgz
+dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.1.3/dsh-cabinet-mode-0.1.3.tgz
 # fully quit and restart DeepSeek Harness
 # New session -> mode picker -> 内阁模式
 ```
@@ -70,18 +70,38 @@ For a local checkout, replace the tarball URL with the absolute path of this
 repository. On Windows the CLI is `dsh` (runs through `dsh.cmd`); the same
 commands work on Linux and macOS.
 
-> **DSH 0.2.1-rc.5 desktop note:** newer desktop builds reject
-> `dsh plugin --profile desktop ...` ("managed exclusively by the Electron
-> application"). On those builds install via the plugin page
-> (Settings → Plugins → Add plugin → local directory / tarball URL), or with the
-> pnpm shipped inside DeepSeek Harness — make sure `dsh-cabinet-mode` ends up in
-> the `dsh.profile.bundles` array of the profile's `package.json`:
+> **DSH 0.2.1-rc.5 desktop notes (tested 2026-10-31):**
+>
+> - The `dsh` CLI that ships with the desktop app runs `dsh plugin --profile
+>   desktop list/add ...` fine (exit 0). On first use it may ask you to initialize
+>   the profile ("Open DeepSeek Harness Desktop once … then fully quit it") and may
+>   wait up to 120 s on a profile lock — so **fully quit DeepSeek Harness before
+>   installing or upgrading**.
+> - What a desktop profile does reject is `dsh --profile desktop --dump-config`
+>   ("managed exclusively by the Electron application"); run composition checks
+>   against the `web` profile instead.
+> - Fallbacks: the plugin page (Settings → Plugins → Add plugin → local directory /
+>   tarball URL), or the pnpm shipped inside DeepSeek Harness (keeps
+>   `dsh-cabinet-mode` in `dsh.profile.bundles`):
 >
 > ```sh
-> node "<DeepSeek Harness install>\resources\runtime\primary-runtime\dependencies\pnpm\bin\pnpm.mjs" --dir "%USERPROFILE%\.dsh\profiles\desktop" add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.1.2/dsh-cabinet-mode-0.1.2.tgz
+> node "<DeepSeek Harness install>\resources\runtime\primary-runtime\dependencies\pnpm\bin\pnpm.mjs" --dir "%USERPROFILE%\.dsh\profiles\desktop" add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.1.3/dsh-cabinet-mode-0.1.3.tgz
 > ```
 >
 > Back up the profile's `package.json` / `pnpm-lock.yaml` first.
+
+## Upgrade
+
+Run the same install command with the new version URL (or pick the new `.tgz` in
+the plugin page), then fully quit and restart DeepSeek Harness:
+
+```sh
+dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.1.3/dsh-cabinet-mode-0.1.3.tgz
+```
+
+`dsh plugin --profile desktop list` should report the new version. Upgrades were
+confirmed working on Windows: v0.1.1 → v0.1.2 and v0.1.2 → v0.1.3 (rc.3 via the
+plugin CLI, rc.5 via the embedded pnpm route).
 
 ---
 
@@ -98,11 +118,15 @@ commands work on Linux and macOS.
 
 ## Requirements
 
-- **DeepSeek Harness with declarative agent presets.** Tested on DSH **0.2.1-rc.3**.
-  The bundle declares **no DSH version dependency and no hard DSH version gate**
+- **DeepSeek Harness with declarative agent presets.** The preset declaration is a
+  0.2.1-rc.3 composition reference. **Real installs and upgrades were tested on a
+  Windows desktop with DSH 0.2.1-rc.3 and 0.2.1-rc.5** (local directory, GitHub
+  Release asset URL, embedded-pnpm route; 2026-10-29 and 2026-10-31). The bundle
+  declares **no DSH version dependency and no hard DSH version gate**
   (`engines.dsh` / DSH `peerDependencies` are absent), so other DSH versions that
-  ship the declarative preset mechanism can try it — but they are **not verified**,
-  and no multi-version testing has been performed.
+  ship the declarative preset mechanism can try it — but they are **not verified**.
+  Still untested: the post-restart UI (mode picker / preset card / icon display)
+  and non-Windows hosts.
 - Other DSH versions may ship a different built-in Standard Mode plugin set. If a
   declaration fails to load on your version, adapt the plugin rows to your version's
   shipped `presets/standard.patch.yml` (see
@@ -180,13 +204,15 @@ were verified on this machine's DSH 0.2.1-rc.3; they describe DSH behavior, not
 restrictions added by this bundle.
 
 - **No hard DSH version limit.** This package declares no `engines.dsh` and no DSH
-  `peerDependencies`, and does no version check at install time. It was tested on
-  DSH 0.2.1-rc.3 only; **multi-version testing has not been performed**. The 22
-  plugin rows are copied from the 0.2.1-rc.3 shipped Standard Mode. If your DSH
-  version ships a different built-in plugin set (more or fewer rows) and the
-  declaration fails to load, adapt `cordis.patch.yml` to your version's shipped
-  `presets/standard.patch.yml`: keep the `persona` row (and its config) and
-  add/remove tool rows so the list matches your DSH version.
+  `peerDependencies`, and does no version check at install time. Tested on DSH
+  0.2.1-rc.3 (composition reference) and 0.2.1-rc.5 (real install + upgrade,
+  Windows desktop, 2026-10-31); other versions remain **unverified**. The 22
+  plugin rows are copied from the 0.2.1-rc.3 shipped Standard Mode and matched the
+  rc.5 shipped Standard Mode row-for-row. If your DSH version ships a different
+  built-in plugin set (more or fewer rows) and the declaration fails to load,
+  adapt `cordis.patch.yml` to your version's shipped `presets/standard.patch.yml`:
+  keep the `persona` row (and its config) and add/remove tool rows so the list
+  matches your DSH version.
 - **Agent Team limits** come from the `@deepseek-ai/dsh-experimental-agent-team-profile`
   bundle enabled in the DSH profile (verified defaults in the desktop profile's
   configuration): `maxMembers: 8`, `maxTasks: 256`, `maxMessageBytes: 65536`,
@@ -229,12 +255,14 @@ that through the plugin page instead. Both commands are dry-run by default; add
 
 These were **not** tested on this machine and must not be presented as verified:
 
-- **Multi-version compatibility.** Only DSH 0.2.1-rc.3 was tested; no other DSH
-  version and no DSH upgrade path was verified.
+- **Multi-version compatibility.** Tested on DSH 0.2.1-rc.3 (composition check,
+  plugin-page/CLI install) and 0.2.1-rc.5 (real install + upgrade, Windows
+  desktop, 2026-10-31). Other DSH versions and upgrade paths remain unverified.
+- **Post-restart UI and icon display.** The mode picker, the Agent-preset card
+  and the bundle icon have not been verified after a restart on any machine yet.
 - Real bundle installation and the post-restart mode picker on **Linux and macOS**
   (code-level inference only; Windows was tested locally, including the Release
   asset URL install).
-- Restart/UI behavior for DSH versions other than 0.2.1-rc.3.
 - Live teammate behavior: whether a spawned teammate inherits this persona and
   actually follows the member identity instead of claiming to be the Lead.
 - Whether the installed bundle or the fallback patch survives DSH app upgrades.
