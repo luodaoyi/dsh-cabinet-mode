@@ -358,7 +358,7 @@ The branch publisher is `scripts/publish-market-index.sh` (also wired to
 `npm run market:publish`); it needs `bash`, which ships with Git for Windows. It
 checks out an orphan branch and rewrites the working tree, so run it **only in a
 disposable clone with no uncommitted work** — it refuses when a tracked file is
-modified, but untracked files are not protected.
+modified or staged, but untracked files are not protected.
 
 ## Unverified items
 

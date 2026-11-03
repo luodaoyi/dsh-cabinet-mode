@@ -12,7 +12,13 @@ All notable changes to this project are documented in this file.
   `npm publish --access public` authenticated by the workflow's OIDC identity
   (`id-token: write`, no `NPM_TOKEN`), creates the GitHub Release, and refreshes
   the plugin market index branch. The npm-side trusted publisher must be created
-  on npmjs.com first; the preconditions are documented in both READMEs.
+  on npmjs.com first; the preconditions are documented in both READMEs. The first
+  version was bootstrapped with `npm stage publish` (the npm registry refuses a
+  trusted publisher for a package that does not exist yet), which left the public
+  prerelease placeholder `0.0.0-stage` on the registry. Prerelease versions are
+  published with `--tag next` so `latest` never points at a version the index
+  skips; the first bootstrap also needs that flag because npm rejects an untagged
+  prerelease.
 - **Plugin market index (format 1).** `scripts/market-index.mjs` builds
   `marketplace.json` from the npm registry: it lists every published version,
   skips prereleases and deprecated versions, keeps `engines.dsh` optional (this

@@ -436,3 +436,169 @@ first line = #!/usr/bin/env bash
 - 所有实验目录：`%TEMP%\dalisi-market-verify\{parser,fixtures,out,neg,pack,profile,store,pub}`；发布脚本测试的 remote 是 `%TEMP%\dalisi-market-verify\pub\origin.git`（本地 bare），真实 `origin` 只做过 `git ls-remote`（只读）与匿名 `ls-remote` 探活。
 - 本文件不进入 npm 包：`package.json` 的 `files` 白名单只含 `docs/cross-platform.md` 与 `docs/images`（`package.json:36-46`）。写本文件后**重新** `npm pack` 复核：仍 15 文件、清单与写之前完全一致、`shasum: 1f5b9d9c25d6f951dc877fdb72a36724de4c3713` 不变、`docs/verify` 不在包内。
 - 写本文件后 `git status --porcelain` 只有一行 `?? docs/verify/`，无任何已跟踪文件被修改；`node scripts/verify.mjs` 仍为 `PASS=22 FAIL=0 WARN=1`。
+
+## 12. 复验（e7a030f）
+
+**复验对象**：`e7a030f`（`main`，父 `1b958a2`）。只验首辅指定的三处修复及其相邻口径，**未重跑**上一轮已 PASS 的 106 条（生成器/rc.5 解析/安装/打包/workflow 结构）。
+**结论：复验 PASS=40 / FAIL=3**（守卫 G 组 11、dist-tag T 组 20、文档 D 组 12）。D-1、D-2、D-6 已修复且实测通过；残留 3 条全部是**文档一致性**问题（D-8/D-9/D-10），非阻断，不影响 0.1.4 首发。
+
+### 12.1 发布脚本脏树守卫（G 组：11 PASS）
+
+新开临时 lab：本地 bare remote `%TEMP%\dalisi-market-verify\pub2\origin.git` + 从 `e7a030f` 克隆的 seed 与多个一次性 clone；真实 `origin` 只做过只读 `git fetch`/`ls-remote`。
+
+```powershell
+& 'C:\Program Files\Git\bin\bash.exe' -c "cd <clone> && bash scripts/publish-market-index.sh; echo `"SCRIPT_EXIT=`$?`""
+```
+
+| ID | 场景 | 期望 | 实测 |
+| --- | --- | --- | --- |
+| G-01 | 仅暂存未提交（改 `CHANGELOG.md` 后 `git add`） | exit 1 | PASS（`SCRIPT_EXIT=1`） |
+| G-02 | 拒绝文案 | 含 "modified or staged" | PASS：`refusing to publish from a working tree with modified or staged tracked files; use a disposable clone` |
+| G-03 | 暂存内容不得被销毁 | 保留 | PASS：`post-run: staged still present = True`，仍停在 `main`，未切孤儿分支 |
+| G-04 | 仅暂存**新增**文件 | exit 1 | PASS |
+| G-05 | 仅工作树修改（未暂存） | exit 1 | PASS |
+| G-06 | 只有未跟踪文件 | 照旧发布（文档已声明不受保护） | PASS：推送成功，分支仍 3 文件 |
+| G-07 | 干净树 + 索引变化 | 推送成功 | PASS：`+ d398c35...a3080f7 HEAD -> market-index (forced update)`，单 root 提交 |
+| G-08 | 新 clone 同索引 | `index already current`，无新提交 | PASS：sha 前后同为 `a3080f76`，`rev-list --count=1` |
+| G-09 | `bash -n scripts/publish-market-index.sh` | exit 0 | PASS |
+| G-10 | 守卫须在「already current」短路之前 | 同索引 + 仅暂存改动仍拒绝 | PASS：仍 exit 1（旧版会走 `:38-42` 短路静默放过） |
+| G-11 | 头部注释同步 | 含 "modified or staged" | PASS：`:17-19` |
+
+关键输出：
+
+```text
+T7c pre: diff --quiet exit=0 | diff --cached exit=1
+refusing to publish from a working tree with modified or staged tracked files; use a disposable clone
+SCRIPT_EXIT=1
+post-run: staged still present = True ; branch created? main
+```
+
+```text
+----- T3b clean tree + changed index (expect push, script exit 0) -----
+SCRIPT_EXIT=0
+Switched to a new branch 'market-index-publish'
+ + d398c35...a3080f7 HEAD -> market-index (forced update)
+sha before=d398c35f mid=a3080f76 changed=True count=1
+branch versions now: 0.1.4, 0.1.3
+----- T4b fresh clone same (changed) index (expect already current) -----
+index already current for 0.1.4
+SCRIPT_EXIT=0
+sha after=a3080f76 same=True count=1
+```
+
+### 12.2 release.yml 按版本选 dist-tag（T 组：20 PASS）
+
+YAML 用 `js-yaml` 解析后断言（不是肉眼读），再**把 run 块原样摘出**、用假 `npm` 函数记录传参逐版本执行。
+
+```text
+[PASS] shell is bash  (bash)
+[PASS] version comes from package.json
+[PASS] tag defaults to latest
+[PASS] case line survives YAML folding
+[PASS] npm publish passes --tag "$tag"
+[PASS] still uses --access public
+[PASS] Node available before publish (setup-node earlier)  (node@1 publish@6)
+[PASS] tarball assertions still before publish  (pack@5 publish@6)
+[PASS] GitHub Release still after publish  (release@7 publish@6)
+release-yaml-summary: PASS=12 FAIL=0
+```
+
+YAML 折叠后的 run 块（原样）：
+
+```text
+set -euo pipefail
+# A prerelease must not move the `latest` dist-tag: the market index skips
+# prerelease versions, so `latest` would otherwise point at a version the
+# index never lists.
+version=$(node -p "require('./package.json').version")
+tag=latest
+case "$version" in *-*) tag=next ;; esac
+npm publish ./dsh-cabinet-mode-*.tgz --access public --tag "$tag"
+```
+
+行为矩阵（假 `npm` 记录到的实参）：
+
+```text
+[PASS] version=0.1.4           expected=latest  actual=latest
+[PASS] version=1.0.0           expected=latest  actual=latest
+[PASS] version=0.1.4+build.7   expected=latest  actual=latest
+[PASS] version=0.1.5-beta.1    expected=next    actual=next
+[PASS] version=0.1.5-rc.1      expected=next    actual=next
+[PASS] version=2.0.0-0         expected=next    actual=next
+behavioral-summary: PASS=6 FAIL=0
+```
+
+真实仓库版本（非 fixture），在 `e7a030f` 的真 clone 里跑同一段 run 块：
+
+```text
+node -p "require('./package.json').version"   →  0.1.4        （内嵌 Node 24 亦为 0.1.4）
+driver output: STEP_SOURCED_EXIT=0
+npm args: publish ./dsh-cabinet-mode-0.1.4.tgz --access public --tag latest
+```
+
+CI 命令形态被 npm CLI 接受（`--dry-run`，不上传）：
+
+```text
+npm publish <tgz> --dry-run --access public --tag next   → Publishing to https://registry.npmjs.org/ with tag next and public access (dry-run)
+npm publish <tgz> --dry-run --access public --tag latest → Publishing to https://registry.npmjs.org/ with tag latest and public access (dry-run)
+```
+
+语义闭合：B 组已证索引生成器跳过 prerelease（`scripts/market-index.mjs:130-133`）；现在预发布只落 `next`，`latest` 留在最近稳定版，上一轮 D-6 的「两处口径不一致」消失；0.1.4 走 `latest`，与索引条目一致。
+
+### 12.3 文档措辞与代码行号（D 组：9 PASS / 3 FAIL）
+
+| ID | 检查 | 结果 |
+| --- | --- | --- |
+| D-01 | `cross-platform.md:125` 引 `lib/index.js:248` 为「读取器用 semver.rcompare 归一排序」 | PASS：该行确为 `}).sort((left, right) => semver.rcompare(left.version, right.version));` |
+| D-02 | 同处引 `scripts/market-index.mjs:219-224` 为「降序只是生成器自检」 | PASS：该区间正是 `assert.ok(compareSemver(...) > 0, 'versions must be sorted in descending SemVer order')` |
+| D-03 | 同处「跳过 prerelease/deprecated 是生成器策略，读取器不拒绝」 | PASS：与 B 组实测一致（prerelease 解析 ACCEPT） |
+| D-04 | 同处「精确 SemVer 且同插件内唯一」 | PASS：`SEMVER` 正则只接受精确版本；重复版本抛 `duplicates` |
+| D-05 | `README.zh.md:228` 已改「被修改或已暂存」 | PASS |
+| D-06 | `CHANGELOG.md:29-31` 已改 "modified or staged tracked files" | PASS |
+| D-07 | `cross-platform.md:125` 括注「（30 字节边界外实测 33 KiB 抛 …）」 | **FAIL（D-8 错字）**：「30 字节边界外」无意义；实测边界是 32 KiB 放行、33 KiB 抛错 |
+| D-08 | `README.md:360-361` 英文仍写 "it refuses when a tracked file is **modified**" | **FAIL（D-9 漏改）**：与脚本 `:19`/`:26`、README.zh、CHANGELOG 三处「modified or staged」不一致 |
+| D-09 | 预发布走 `--tag next` 是否有文档 | **FAIL（D-10 脚本做了但文档没写）**：只写在 `release.yml:109-111` 的注释；CHANGELOG [0.1.4] 与 README「Releasing」均未提 |
+| D-10 | `node scripts/verify.mjs`（release/CI 门禁） | PASS：`PASS=22 FAIL=0 WARN=1` |
+| D-11 | tarball 仍 15 文件、无 `docs/verify`、`release.yml:90-103` 8 条断言全中 | PASS |
+| D-12 | `--tag` 只影响 dist-tag，索引仍跳过 prerelease（语义一致） | PASS（T-13/T-14/T-15 + B 组） |
+
+三处 FAIL 的建议改法：
+
+- **D-8**：改为「（边界实测：32 KiB 放行、33 KiB 抛 `must not exceed 32 KiB of decoded bytes`）」。
+- **D-9**：`README.md:360-361` 改为 "it refuses when a tracked file is modified or staged, but untracked files are not protected."。
+- **D-10**：CHANGELOG `[0.1.4]` 的 Added 补一句「pre-release tags publish with `npm publish --tag next`; stable tags use `latest`, so `latest` never points at a version the index does not list」。
+
+> 上一轮 §9 的 D-1/D-2/D-6 已在 `e7a030f` 修复；该表格保留为 `1b958a2` 时点的证据，不再代表当前状态。
+
+### 12.4 本次改动带来的连带变化（供对账）
+
+- **tarball 内容变了**（脚本 + 文档 + README + CHANGELOG 进包）：`shasum` 由 `1f5b9d9c…` → `f752ad59…`，`integrity sha512-kf6XaatyBGhhf…`，包大小 178.6→179.2 kB；**文件数仍 15、清单不变、`docs/verify` 仍不入包、`release.yml` 8 条断言仍全命中**。§5.1 的 shasum 数值在 `e7a030f` 已作废，文件清单结论不变。
+- **拒绝文案变更**：`modified tracked files` → `modified or staged tracked files`；§6 表 F01 引用的旧文案在 `e7a030f` 已作废（行为结论不变）。
+- **README 行号后移**：新增引导段使后续段落 +8 行，上一轮引用的 `README:349-353`（发布脚本段）现在是 `README:357-361`。
+- `node scripts/verify.mjs` 仍为 `PASS=22 FAIL=0 WARN=1`。
+
+### 12.5 registry 现状复核（只读，背景值）
+
+```text
+GET https://registry.npmjs.org/dsh-cabinet-mode                        → 404（packument）
+GET https://registry.npmjs.org/dsh-cabinet-mode/0.0.0-stage            → 200（版本文档；description 为 Temporary package placeholder for staged publishing）
+GET https://registry.npmjs.org/dsh-cabinet-mode/-/dsh-cabinet-mode-0.0.0-stage.tgz → 200
+GET https://registry.npmjs.org/dsh-cabinet-mode/0.1.4                  → 404
+npm view dsh-cabinet-mode / dsh-cabinet-mode@0.0.0-stage               → E404
+```
+
+- 与首辅口述一致：占位版 `0.0.0-stage` 的版本文档与 tarball 都可公开取到；0.1.4 尚未公开。
+- **需要修正的口径（N-1，非阻断）**：`README.md:342-344`/`README.zh.md:222` 说「published the public placeholder version `0.0.0-stage`」，但 **packument 仍 404**，`npm view` 与 `npm install dsh-cabinet-mode` 都会 404——占位版是「有版本文档、无可解析包」。建议改写为「占位版 `0.0.0-stage` 已创建（版本文档可访问），在真实版本发布前包仍不可被 `npm view`/`npm install` 解析」。
+- 对首发无影响：生成器读 packument（`scripts/market-index.mjs:109-111`），首发前 404，与「First release ordering」一致；0.1.4 一经 tag 发布、packument 出现，索引 job 才可能成功。
+
+### 12.6 对首辅挂起项的判断
+
+- **D-4（force push 无新鲜度护栏）：同意不修。** 单人维护 + `market-index-publish` concurrency 组串行化 + 周更/手动兜底，竞态需两个 tag 的索引 job 交错，概率极低；真要修应做「推送前用 packument 与待推索引比对版本集合」，属结构性改动，不宜压进 0.1.4。
+- **D-7（`gh release create` 失败连带跳过索引）：同意不修，但建议 0.1.5 前处理。** 0.1.4 首发若 Release 创建失败，索引不会自动推，用户会看到索引 404（需人工跑 Market index）。低成本修法是把「Create the GitHub Release」拆成独立 job（`needs: publish`），让 `market-index` 只 `needs` npm 发布那个 job；用 `if: always()` 再判结果更绕，不推荐。
+- **D-3（CI 不校验生成物）/D-5（npm script 未写进 README）**：本轮未动，维持上一轮建议。
+
+### 12.7 复验边界
+
+- 只追加本文件；未改脚本/workflow/其它文档；未 `git commit/push/tag`；未 `npm publish`（只做 `--dry-run`）。
+- 未重跑已 PASS 的 106 条；§10 的 10 条未验证项继续有效。
+- 本轮新增未验证：真实 tag 触发的 Actions 端到端（U1）、npm 侧 trusted publisher 的实际放行（U2）、`--tag` 在真实 OIDC 发布下的行为（本轮只到 npm CLI 接受该参数）。
