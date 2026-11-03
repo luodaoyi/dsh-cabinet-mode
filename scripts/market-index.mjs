@@ -106,12 +106,24 @@ function readLocation(location) {
 
 async function readPublishedIndexForGuard() {
   try {
-    const text = isHttpUrl(indexUrl) ? await fetchText(indexUrl) : readLocation(indexUrl);
+    // Cache-buster: raw.githubusercontent serves the branch copy with a 5-minute
+    // max-age, and a stale baseline would let a lagging registry shrink the index.
+    const location = isHttpUrl(indexUrl) ? withCacheBuster(indexUrl) : indexUrl;
+    const text = isHttpUrl(location) ? await fetchText(location) : readLocation(location);
     return JSON.parse(text);
   } catch (error) {
-    // First release (no branch yet), an unpublished URL, or a network failure:
-    // the guard is best-effort and must not block the very first index publish.
-    console.log(`rollback guard skipped: cannot read the published index at ${indexUrl} (${error.message})`);
+    if (error?.status === 404 || error?.code === 'ENOENT') {
+      // First release (no branch yet): there is nothing to protect.
+      console.log(`rollback guard skipped: the published index does not exist yet (${error.message})`);
+      return null;
+    }
+    // Anything else (network failure, unreadable baseline, unparsable JSON) is a
+    // real problem: publishing now could replace a newer index with a smaller one.
+    const message =
+      `cannot read the published index at ${indexUrl} (${error.message}); refusing to publish ` +
+      'without the rollback check';
+    if (!allowShrink) throw new Error(`${message} (set MARKET_ALLOW_SHRINK=1 to override)`);
+    console.log(`warning: ${message} (MARKET_ALLOW_SHRINK=1)`);
     return null;
   }
 }
@@ -146,8 +158,19 @@ async function fetchText(url, accept) {
     headers,
     signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
   });
-  if (!response.ok) throw new Error(`${url} answered ${response.status}`);
+  if (!response.ok) {
+    const error = new Error(`${url} answered ${response.status}`);
+    error.status = response.status;
+    throw error;
+  }
   return response.text();
+}
+
+function withCacheBuster(url) {
+  // Any origin in this script (registry, raw.githubusercontent) serves a cached copy
+  // for minutes; an unknown query parameter gives the request its own cache key.
+  const separator = url.includes('?') ? '&' : '?';
+  return `${url}${separator}t=${Date.now()}`;
 }
 
 function registryPackumentUrl() {

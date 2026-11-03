@@ -2,6 +2,19 @@
 
 All notable changes to this project are documented in this file.
 
+## [Unreleased]
+
+### Fixed
+
+- **The rollback guard reads a fresh baseline.** It now requests the published
+  index with a one-shot `?t=` cache-buster; without it, a five-minute-stale
+  `raw.githubusercontent.com` copy could let a lagging registry shrink the index.
+  (Dalisi verification §13, D-12.)
+- **A missing published index is no longer confused with an unreadable one.** Only a
+  `404`/`ENOENT` is treated as "first release, nothing to protect"; any other read
+  or parse failure aborts the refresh instead of silently skipping the guard, unless
+  `MARKET_ALLOW_SHRINK=1` is set. (Dalisi verification §13, D-13.)
+
 ## [0.1.5] - 2026-11-03
 
 ### Fixed
