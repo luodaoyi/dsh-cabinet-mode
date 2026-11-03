@@ -2,7 +2,7 @@
 
 All notable changes to this project are documented in this file.
 
-## [Unreleased]
+## [0.1.6] - 2026-11-03
 
 ### Fixed
 
@@ -17,9 +17,8 @@ All notable changes to this project are documented in this file.
 - `--check` reads the published index through the same cache-buster, so a stale CDN
   copy can no longer fake a match or a mismatch.
 
-These script fixes are not inside the published `0.1.5` tarball; the next release
-carries them. They only affect the maintainer-side index refresh, not installing the
-bundle.
+These fixes ship in `0.1.6`; `0.1.5`'s tarball still contains the earlier script.
+They only affect the maintainer-side index refresh, not installing the bundle.
 
 ## [0.1.5] - 2026-11-03
 
