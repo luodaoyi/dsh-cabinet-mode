@@ -100,7 +100,11 @@ function readLocation(location) {
   try {
     return readFileSync(path, 'utf8');
   } catch (error) {
-    throw new Error(`cannot read ${path}: ${error.code ?? error.message}`);
+    // Keep the code: the rollback guard distinguishes "no baseline yet" (ENOENT)
+    // from "the baseline exists but cannot be read".
+    const wrapped = new Error(`cannot read ${path}: ${error.code ?? error.message}`);
+    wrapped.code = error.code;
+    throw wrapped;
   }
 }
 
@@ -333,7 +337,7 @@ const summary = `${versions.length} version(s)${skipped.length ? `; skipped: ${s
 if (process.argv.includes('--check')) {
   // Compare with the published copy so a stale index is visible: the registry moved
   // ahead of the branch, or the market-index job never ran after a release.
-  const remote = isHttpUrl(indexUrl) ? await fetchText(indexUrl) : readLocation(indexUrl);
+  const remote = isHttpUrl(indexUrl) ? await fetchText(withCacheBuster(indexUrl)) : readLocation(indexUrl);
   assert.equal(remote, body, `the published index at ${indexUrl} is stale; refresh the market-index branch`);
   console.log(`published index matches the registry: ${summary}`);
 } else {
