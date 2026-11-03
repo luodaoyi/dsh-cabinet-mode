@@ -20,7 +20,7 @@
 | 10 | 安装后生效 | 重启 Host → 新会话可选 | 同 | 同 | `P/dsh-plugin-manager/README.zh.md:14,73`；`P/dsh-plugin-manager/lib/index.js:2381` | Windows 已实测真实 `add`（2026-10-29，本地目录与 Release 资产 URL；`dsh plugin --profile desktop list` = 3 packages、bundles 写入）；重启后新会话出现模式未实测，后段代码级 |
 | 11 | 是否需要 postinstall / build | 否（纯 YAML） | 否 | 否 | `P/dsh-plugin-manager/lib/types/build-approval.js:1,7-10`；README.zh:64 | 代码级 |
 | 12 | GitHub Release `.tgz` 直接安装 | 实测可用（Release 资产 URL 直装，2026-10-29） | 同 | 同 | `P/dsh-plugin-manager/lib/types/install-spec.js:16-17,62-76`；`pnpm add <tarball url>`（本机 `dsh plugin ... add --help` 实跑输出含 `<tarball url>`） | Windows 实测 + pnpm 帮助实测；Linux/macOS 代码级 |
-| 13 | npm 发布与插件市场索引 | `release.yml` 走 OIDC Trusted Publishing（v0.1.4 已实跑） | 同 | 同 | `.github/workflows/release.yml`、`scripts/market-index.mjs`；npm 官方文档 Trusted publishing；`@deepseek-ai/dsh-plugin-market-index@0.2.1-rc.5` `lib/index.js:32-36,209-225,280-318` | v0.1.4 OIDC 发布、GitHub Release 与 `market-index` 分支已实跑；首个索引 job 因传播延迟失败，0.1.5 验证自动刷新链路 |
+| 13 | npm 发布与插件市场索引 | `release.yml` 走 OIDC Trusted Publishing（v0.1.4/v0.1.5 已实跑） | 同 | 同 | `.github/workflows/release.yml`、`scripts/market-index.mjs`；npm 官方文档 Trusted publishing；`@deepseek-ai/dsh-plugin-market-index@0.2.1-rc.5` `lib/index.js:32-36,209-225,280-318` | v0.1.4 OIDC 发布、GitHub Release 与 `market-index` 分支已实跑；v0.1.5 的全链路（tag → 发布 → 自动刷新索引）已成功（run 41657224370） |
 
 > 附加（不属于平台列）：本包不声明 DSH 版本门禁（`package.json` 无 `engines.dsh`/DSH `peerDependencies`，`scripts/verify.mjs` 版本检查仅信息性 WARN）；本文所有结论以 DSH 0.2.1-rc.3 实测为参照，其他 DSH 版本若内置插件集合不同，需按该版本 `presets/standard.patch.yml` 调整插件行——**未做多版本实测**。
 
@@ -152,7 +152,7 @@ async function runDesktopCli(runtimeDir, supportDir) {
 4. ~~GitHub Release `.tgz` URL 的真实安装~~ → **Windows 已实测**（Release 资产 URL 直装成功，2026-10-29）；Linux/macOS 未实测。
 5. ~~真实 `dsh plugin --profile desktop add <bundle>` 安装~~ → **Windows 已实测**（本地目录与 Release URL 两种方式，`list` = 3 packages、bundles 写入，2026-10-29）；重启后新会话出现内阁模式仍未实测。
 6. Linux / macOS 上对 `<本仓库 cordis.patch.yml>` 执行 `dsh --profile web --patch ... --dump-config` 的组合校验（Windows 已实跑 exit 0）。
-7. ~~npm Trusted Publishing 首次发布、`market-index` 分支发布~~ → **2026-11-03 已实跑**（v0.1.4 OIDC 发布成功、GitHub Release 与 `market-index` 分支已生成；首个索引 job 因传播延迟失败，0.1.5 修复）。仍未实跑：DSH 插件市场 GUI 里的真实安装/更新，以及 tag → npm 发布 → 自动刷新索引的全链路（0.1.5 首发验证）。`dsh-cabinet-mode@<version>` 安装 spec 仅由本机执行格式读取器核对。
+7. ~~npm Trusted Publishing 首次发布、`market-index` 分支发布、tag → npm 发布 → 自动刷新索引全链路~~ → **2026-11-03 已实跑**（v0.1.4 OIDC 发布成功；v0.1.5 全链路成功，run 41657224370，索引 job 等到 registry 出现目标版本后强推分支）。仍未实跑：DSH 插件市场 GUI 里的真实安装/更新。`dsh-cabinet-mode@<version>` 安装 spec 由本机执行格式读取器核对，并按该 spec 把 0.1.5 装进一次性 profile 验证过。
 8. HMR 开启时 preset 声明的热生效（仅代码级阅读 README 与注册表语义，未实跑）。
 9. 私有仓库/代理/认证下的 tgz 安装。
 

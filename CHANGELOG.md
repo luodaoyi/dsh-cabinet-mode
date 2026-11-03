@@ -14,6 +14,12 @@ All notable changes to this project are documented in this file.
   `404`/`ENOENT` is treated as "first release, nothing to protect"; any other read
   or parse failure aborts the refresh instead of silently skipping the guard, unless
   `MARKET_ALLOW_SHRINK=1` is set. (Dalisi verification §13, D-13.)
+- `--check` reads the published index through the same cache-buster, so a stale CDN
+  copy can no longer fake a match or a mismatch.
+
+These script fixes are not inside the published `0.1.5` tarball; the next release
+carries them. They only affect the maintainer-side index refresh, not installing the
+bundle.
 
 ## [0.1.5] - 2026-11-03
 

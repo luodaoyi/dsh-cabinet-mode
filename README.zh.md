@@ -92,9 +92,9 @@ https://raw.githubusercontent.com/luodaoyi/dsh-cabinet-mode/market-index/marketp
 
 索引在每次 tag 发布后由 npm registry 重新生成，只列出已发布、未弃用的稳定版本；不要手工编辑 `market-index` 分支。
 
-> **发布状态（2026-11-03）：** `dsh-cabinet-mode@0.1.4` 已发布到 `registry.npmjs.org`——首版，由 tag 触发的 OIDC 流程发布，provenance 已上 sigstore——并且 `market-index` 分支已由它生成。registry 上另有占位版本 `0.0.0-stage`（预发布，索引不列）。首次 OIDC 发布、GitHub Release、`market-index` 分支、索引解析、按 npm spec 安装这五项已在处置本次发布时实测。
+> **发布状态（2026-11-03）：** `dsh-cabinet-mode@0.1.4` 与 `0.1.5` 已由 tag 触发的 OIDC 流程发布到 `registry.npmjs.org`，两者都带 sigstore provenance；`market-index` 分支在每次发布后自动刷新。v0.1.5 的 tag → 发布 → GitHub Release → 刷新索引全链路已端到端成功（GitHub Actions run 41657224370），索引现列出 0.1.5 与 0.1.4。registry 上另有占位版本 `0.0.0-stage`（预发布，索引不列）。
 >
-> **未验证：** 你所用 DSH 版本的插件市场界面文案与点击路径、该 GUI 里的真实安装/更新，以及 tag → 发布 → 自动刷新索引的全链路；0.1.5 是该链路第一次完整运行。上面的 `dsh-cabinet-mode@<版本>` 安装 spec 是格式 1 读取器（`@deepseek-ai/dsh-plugin-market-index@0.2.1-rc.5` 的 `marketInstallTarget`）对 npm 源返回的结果；该函数已在本机执行，界面未实测。
+> **未验证：** 你所用 DSH 版本的插件市场界面文案与点击路径，以及该 GUI 里的真实安装/更新。上面的 `dsh-cabinet-mode@<版本>` 安装 spec 是格式 1 读取器（`@deepseek-ai/dsh-plugin-market-index@0.2.1-rc.5` 的 `marketInstallTarget`）对 npm 源返回的结果；该函数已在本机执行，界面未实测。
 
 ## 升级
 
@@ -239,7 +239,7 @@ npmjs.com 侧的一次性配置（维护者在网页上完成，无法从本仓�
 - DSH 升级后已装 bundle 或回退 patch 是否保留。
 - `config.id` 语法校验规则（本 id 为 `cabinet`，仅小写字母）。
 - preset 声明的 HMR 热生效、私有源/代理下的 tgz 安装。
-- **插件市场的真实使用。** npm 发布、GitHub Release、`market-index` 分支、索引解析、按 npm spec 安装这五项已在 0.1.4（2026-11-03）处置过程中实测；但 DSH 插件市场 GUI 里的真实安装/更新未执行，tag → 发布 → 自动刷新索引的完整链路以 0.1.5 为首次运行。
+- **插件市场的真实使用。** 索引解析、npm 安装 spec 解析、把 `dsh-cabinet-mode@0.1.5` 装进一次性 profile 都已在本机执行；tag → 发布 → 自动刷新索引全链路已在 CI 跑通（v0.1.5，run 41657224370）；但 DSH 插件市场 GUI 里的真实安装/更新仍未执行。
 
 ## 已知限制
 

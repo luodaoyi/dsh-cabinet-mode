@@ -125,18 +125,16 @@ The index is regenerated from the npm registry after every tagged release and on
 lists published, non-deprecated stable versions; do not edit the `market-index`
 branch by hand.
 
-> **Release status (2026-11-03):** `dsh-cabinet-mode@0.1.4` is published on
-> `registry.npmjs.org` — the first release, published by the tag-triggered OIDC
-> workflow with a provenance attestation on sigstore — and the `market-index`
-> branch has been generated from it. The registry also carries a placeholder
-> `0.0.0-stage` prerelease, which the index intentionally does not list. The first
-> OIDC publish, the GitHub Release, the `market-index` branch, parsing the generated
-> index, and installing from the npm spec have all been exercised while handling
-> this release.
+> **Release status (2026-11-03):** `dsh-cabinet-mode@0.1.4` and `0.1.5` are published
+> on `registry.npmjs.org` by the tag-triggered OIDC workflow, each with a provenance
+> attestation on sigstore, and the `market-index` branch is refreshed automatically
+> after every publish. The v0.1.5 run of tag → publish → GitHub Release → index
+> refresh succeeded end to end (GitHub Actions run 41657224370), and the index now
+> lists 0.1.5 and 0.1.4. The registry also carries a placeholder `0.0.0-stage`
+> prerelease, which the index intentionally does not list.
 >
 > **Not verified:** the exact plugin-market UI labels and click path in your DSH
-> build, a real install/update in that GUI, and the full tag → publish → automatic
-> index refresh chain; 0.1.5 is the first run of that chain. The
+> build, and a real install/update in that GUI. The
 > `dsh-cabinet-mode@<version>` install spec is what the format-1 reader
 > (`@deepseek-ai/dsh-plugin-market-index@0.2.1-rc.5`, `marketInstallTarget`) returns
 > for an npm source; that function was executed locally, the UI was not.
@@ -383,11 +381,11 @@ These were **not** tested on this machine and must not be presented as verified:
 - Whether `config.id` syntax rules reject unusual ids (this id is `cabinet`).
 - HMR behavior for preset declarations, and private-registry/proxied tarball
   installs.
-- **The plugin market in real use.** The npm publish, the GitHub Release, the
-  `market-index` branch, parsing the index and installing from the npm spec were
-  exercised for 0.1.4 (2026-11-03), but no real install or update has been performed
-  in the DSH plugin-market GUI, and 0.1.5 is the first run of the whole
-  tag → publish → automatic index refresh chain.
+- **The plugin market in real use.** Parsing the published index, resolving the npm
+  install spec and installing `dsh-cabinet-mode@0.1.5` into a throwaway profile were
+  exercised locally, and the full tag → publish → automatic index refresh chain runs
+  in CI (v0.1.5, run 41657224370), but no install or update has been performed in
+  the DSH plugin-market GUI itself.
 
 ## Known limitations
 
