@@ -44,7 +44,6 @@ jobs:
         with:
           node-version: '24'
           registry-url: 'https://registry.npmjs.org'
-          package-manager-cache: false
 
       - name: Require the tagged commit to be contained in main
         shell: bash
@@ -125,6 +124,10 @@ jobs:
 
   market-index:
     name: Refresh the plugin market index
+    # Prerelease versions are excluded by the index rules, so a refresh for a
+    # prerelease tag would only fail with a false "no installable versions" error,
+    # and a prerelease must not refresh the stable index either.
+    if: ${{ !contains(github.ref_name, '-') }}
     needs: publish
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -147,7 +150,14 @@ jobs:
 
       - name: Regenerate the index from the npm registry
         shell: bash
-        run: node scripts/market-index.mjs
+        env:
+          # Wait for the version this run just published: npm can serve an older
+          # packument for a few minutes after `npm publish` returns.
+          MARKET_EXPECT_VERSION: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          export MARKET_EXPECT_VERSION="${MARKET_EXPECT_VERSION#v}"
+          node scripts/market-index.mjs
 
       - name: Publish the market-index branch
         shell: bash

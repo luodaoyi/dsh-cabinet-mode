@@ -4,8 +4,19 @@ name: Market index
 # publishing a release. The release workflow runs the same two commands after a
 # tagged npm publish; this workflow recovers a stale index after a failed
 # release job, after `npm deprecate`, or when the registry state changed.
+#
+# The rollback guard refuses a refresh that would drop versions the published
+# index still lists. That is the right default (index propagation lag), but a
+# legitimate shrink — versions removed by `npm deprecate` or unpublish — needs an
+# explicit opt-in, so the manual dispatch exposes `allow_shrink`; scheduled runs
+# never pass it.
 on:
   workflow_dispatch:
+    inputs:
+      allow_shrink:
+        description: 'Allow the generated index to drop versions the published index still lists (after npm deprecate or unpublish)'
+        type: boolean
+        default: false
   schedule:
     - cron: '23 4 * * 1'
 
@@ -37,6 +48,10 @@ jobs:
 
       - name: Regenerate the index from the npm registry
         shell: bash
+        env:
+          # Only a manual dispatch can opt in to a smaller index; schedules leave
+          # this empty, so the rollback guard stays on.
+          MARKET_ALLOW_SHRINK: ${{ inputs.allow_shrink && '1' || '' }}
         run: node scripts/market-index.mjs
 
       - name: Publish the market-index branch

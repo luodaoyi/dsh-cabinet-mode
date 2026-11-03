@@ -61,7 +61,7 @@ If any step fails, show the exact error and stop. Do not retry more than once.
 ## Manual install (3 lines)
 
 ```sh
-dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.1.4/dsh-cabinet-mode-0.1.4.tgz
+dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.1.5/dsh-cabinet-mode-0.1.5.tgz
 # fully quit and restart DeepSeek Harness
 # New session -> mode picker -> 内阁模式
 ```
@@ -85,7 +85,7 @@ commands work on Linux and macOS.
 >   `dsh-cabinet-mode` in `dsh.profile.bundles`):
 >
 > ```sh
-> node "<DeepSeek Harness install>\resources\runtime\primary-runtime\dependencies\pnpm\bin\pnpm.mjs" --dir "%USERPROFILE%\.dsh\profiles\desktop" add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.1.4/dsh-cabinet-mode-0.1.4.tgz
+> node "<DeepSeek Harness install>\resources\runtime\primary-runtime\dependencies\pnpm\bin\pnpm.mjs" --dir "%USERPROFILE%\.dsh\profiles\desktop" add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.1.5/dsh-cabinet-mode-0.1.5.tgz
 > ```
 >
 > Back up the profile's `package.json` / `pnpm-lock.yaml` first.
@@ -125,16 +125,21 @@ The index is regenerated from the npm registry after every tagged release and on
 lists published, non-deprecated stable versions; do not edit the `market-index`
 branch by hand.
 
-> **First release ordering:** `dsh-cabinet-mode` 0.1.4 is the first version intended
-> for npm. Until that publish succeeds the package is absent from
-> `registry.npmjs.org` and the index URL returns 404 — expected, not an install bug.
-> The release workflow publishes to npm first and refreshes the index only after it.
-
-**Not verified:** the exact market UI labels and click path in your DSH build, and a
-real market install/update — 0.1.4 had not been published yet when this was written.
-The `dsh-cabinet-mode@<version>` install spec is what the format-1 reader
-(`@deepseek-ai/dsh-plugin-market-index@0.2.1-rc.5`, `marketInstallTarget`) returns
-for an npm source; that function was executed locally, the UI was not.
+> **Release status (2026-11-03):** `dsh-cabinet-mode@0.1.4` is published on
+> `registry.npmjs.org` — the first release, published by the tag-triggered OIDC
+> workflow with a provenance attestation on sigstore — and the `market-index`
+> branch has been generated from it. The registry also carries a placeholder
+> `0.0.0-stage` prerelease, which the index intentionally does not list. The first
+> OIDC publish, the GitHub Release, the `market-index` branch, parsing the generated
+> index, and installing from the npm spec have all been exercised while handling
+> this release.
+>
+> **Not verified:** the exact plugin-market UI labels and click path in your DSH
+> build, a real install/update in that GUI, and the full tag → publish → automatic
+> index refresh chain; 0.1.5 is the first run of that chain. The
+> `dsh-cabinet-mode@<version>` install spec is what the format-1 reader
+> (`@deepseek-ai/dsh-plugin-market-index@0.2.1-rc.5`, `marketInstallTarget`) returns
+> for an npm source; that function was executed locally, the UI was not.
 
 ## Upgrade
 
@@ -145,7 +150,7 @@ the same install command with the new version URL (or pick the new `.tgz` in the
 plugin page), then fully quit and restart DeepSeek Harness:
 
 ```sh
-dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.1.4/dsh-cabinet-mode-0.1.4.tgz
+dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.1.5/dsh-cabinet-mode-0.1.5.tgz
 ```
 
 `dsh plugin --profile desktop list` should report the new version. Upgrades were
@@ -192,7 +197,7 @@ on DSH 0.2.1-rc.5.
 |---|---|---|---|---|
 | **A. DSH plugin manager** (recommended): plugin page "Add plugin -> local directory/package", or `dsh plugin --profile <profile> add <absolute path / .tgz / release URL>` | ✅ tested locally on 2026-10-29: local-directory install **and GitHub Release asset URL install**; `dsh plugin --profile desktop list` = 3 packages; composition check passed | ⚙️ code-level inference, **not tested on this machine** | ⚙️ code-level inference, **not tested on this machine** | Pure YAML bundle: no build, no dependencies, no OS-specific code. See [docs/cross-platform.md](docs/cross-platform.md). |
 | **B. Fallback node scripts** (no plugin manager): `node scripts/install.mjs --profile <profile>` then `--apply`; writes the profile `cordis.patch.yml` | ✅ scripts tested on Windows (dry-run + temp copies) | ⚙️ code-level inference, **not tested** | ⚙️ code-level inference, **not tested** | Same file layout on all platforms: `<DSH_HOME>/profiles/<profile>/cordis.patch.yml`. |
-| **Plugin market** (index source): see [Install from the plugin market](#install-from-the-plugin-market) | ❌ **not tested** (0.1.4 was not published at the time of writing) | ❌ **not tested** | ❌ **not tested** | Same npm bundle install through DSH's plugin market; requires the npm publish and the `market-index` branch to exist first. |
+| **Plugin market** (index source): see [Install from the plugin market](#install-from-the-plugin-market) | ❌ **GUI install not tested** (npm publish + index are live as of 2026-11-03) | ❌ **not tested** | ❌ **not tested** | Same npm bundle install through DSH's plugin market; the npm publish and the `market-index` branch now exist. |
 
 **Method A and Method B are mutually exclusive.** Both create the preset
 declaration `config.id: cabinet`. Installing both makes the preset id appear
@@ -313,9 +318,9 @@ long-lived npm token — creates the GitHub Release, and then refreshes the
 `market-index` branch that the plugin market reads.
 
 ```sh
-# package.json version and the matching CHANGELOG section must both be 0.1.4
-git tag v0.1.4
-git push origin v0.1.4
+# package.json version and the matching CHANGELOG section must both be 0.1.5
+git tag v0.1.5
+git push origin v0.1.5
 ```
 
 One-time setup on npmjs.com (a maintainer action; it cannot be done from this

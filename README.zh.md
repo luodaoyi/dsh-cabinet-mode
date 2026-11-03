@@ -49,7 +49,7 @@
 ## 手动安装（3 行）
 
 ```sh
-dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.1.4/dsh-cabinet-mode-0.1.4.tgz
+dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.1.5/dsh-cabinet-mode-0.1.5.tgz
 # 完全退出并重启 DeepSeek Harness
 # 新建任务 -> 模式选择器 -> 内阁模式
 ```
@@ -70,7 +70,7 @@ dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/re
 >   `dsh.profile.bundles` 里保留了 `dsh-cabinet-mode`：
 >
 > ```sh
-> node "<DeepSeek Harness 安装目录>\resources\runtime\primary-runtime\dependencies\pnpm\bin\pnpm.mjs" --dir "%USERPROFILE%\.dsh\profiles\desktop" add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.1.4/dsh-cabinet-mode-0.1.4.tgz
+> node "<DeepSeek Harness 安装目录>\resources\runtime\primary-runtime\dependencies\pnpm\bin\pnpm.mjs" --dir "%USERPROFILE%\.dsh\profiles\desktop" add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.1.5/dsh-cabinet-mode-0.1.5.tgz
 > ```
 >
 > 操作前先备份该 profile 的 `package.json` / `pnpm-lock.yaml`。
@@ -92,16 +92,16 @@ https://raw.githubusercontent.com/luodaoyi/dsh-cabinet-mode/market-index/marketp
 
 索引在每次 tag 发布后由 npm registry 重新生成，只列出已发布、未弃用的稳定版本；不要手工编辑 `market-index` 分支。
 
-> **首版发布顺序：** `dsh-cabinet-mode` 0.1.4 是首个计划发布到 npm 的版本。在该次发布成功前，`registry.npmjs.org` 上还没有这个包，索引 URL 会返回 404——这是预期现象，不是安装故障。发布工作流先发布 npm，成功后才刷新索引。
-
-**未验证：** 你所用 DSH 版本的市场界面文案与点击路径，以及真实的市场安装/更新——写这段时 0.1.4 尚未发布。上面的 `dsh-cabinet-mode@<版本>` 安装 spec 是格式 1 读取器（`@deepseek-ai/dsh-plugin-market-index@0.2.1-rc.5` 的 `marketInstallTarget`）对 npm 源返回的结果；该函数已在本机执行，界面未实测。
+> **发布状态（2026-11-03）：** `dsh-cabinet-mode@0.1.4` 已发布到 `registry.npmjs.org`——首版，由 tag 触发的 OIDC 流程发布，provenance 已上 sigstore——并且 `market-index` 分支已由它生成。registry 上另有占位版本 `0.0.0-stage`（预发布，索引不列）。首次 OIDC 发布、GitHub Release、`market-index` 分支、索引解析、按 npm spec 安装这五项已在处置本次发布时实测。
+>
+> **未验证：** 你所用 DSH 版本的插件市场界面文案与点击路径、该 GUI 里的真实安装/更新，以及 tag → 发布 → 自动刷新索引的全链路；0.1.5 是该链路第一次完整运行。上面的 `dsh-cabinet-mode@<版本>` 安装 spec 是格式 1 读取器（`@deepseek-ai/dsh-plugin-market-index@0.2.1-rc.5` 的 `marketInstallTarget`）对 npm 源返回的结果；该函数已在本机执行，界面未实测。
 
 ## 升级
 
 若通过插件市场安装：刷新市场，先在**已安装**页卸载旧版本，再从**插件市场**安装新版本，然后重启——没有 tgz URL 要换，也没有一键更新。否则用同一条安装命令换新版本 URL（或在插件页选新 `.tgz`），然后完全退出并重启 DeepSeek Harness：
 
 ```sh
-dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.1.4/dsh-cabinet-mode-0.1.4.tgz
+dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.1.5/dsh-cabinet-mode-0.1.5.tgz
 ```
 
 `dsh plugin --profile desktop list` 应显示新版本。升级已在 Windows 实测：
@@ -141,7 +141,7 @@ v0.1.2 → v0.1.3 走内嵌 pnpm（DSH 0.2.1-rc.5）。
 |---|---|---|---|---|
 | **A. DSH 插件管理器**（推荐）：插件页「添加插件 → 本地目录/包」，或 `dsh plugin --profile <profile> add <绝对路径 / .tgz / release URL>` | ✅ 2026-10-29 本机实测：本地目录安装与 **GitHub Release 资产 URL 安装**均成功；`dsh plugin --profile desktop list` = 3 packages；合成校验通过 | ⚙️ 代码级推断，**未在本机实测** | ⚙️ 代码级推断，**未在本机实测** | 纯 YAML bundle：无构建、无依赖、无 OS 专用代码。见 [docs/cross-platform.md](docs/cross-platform.md)。 |
 | **B. 回退 node 脚本**（无插件管理器时）：`node scripts/install.mjs --profile <profile>` 演练后 `--apply`，写入 profile 的 `cordis.patch.yml` | ✅ 脚本已在 Windows 实测（演练 + 临时副本） | ⚙️ 代码级推断，**未实测** | ⚙️ 代码级推断，**未实测** | 三平台同一路径：`<DSH_HOME>/profiles/<profile>/cordis.patch.yml`。 |
-| **插件市场**（索引源）：见 [从插件市场安装](#从插件市场安装索引源) | ❌ **未实测**（写作时 0.1.4 尚未发布） | ❌ **未实测** | ❌ **未实测** | 通过 DSH 插件市场安装同一个 npm bundle；前提是 npm 已发布且 `market-index` 分支已存在。 |
+| **插件市场**（索引源）：见 [从插件市场安装](#从插件市场安装索引源) | ❌ **GUI 安装未实测**（npm 与索引已于 2026-11-03 上线） | ❌ **未实测** | ❌ **未实测** | 通过 DSH 插件市场安装同一个 npm bundle；npm 发布与 `market-index` 分支均已存在。 |
 
 **方式 A 与方式 B 二选一，不可叠加。** 两种方式都会声明 `config.id: cabinet`；同时装会让 preset id 重复，声明加载失败。切换前先卸载旧方式。插件市场安装的是与方式 A 相同的 bundle，同样受这条互斥约束。
 
@@ -204,9 +204,9 @@ node scripts/verify.mjs                             # 仓库校验 + dsh 合成�
 推送版本 tag 会触发 `.github/workflows/release.yml`：校验工作树 → 打包 tarball → 用 **Trusted Publishing（OIDC）** 发布到 npm（不使用长期 npm token）→ 创建 GitHub Release → 刷新插件市场读取的 `market-index` 分支。
 
 ```sh
-# package.json 版本与 CHANGELOG 对应章节都必须是 0.1.4
-git tag v0.1.4
-git push origin v0.1.4
+# package.json 版本与 CHANGELOG 对应章节都必须是 0.1.5
+git tag v0.1.5
+git push origin v0.1.5
 ```
 
 npmjs.com 侧的一次性配置（维护者在网页上完成，无法从本仓库完成）。为该包添加 GitHub Actions trusted publisher：

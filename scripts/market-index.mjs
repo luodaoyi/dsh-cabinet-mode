@@ -28,8 +28,15 @@
 //
 // Ordering: the npm package must exist before an index can list it. The release
 // workflow publishes `dsh-cabinet-mode` to npm first and regenerates the index
-// only afterwards, so running this script before the first publish fails with
-// the registry's 404 — that is expected.
+// only afterwards. npm may keep serving an older packument (for example a
+// placeholder version only) for a few minutes after the publish, so the release
+// job sets MARKET_EXPECT_VERSION and this script polls the registry until the
+// pushed version is listed.
+//
+// Registry fetches send `cache-control: no-cache` / `pragma: no-cache` and carry a
+// one-shot `?t=` cache-buster. Before writing, the script compares the generated
+// version set with the currently published index and refuses to replace a larger
+// index with a smaller one unless MARKET_ALLOW_SHRINK=1 is set.
 //
 // Usage:
 //   node scripts/market-index.mjs          # write marketplace.json
@@ -40,9 +47,15 @@
 //   MARKET_REGISTRY_MANIFEST  a registry metadata JSON file; when set, read this file
 //                             instead of fetching the registry
 //   MARKET_INDEX_URL          published index URL, or a local path / file: URL; used by
-//                             --check and to document where the index is served
-//                             (default the raw.githubusercontent URL above)
+//                             --check, by the rollback guard, and to document where
+//                             the index is served (default the raw.githubusercontent URL above)
 //   MARKET_INDEX_OUT          generated file         (default marketplace.json)
+//   MARKET_EXPECT_VERSION     wait until this exact version is listed (the release
+//                             job passes the pushed tag's version)
+//   MARKET_EXPECT_INTERVAL_MS poll interval while waiting       (default 15000)
+//   MARKET_EXPECT_TIMEOUT_MS  maximum wait while waiting        (default 600000)
+//   MARKET_ALLOW_SHRINK       set to 1 to allow the generated index to drop versions
+//                             the published index still lists   (default: refuse)
 
 import assert from 'node:assert/strict';
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -59,6 +72,19 @@ const registryBase = (process.env.MARKET_REGISTRY_BASE ?? REGISTRY).replace(/\/+
 const manifestLocation = process.env.MARKET_REGISTRY_MANIFEST;
 const indexUrl = process.env.MARKET_INDEX_URL ?? PUBLISHED_URL;
 const outputPath = process.env.MARKET_INDEX_OUT ?? 'marketplace.json';
+const expectVersion = (process.env.MARKET_EXPECT_VERSION ?? '').trim();
+const allowShrink = process.env.MARKET_ALLOW_SHRINK === '1';
+
+function positiveIntegerEnv(name, fallback) {
+  const raw = process.env[name];
+  if (raw === undefined || raw.trim() === '') return fallback;
+  const value = Number(raw);
+  assert.ok(Number.isInteger(value) && value > 0, `${name} must be a positive integer: ${raw}`);
+  return value;
+}
+
+const expectIntervalMs = positiveIntegerEnv('MARKET_EXPECT_INTERVAL_MS', 15000);
+const expectTimeoutMs = positiveIntegerEnv('MARKET_EXPECT_TIMEOUT_MS', 600000);
 
 function isHttpUrl(value) {
   try {
@@ -78,6 +104,26 @@ function readLocation(location) {
   }
 }
 
+async function readPublishedIndexForGuard() {
+  try {
+    const text = isHttpUrl(indexUrl) ? await fetchText(indexUrl) : readLocation(indexUrl);
+    return JSON.parse(text);
+  } catch (error) {
+    // First release (no branch yet), an unpublished URL, or a network failure:
+    // the guard is best-effort and must not block the very first index publish.
+    console.log(`rollback guard skipped: cannot read the published index at ${indexUrl} (${error.message})`);
+    return null;
+  }
+}
+
+function publishedVersions(indexDocument) {
+  const plugin = indexDocument?.plugins?.find((entry) => entry?.name === MANIFEST.name);
+  if (plugin === undefined || !Array.isArray(plugin.versions)) return [];
+  return plugin.versions
+    .map((entry) => entry?.version)
+    .filter((version) => typeof version === 'string');
+}
+
 assert.ok(isHttpUrl(registryBase), `MARKET_REGISTRY_BASE must be an absolute http(s) URL: ${registryBase}`);
 assert.ok(
   isHttpUrl(indexUrl) || indexUrl.startsWith('file:') || !indexUrl.includes('://'),
@@ -94,21 +140,28 @@ function compareSemver(left, right) {
 }
 
 async function fetchText(url, accept) {
+  const headers = { 'cache-control': 'no-cache', pragma: 'no-cache' };
+  if (accept) headers.accept = accept;
   const response = await fetch(url, {
-    headers: accept ? { accept } : {},
+    headers,
     signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
   });
   if (!response.ok) throw new Error(`${url} answered ${response.status}`);
   return response.text();
 }
 
-let registryManifest;
-if (manifestLocation !== undefined && manifestLocation !== '') {
-  registryManifest = JSON.parse(readLocation(manifestLocation));
-} else {
-  const registryPath = `${registryBase}/${encodeURIComponent(MANIFEST.name).replace(/^%40/, '@')}`;
+function registryPackumentUrl() {
+  // The registry ignores unknown query parameters; the one-shot value defeats a
+  // stale CDN or proxy entry for a packument that just changed.
+  return `${registryBase}/${encodeURIComponent(MANIFEST.name).replace(/^%40/, '@')}?t=${Date.now()}`;
+}
+
+async function loadRegistryManifest() {
+  if (manifestLocation !== undefined && manifestLocation !== '') {
+    return JSON.parse(readLocation(manifestLocation));
+  }
   try {
-    registryManifest = JSON.parse(await fetchText(registryPath, 'application/json'));
+    return JSON.parse(await fetchText(registryPackumentUrl(), 'application/json'));
   } catch (error) {
     throw new Error(
       `${error.message}\n` +
@@ -116,6 +169,33 @@ if (manifestLocation !== undefined && manifestLocation !== '') {
         'and only then can the market index list it.',
     );
   }
+}
+
+const waitStartedAt = Date.now();
+let registryManifest = await loadRegistryManifest();
+if (expectVersion !== '') {
+  // The generator indexes `time` entries, so wait for both halves of the record:
+  // a packument can briefly list the version before its publish time lands.
+  const hasVersion = (manifest) =>
+    Boolean(manifest.versions?.[expectVersion]) && typeof manifest.time?.[expectVersion] === 'string';
+  while (!hasVersion(registryManifest)) {
+    const elapsed = Date.now() - waitStartedAt;
+    const seen = Object.keys(registryManifest.versions ?? {}).join(', ') || '(none)';
+    const remaining = expectTimeoutMs - elapsed;
+    if (remaining <= 0) {
+      throw new Error(
+        `registry did not list ${MANIFEST.name}@${expectVersion} after waiting ${elapsed} ms ` +
+          `(timeout ${expectTimeoutMs} ms); last seen versions: ${seen}`,
+      );
+    }
+    console.log(
+      `waiting for ${MANIFEST.name}@${expectVersion} in the registry ` +
+        `(${elapsed} ms elapsed; last seen: ${seen})`,
+    );
+    await new Promise((resolve) => setTimeout(resolve, Math.min(expectIntervalMs, remaining)));
+    registryManifest = await loadRegistryManifest();
+  }
+  console.log(`registry lists ${MANIFEST.name}@${expectVersion} after ${Date.now() - waitStartedAt} ms`);
 }
 
 const published = Object.entries(registryManifest.time ?? {})
@@ -234,6 +314,21 @@ if (process.argv.includes('--check')) {
   assert.equal(remote, body, `the published index at ${indexUrl} is stale; refresh the market-index branch`);
   console.log(`published index matches the registry: ${summary}`);
 } else {
+  // Rollback guard: the registry can lag behind the already-published index (CDN or
+  // propagation), and writing that smaller index would make DSH forget released
+  // versions and offer a downgrade. Refuse unless explicitly allowed.
+  const publishedIndex = await readPublishedIndexForGuard();
+  if (publishedIndex !== null) {
+    const generated = new Set(versions.map((entry) => entry.version));
+    const missing = publishedVersions(publishedIndex).filter((version) => !generated.has(version));
+    if (missing.length > 0) {
+      const message =
+        `registry is behind the published index at ${indexUrl}: ${missing.join(', ')} ` +
+        'would disappear from the generated index; refusing to overwrite the index with a smaller one';
+      if (!allowShrink) throw new Error(`${message} (set MARKET_ALLOW_SHRINK=1 to override)`);
+      console.log(`warning: ${message} (MARKET_ALLOW_SHRINK=1)`);
+    }
+  }
   writeFileSync(outputPath, body);
   console.log(`Wrote ${outputPath}: ${summary}`);
   console.log(`Publish URL: ${PUBLISHED_URL} (the release workflow force-pushes this file to the market-index branch)`);

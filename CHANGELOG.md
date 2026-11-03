@@ -2,6 +2,43 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.1.5] - 2026-11-03
+
+### Fixed
+
+- **The market-index refresh no longer races npm propagation.** The index job now
+  waits for the just-published version to appear in the registry packument
+  (`MARKET_EXPECT_VERSION`, polled every 15 s for up to 10 min) instead of
+  regenerating from a stale, partially propagated packument.
+- **Registry reads bypass stale caches.** Every fetch sends
+  `cache-control: no-cache` and `pragma: no-cache`, and the packument URL carries a
+  one-shot `?t=` cache-buster.
+- **The index can no longer shrink silently.** Before writing, the generator
+  compares its version set with the currently published index and refuses to
+  replace a larger index with a smaller one (for example while the registry lags),
+  unless `MARKET_ALLOW_SHRINK=1` is set. The manual `Market index` workflow exposes
+  this as the `allow_shrink` dispatch input for a legitimate shrink after
+  `npm deprecate` or unpublish.
+- **Prerelease tags no longer refresh the index.** The release workflow skips the
+  market-index job for tags containing `-`: the index rules exclude prereleases, so
+  a refresh would only fail with a false "no installable versions" error, and a
+  prerelease must not touch the stable index.
+- Removed the ineffective `package-manager-cache: false` input from
+  `actions/setup-node` in the release workflow.
+
+### Context
+
+- `dsh-cabinet-mode@0.1.4` was published to npm on 2026-11-03 by the
+  tag-triggered Trusted Publishing (OIDC) flow, with a provenance attestation on
+  sigstore, and its GitHub Release was created. The market-index job that follows
+  the publish failed twice because the registry still served a packument containing
+  only the `0.0.0-stage` placeholder; this release fixes that chain and is the
+  first end-to-end run of tag → npm publish → automatic index refresh.
+- The first OIDC publish, the GitHub Release, the generated `market-index` branch,
+  parsing the index, and installing from the npm spec were exercised while
+  handling 0.1.4; a real install/update in the DSH plugin market GUI remains
+  unverified.
+
 ## [0.1.4] - 2026-11-03
 
 ### Added

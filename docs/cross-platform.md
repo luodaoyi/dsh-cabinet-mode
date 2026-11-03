@@ -20,7 +20,7 @@
 | 10 | 安装后生效 | 重启 Host → 新会话可选 | 同 | 同 | `P/dsh-plugin-manager/README.zh.md:14,73`；`P/dsh-plugin-manager/lib/index.js:2381` | Windows 已实测真实 `add`（2026-10-29，本地目录与 Release 资产 URL；`dsh plugin --profile desktop list` = 3 packages、bundles 写入）；重启后新会话出现模式未实测，后段代码级 |
 | 11 | 是否需要 postinstall / build | 否（纯 YAML） | 否 | 否 | `P/dsh-plugin-manager/lib/types/build-approval.js:1,7-10`；README.zh:64 | 代码级 |
 | 12 | GitHub Release `.tgz` 直接安装 | 实测可用（Release 资产 URL 直装，2026-10-29） | 同 | 同 | `P/dsh-plugin-manager/lib/types/install-spec.js:16-17,62-76`；`pnpm add <tarball url>`（本机 `dsh plugin ... add --help` 实跑输出含 `<tarball url>`） | Windows 实测 + pnpm 帮助实测；Linux/macOS 代码级 |
-| 13 | npm 发布与插件市场索引 | `release.yml` 走 OIDC Trusted Publishing（未实跑） | 同 | 同 | `.github/workflows/release.yml`、`scripts/market-index.mjs`；npm 官方文档 Trusted publishing；`@deepseek-ai/dsh-plugin-market-index@0.2.1-rc.5` `lib/index.js:32-36,209-225,280-318` | 代码级 + 本机格式读取器实跑；npm 发布与索引分支均未实跑 |
+| 13 | npm 发布与插件市场索引 | `release.yml` 走 OIDC Trusted Publishing（v0.1.4 已实跑） | 同 | 同 | `.github/workflows/release.yml`、`scripts/market-index.mjs`；npm 官方文档 Trusted publishing；`@deepseek-ai/dsh-plugin-market-index@0.2.1-rc.5` `lib/index.js:32-36,209-225,280-318` | v0.1.4 OIDC 发布、GitHub Release 与 `market-index` 分支已实跑；首个索引 job 因传播延迟失败，0.1.5 验证自动刷新链路 |
 
 > 附加（不属于平台列）：本包不声明 DSH 版本门禁（`package.json` 无 `engines.dsh`/DSH `peerDependencies`，`scripts/verify.mjs` 版本检查仅信息性 WARN）；本文所有结论以 DSH 0.2.1-rc.3 实测为参照，其他 DSH 版本若内置插件集合不同，需按该版本 `presets/standard.patch.yml` 调整插件行——**未做多版本实测**。
 
@@ -118,8 +118,9 @@ async function runDesktopCli(runtimeDir, supportDir) {
   dsh plugin --profile web add https://github.com/<owner>/<repo>/releases/download/v<ver>/dsh-cabinet-mode-<ver>.tgz
   ```
   （Linux/macOS 未实测；私仓/代理/认证未验证。）本地文件须用**绝对路径**（`install-spec.js:63-65` 明确拒绝相对路径）。
-- **npm 发布（0.1.4 起的发布通道，未实跑）**：
+- **npm 发布（0.1.4 起已实跑，0.1.5 起加固发布链路）**：
   - **通道**：推送 `v*` tag → `.github/workflows/release.yml` 校验并打包 → `npm publish --access public`（npm Trusted Publishing / OIDC，`id-token: write`，不使用 `NPM_TOKEN` 或任何长期 token）→ 创建 GitHub Release → `market-index` job 重新生成索引并强制推送孤儿分支 `market-index`（`marketplace.json` + `icon.svg` + README）。索引不放在 `main`；**`main` 目前未启用分支保护规则**（2026-11-03 实测：`gh api repos/luodaoyi/dsh-cabinet-mode/rulesets` 返回空数组，`branches/main/protection` 返回 404「Branch not protected」），CI 只在 push/PR 时校验。
+  - **首次实跑结果（2026-11-03）**：tag `v0.1.4` 触发 OIDC 发布成功（npm 上 `0.1.4`，`_npmUser=GitHub Actions`、trustedPublisher 为 `github`，provenance 在 sigstore），GitHub Release 与 `market-index` 分支已生成；但紧随的 market-index job 因 registry 传播延迟（packument 只返回 `0.0.0-stage`）连续失败两次。0.1.5 起：抓取加 `cache-control`/`pragma: no-cache` 与 packument `?t=` cache-buster；索引 job 用 `MARKET_EXPECT_VERSION` 轮询等待目标版本出现（默认 15 s 间隔、10 min 超时）；写盘前比对已发布索引并拒绝变小（`MARKET_ALLOW_SHRINK=1` 放行，手动 `Market index` 工作流暴露 `allow_shrink` 输入）；预发布 tag 不触发索引 job。
   - **npm 侧外部前置**（维护者在 npmjs.com 完成）：trusted publisher 指向 GitHub 仓库 `luodaoyi/dsh-cabinet-mode`、workflow 文件名 `release.yml`（含扩展名，文件必须在 `.github/workflows/` 内且发布步骤留在该文件）；新建配置须在 **2 天内**完成首次成功发布，否则失效需删除重建；2026-09-03 后创建的配置默认只允许 `npm stage publish`，**必须显式勾选 `npm publish`**。来源：npm 官方文档 Trusted publishing（https://docs.npmjs.com/trusted-publishers）。
   - **工具版本**：Trusted Publishing 要求 npm CLI ≥ 11.5.1、Node ≥ 22.14.0；工作流用 setup-node 的 Node 24（满足）。`npm whoami` 不能用于验证 trusted publishing 权限（npm 文档明确说明）。
   - **索引格式（format 1）**：由 `scripts/market-index.mjs` 从 npm registry 生成，规则以 `@deepseek-ai/dsh-plugin-market-index@0.2.1-rc.5` 为准——`format: 1`、`title.en` 必填、`publishTimestamp` 为整数秒、精确 SemVer 且同插件内唯一；**读取器自己会按 SemVer 归一排序**（`lib/index.js:248` 用 `semver.rcompare`），降序只是本仓库生成器的自检策略（`scripts/market-index.mjs:219-224`），不是读取器强制；跳过 prerelease 与 deprecated 同样是生成器策略，读取器不拒绝它们；`engines.dsh` **可选**（本包不声明，条目省略）；`icon` 支持 https URL 或相对索引 URL 的引用，**32 KiB 上限只约束 `data:` 内联图标**（边界实测：32 KiB 放行、33 KiB 抛 `must not exceed 32 KiB of decoded bytes`），`./icon.svg` 这类相对路径按索引 URL（https）解析，不受该上限约束。读取器 `marketInstallTarget()` 对 npm 源返回 `dsh-cabinet-mode@<version>` + `registry: https://registry.npmjs.org`（本机实跑读取器核对）。
@@ -127,7 +128,7 @@ async function runDesktopCli(runtimeDir, supportDir) {
   - bundle 身份：`dsh.bundle.patch` 指向 `cordis.patch.yml`（字符串或有序数组）。这是插件管理器识别「组合包层」的充要字段（`P/dsh-plugin-manager/lib/index.js:313,335-337`）；缺它只会被当作普通依赖安装。
   - `files` 必须包含 `cordis.patch.yml`（npm 打包白名单）。
   - 兼容性：若要声明版本门，优先只写 `engines.dsh`（单一声明即决定，`P/dsh-app-boot/lib/index.js:280-284`）；**不要**逐个声明 `@deepseek-ai/dsh-*` 的 `peerDependencies` 精确版本——否则会被逐包校验（`:286-304`），跨平台/跨补丁版本容易误判（本机已见 rc.2 插件在 rc.3 被警告的先例）。**本仓库的既定产品决定是不声明 `engines.dsh`（0.1.1 起），索引条目因此不写 `engines`**；这不影响 format 1 合法性。
-  - **现状对照（本仓库 `package.json`）**：`name`/`version`（0.1.4）/`private: false`/`files` 含 `cordis.patch.yml`/`dsh.bundle.patch`/`repository`（`git+https://github.com/luodaoyi/dsh-cabinet-mode.git`，无 query/fragment，匹配 trusted publisher 的仓库）均在；未声明 `peerDependencies` 与 `engines.dsh`，因此 DSH 兼容性判定不触发（`P/dsh-app-boot/lib/index.js:280-304`）；未声明 `os`/`cpu`。发布链路已写入 `.github/workflows/release.yml`（**未实跑**）。
+  - **现状对照（本仓库 `package.json`）**：`name`/`version`（0.1.5）/`private: false`/`files` 含 `cordis.patch.yml`/`dsh.bundle.patch`/`repository`（`git+https://github.com/luodaoyi/dsh-cabinet-mode.git`，无 query/fragment，匹配 trusted publisher 的仓库）均在；未声明 `peerDependencies` 与 `engines.dsh`，因此 DSH 兼容性判定不触发（`P/dsh-app-boot/lib/index.js:280-304`）；未声明 `os`/`cpu`。发布链路已由 `v0.1.4` 实跑成功（首个 market-index job 的传播延迟失败已在 0.1.5 修复）。
   - 不要声明 `os`/`cpu` 限制字段；纯 YAML 无平台二进制。
   - 可选元数据：`description`、`icon`（相对路径，须位于包内，`P/dsh-app-boot/lib/index.js:2074-2097`）、`locale/*.json`（`P/dsh-app-boot/lib/index.js:574` 附近）。
 - **桌面端**：`dsh plugin --profile desktop add` 在 Desktop 载体下可用（Windows 实测 `list`、`add --help` exit 0；`P/dsh-desktop-host/lib/cli.js:97` 的 `manageDesktopProfile: true` 是放行来源）。Windows 已实测本地目录与 Release 资产 URL 两种真实安装（2026-10-29，`dsh plugin --profile desktop list` = 3 packages）；重启后新会话出现内阁模式仍未实测。
@@ -151,7 +152,7 @@ async function runDesktopCli(runtimeDir, supportDir) {
 4. ~~GitHub Release `.tgz` URL 的真实安装~~ → **Windows 已实测**（Release 资产 URL 直装成功，2026-10-29）；Linux/macOS 未实测。
 5. ~~真实 `dsh plugin --profile desktop add <bundle>` 安装~~ → **Windows 已实测**（本地目录与 Release URL 两种方式，`list` = 3 packages、bundles 写入，2026-10-29）；重启后新会话出现内阁模式仍未实测。
 6. Linux / macOS 上对 `<本仓库 cordis.patch.yml>` 执行 `dsh --profile web --patch ... --dump-config` 的组合校验（Windows 已实跑 exit 0）。
-7. npm Trusted Publishing 首次发布、`market-index` 分支发布、以及插件市场里的真实安装/更新：均未实跑（0.1.4 尚未发布，索引分支不存在）。`dsh-cabinet-mode@<version>` 安装 spec 仅由本机执行格式读取器核对。
+7. ~~npm Trusted Publishing 首次发布、`market-index` 分支发布~~ → **2026-11-03 已实跑**（v0.1.4 OIDC 发布成功、GitHub Release 与 `market-index` 分支已生成；首个索引 job 因传播延迟失败，0.1.5 修复）。仍未实跑：DSH 插件市场 GUI 里的真实安装/更新，以及 tag → npm 发布 → 自动刷新索引的全链路（0.1.5 首发验证）。`dsh-cabinet-mode@<version>` 安装 spec 仅由本机执行格式读取器核对。
 8. HMR 开启时 preset 声明的热生效（仅代码级阅读 README 与注册表语义，未实跑）。
 9. 私有仓库/代理/认证下的 tgz 安装。
 
@@ -184,7 +185,7 @@ async function runDesktopCli(runtimeDir, supportDir) {
 | `docs/research/market-index-research.md:15,223,229-235,249` | 市场更新链路：无原地升级、`semver.gt`、无定时检查、10 分钟缓存 |
 | `docs/research/market-index-research.md:255-289` | `engines.dsh` 运行时判定、三处硬拦、`includePrerelease`、`~0.2.1` 陷阱 |
 | `docs/research/market-index-research.md:94-116` | icon 32 KiB 仅限 `data:`；包内 `icon` 256 KiB、必须相对路径 |
-| `.github/workflows/release.yml`、`scripts/market-index.mjs`、`scripts/publish-market-index.sh` | OIDC 发布、索引生成与索引分支发布（未实跑） |
+| `.github/workflows/release.yml`、`scripts/market-index.mjs`、`scripts/publish-market-index.sh` | OIDC 发布、索引生成与索引分支发布（v0.1.4 已实跑；自动刷新链路 0.1.5 验证） |
 | 实跑：`> node scripts/market-index.mjs`（`MARKET_REGISTRY_MANIFEST` 指向 fixture 文件）→ 生成 `marketplace.json`；`> node scripts/market-index.mjs --check`（`MARKET_INDEX_URL` 指向本地索引文件）→ 一致 exit 0，篡改后 exit 1 | Windows 本机实测：离线生成与 `--check`（无网络、无依赖） |
 
 > README 引用锚点：`docs/cross-platform.md#结论矩阵`、`docs/cross-platform.md#未在本机实测清单`、`docs/cross-platform.md#依据索引`。
