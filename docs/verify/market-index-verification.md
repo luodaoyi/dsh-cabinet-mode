@@ -602,3 +602,184 @@ npm view dsh-cabinet-mode / dsh-cabinet-mode@0.0.0-stage               → E404
 - 只追加本文件；未改脚本/workflow/其它文档；未 `git commit/push/tag`；未 `npm publish`（只做 `--dry-run`）。
 - 未重跑已 PASS 的 106 条；§10 的 10 条未验证项继续有效。
 - 本轮新增未验证：真实 tag 触发的 Actions 端到端（U1）、npm 侧 trusted publisher 的实际放行（U2）、`--tag` 在真实 OIDC 发布下的行为（本轮只到 npm CLI 接受该参数）。
+
+## 13. 0.1.5 定向复验（516968c）
+
+**复验对象**：`516968c`（`main`，父 `4452af0`；`4452af0` 已修 §12 的 D-8/D-9/D-10，见 §12 的三条 FAIL）。范围只限本轮 diff：生成器新逻辑、两个 workflow、版本与文档口径，外加首辅点名的风险判定；**未重跑** §2–§7 的 106 条与 §12 的 40 条。
+
+**结论：断言 PASS=92 / FAIL=1**（生成器 46、workflow 19、`ref_name` 去 `v` 3、版本与线上事实 19、守卫/短路端到端 6）。唯一 FAIL 是 **README 的「未实测项」清单仍写着发布工作流没跑过**（D-14，与同文件新增的发布状态块自相矛盾；建议打 tag 前顺手改，不阻断）。
+
+另列 2 条**规格层面缺口**（按现行规格实现无错，但设计本身可被绕过，已端到端复现，非阻断、不影响 0.1.5 发布路径）：D-12 守卫基线可能滞后；D-13 守卫基线读不到时整体跳过。
+
+**对首辅风险点的判定：`already-current` 短路不会让回退守卫失效，但守卫查不出「无差异的刷新」，真正的防线是 `MARKET_EXPECT_VERSION`。** 依据与端到端证据见 §13.5。
+
+### 13.1 方法（不采信工部输出）
+
+- 生成器：自造 registry fixture + **本地 HTTP 服务**（记录每个请求的 path/query/headers，按场景返回 fresh / lagging / stale / 无 `time` 的 packument），用内嵌 Node 24 `spawn` 生成器，断言 stdout/stderr/退出码/产物。
+- workflow：`js-yaml` 解析后断言；把 run block 原样摘出，用假 `node` 执行以验证 `ref_name` 去 `v`。
+- 端到端：本地 bare remote `%TEMP%\dalisi-market-verify\pub4\origin.git` + 一次性 clone；真实 `origin` 只有只读 `git fetch`/`ls-remote`。
+- 线上只读复核：npm packument、`raw.githubusercontent` 索引与图标、npm/Release 两个 tgz 的 sha256、内嵌 pnpm 从真实 registry 装 0.1.4。
+
+### 13.2 生成器新逻辑（46 PASS）
+
+命令（各断言由 `gen-driver.mjs` 打印，场景状态由脚本切换）：
+
+```text
+[PASS] S1.1 fresh packument: exit 0  (exit=0)
+[PASS] S1.2 registry request carries ?t=<digits>  (["1793717040110"])
+[PASS] S1.3 registry request sends cache-control: no-cache
+[PASS] S1.4 registry request sends pragma: no-cache
+[PASS] S1.5 registry request sends accept: application/json
+[PASS] S1.6 guard/index request also sends no-cache headers  (guard reqs=1)
+[PASS] S1.7 generated index lists 0.1.4 and 0.1.5, not the placeholder  (["0.1.5","0.1.4"])
+[PASS] S2.2 logs a waiting line  (waiting for dsh-cabinet-mode@0.1.5 in the registry (26 ms elapsed; last seen: 0.0.0-stage))
+[PASS] S2.3 logs the success line with elapsed ms  (registry lists dsh-cabinet-mode@0.1.5 after 205 ms)
+[PASS] S2.5 each poll uses a fresh ?t= value  (["1793717040213","1793717040323","1793717040416"])
+[PASS] S3.2 error names the expected version and elapsed ms  (Error: registry did not list dsh-cabinet-mode@0.1.5 after waiting 412 ms (timeout 400 ms); last seen versions: 0.0.0-stage)
+[PASS] S4.2 last seen versions includes 0.1.5 (versions half present)
+[PASS] S6.2 error names the disappearing version  (Error: registry is behind the published index at http://127.0.0.1:3044/repo/marketplace.json: 0.1.5 would disappear from the generated index; refusing to overwrite the index with a smaller one (set MARKET_ALLOW_SHRINK=1 to override))
+...
+generator-summary: PASS=46 FAIL=0
+```
+
+| 组 | 覆盖 | 结果 |
+| --- | --- | --- |
+| S1（7） | `cache-control: no-cache` / `pragma: no-cache` / `accept: application/json` 出现在 packument 与索引请求上；packument URL 带 13 位 `?t=`；产物不含 `0.0.0-stage` | PASS |
+| S2（7） | 轮询：先 stale 后 fresh，间隔 80 ms，`registry lists … after 205 ms`，3 次请求 3 个不同 `?t=`，只等两个间隔以上 | PASS |
+| S3（5） | 超时：exit≠0；文案含期望版本、`after waiting 412 ms`、`timeout 400 ms`、`last seen versions: 0.0.0-stage`；**不落产物** | PASS |
+| S4（3） | `versions` 有 0.1.5 但 `time` 缺 0.1.5 → 仍超时 → 证明等的是「两半」 | PASS |
+| S5（5） | `MARKET_EXPECT_INTERVAL_MS` 取 `0/-5/abc/1.5`、`MARKET_EXPECT_TIMEOUT_MS` 取 `0` 全部按 `must be a positive integer: <raw>` 拒绝 | PASS |
+| S6（4） | 回退守卫拒绝：错误点名 `0.1.5 would disappear`、附 `(set MARKET_ALLOW_SHRINK=1 to override)`、**不落产物** | PASS |
+| S7（3） | `MARKET_ALLOW_SHRINK=1`：exit 0、打印 `warning: registry is behind the published index`、写出 1 版本索引 | PASS |
+| S8/S9（4） | 已发布索引 404、以及本地路径 ENOENT → `rollback guard skipped: cannot read the published index …`，进程仍 exit 0 | PASS |
+| S10（3） | `--check` 不经过守卫：脏/旧索引 exit 1 且只报 `is stale`、无 `rollback` 字样；一致副本 exit 0 | PASS |
+| S11（1） | `MARKET_ALLOW_SHRINK=true`（非 `1`）不放行，仍拒绝 | PASS |
+| S12（2） | 已发布索引属于别的插件名 → 守卫视为空、不告警 | PASS |
+| S13（2） | **基线本身滞后**（registry 与基线都只有 0.1.4）→ 守卫放行并写出 1 版本索引（D-12 的生成器侧证据） | PASS |
+
+代码锚点（与文档口径对照用）：env 校验 `scripts/market-index.mjs:78-87`；`fetchText` 的 no-cache 头 `:142-151`；`?t=` buster `:153-157`；轮询 `:174-199`；`--check` 分支 `:310-315`；回退守卫 `:316-331`。
+
+### 13.3 两个 workflow（19 PASS + 去 v 3 PASS）
+
+```text
+[PASS] R2 market-index job if: !contains(github.ref_name, '-')  (${{ !contains(github.ref_name, '-') }})
+[PASS] R3 market-index needs: publish  ("publish")
+[PASS] R4 market-index permissions: contents write, no id-token
+[PASS] R5 MARKET_EXPECT_VERSION comes from github.ref_name  ({"MARKET_EXPECT_VERSION":"${{ github.ref_name }}"})
+[PASS] R6 run block strips the leading v and runs the generator
+[PASS] R7 no actions/setup-node step in any job still sets package-manager-cache
+[PASS] R9 market-index step order Checkout -> Node -> Regenerate -> Publish
+[PASS] M1 workflow_dispatch.allow_shrink is a boolean defaulting to false
+[PASS] M3 Regenerate env is ${{ inputs.allow_shrink && '1' || '' }}
+[PASS] M4 schedule trigger passes no inputs
+[PASS] M5 Publish step has no allow_shrink env
+workflow-summary: PASS=19 FAIL=0
+```
+
+- `if` 语义：`release.yml:130` 的 `!contains(github.ref_name, '-')` 是 **job 级**条件，与 `needs: publish` 并存 → 稳定 tag（`v0.1.5`）→ 条件真 → 索引 job 照常跑；预发布 tag（`v0.1.5-beta.1`）→ 跳过（publish job 仍已跑完）。条件里没有 `always()`，publish 失败时 job 依旧被跳过，失败传播未破。
+- `MARKET_EXPECT_VERSION`：`:156` 取 `${{ github.ref_name }}`，`:157-160` 的 run block 先 `export MARKET_EXPECT_VERSION="${MARKET_EXPECT_VERSION#v}"` 再跑生成器。用假 `node` 实跑该 block：`v0.1.5 → 0.1.5`、`v0.1.5-beta.1 → 0.1.5-beta.1`、`0.1.5 → 0.1.5`（3/3）。
+- `package-manager-cache`：不只是 publish job，整个 `release.yml` 已无该键（R7 全文件扫描）；publish job 的 setup-node 仍保留 `node-version: '24'` 与 `registry-url`（R8）。
+- `market-index.yml:14-19` 的 `allow_shrink` 为 `boolean`、默认 `false`；`:51-55` 的 env 只挂在 Regenerate 步骤，语法为 `${{ inputs.allow_shrink && '1' || '' }}`；`schedule`（`:20-21`）不传 inputs，按 GitHub 表达式语义 `inputs.allow_shrink` 为空 → 求值 `''` → 生成器只认 `'1'` → 守卫生效（该求值属推理，见 §13.7）。
+
+### 13.4 版本、线上事实与口径（19：18 PASS / 1 FAIL）
+
+| ID | 检查 | 结果 |
+| --- | --- | --- |
+| L1 | `package.json` version = `0.1.5` | PASS |
+| L2 | `CHANGELOG` 含 `## [0.1.5]`（release gate 的 grep 目标） | PASS |
+| L3 | `README.md` 5 处 `v0.1.5`、无残留 `download/v0.1.4` 安装 URL | PASS |
+| L4 | `README.zh.md` 同上 | PASS |
+| L5 | 线上 packument：`versions = 0.0.0-stage, 0.1.4`；`dist-tags.latest = 0.1.4` | PASS |
+| L6 | `0.1.4._npmUser = {"name":"GitHub Actions","email":"npm-oidc-no-reply@github.com","trustedPublisher":{"id":"github",…}}` | PASS |
+| L7 | `0.1.4.dist.attestations = {url …, provenance:{predicateType:"https://slsa.dev/provenance/v1"}}` | PASS |
+| L8 | npm tgz sha256 = `6eb852c58b52845fddc17b6cbb2fc7a9b92043995315e3cd53a458b6a07f5695`（179096 B） | PASS |
+| L9 | Release 资产 tgz sha256 与 npm 完全相同（同 179096 B） | PASS |
+| L10 | raw 索引 HTTP 200、1952 B，且与 `origin/market-index:marketplace.json` **逐字节相同** | PASS |
+| L11 | rc.5 `parseMarketIndex` 解析线上索引 PASS；`versions=[0.1.4]`；`marketInstallTarget → dsh-cabinet-mode@0.1.4` + registry | PASS |
+| L12 | 分支 `icon.svg` HTTP 200，`Content-Length = 79384` | PASS |
+| L13 | 内嵌 pnpm 从真实 registry `add dsh-cabinet-mode@0.1.4`：exit 0，profile 依赖串精确 `"0.1.4"`，装出 15 文件、`dsh.bundle.patch` 指向的文件存在 | PASS |
+| L14 | `node scripts/verify.mjs` = `PASS=22 FAIL=0 WARN=1`（release/CI 门禁） | PASS |
+| L15 | README 发布状态块（`:128-142`）陈述与实测一致：0.1.4 已发布、OIDC + sigstore provenance、索引分支已生成、占位版不被索引列出 | PASS |
+| L16 | **未验证口径**：README 同块明说「GUI 标签/点击路径、GUI 里的真实安装/更新、tag → 发布 → 自动刷新索引全链路」未验证、0.1.5 是首次完整运行；未把全链路或 GUI 写成已验 | PASS |
+| L17 | **README「未实测项」清单仍写「发布工作流尚未运行过：没有任何版本发布到 npm，`market-index` 分支尚不存在」**（`README.md:386-389`、`README.zh.md:242`） | **FAIL（D-14）** |
+| L18 | `docs/cross-platform.md` 口径一致：`:23` 行 13「v0.1.4 已实跑」、`:123` 首次实跑结果、`:155` 第 7 项划掉并注明「仍未实跑 GUI 与全链路（0.1.5 首发验证）」、`:188` 依据索引 | PASS |
+| L19 | CHANGELOG `[0.1.5]` 的事实与代码默认值一致：15 s 轮询 / 10 min 超时（`:78-87`）、no-cache 头 + `?t=`（`:142-157`）、变小拒绝 + `MARKET_ALLOW_SHRINK=1`（`:316-331`）、手动 workflow 暴露 `allow_shrink`、移除 `package-manager-cache` | PASS |
+
+**D-14 证据（同文件自相矛盾）**：
+
+```text
+README.md:128  > **Release status (2026-11-03):** `dsh-cabinet-mode@0.1.4` is published on …
+README.md:386  - **The npm Trusted Publishing flow and the plugin market.** The release workflow
+README.md:387    has not run yet, so no version has been published to npm, the `market-index`
+README.md:388    branch does not exist yet, and no real plugin-market install or update has been
+README.md:389    performed.
+```
+
+建议把该条改成「GUI 里的真实安装/更新与 tag → 发布 → 自动刷新索引全链路未验证（0.1.5 首次运行）」，与 `:137-142` 一致。**不阻断**：它只影响文档自洽，不影响 0.1.5 的 tag → publish → index 链路。
+
+### 13.5 风险判定：`already-current` 短路会不会让回退守卫失效
+
+**结论：不会让守卫「失效」（守卫在更早的阶段执行，短路只跳过 push）；但守卫也查不出「无差异的刷新」，那种情形是假绿而非回退。真正防假绿的是 `MARKET_EXPECT_VERSION`。**
+
+依据：
+
+1. **执行顺序**：两个 workflow 都是先 `node scripts/market-index.mjs`（守卫在写出前，`scripts/market-index.mjs:316-331`）再 `bash scripts/publish-market-index.sh`（`already current` 短路在 `scripts/publish-market-index.sh:37-42`）。短路只跳过 `git checkout/commit/push`，不跳过生成与守卫 → **短路无法绕过守卫**。
+2. **「生成结果 == 已发布索引」时守卫无事可做**：守卫的判据是 `published − generated`（`:323`）。两者相等 → 差集为空 → 不报错（S13 实测：registry 0.1.4、基线 0.1.4 → exit 0）。随后发布脚本 `cmp` 相同 → `index already current`、exit 0（§13.6 的 E 段实测）。净效果：分支内容不变，**没有回退**，但这次刷新什么也没做而 CI 是绿的（假绿）。
+3. **发布路径不会出现假绿**：release job 传 `MARKET_EXPECT_VERSION=<tag 版本>`，registry 滞后时轮询到 10 min 超时并报错（S3/S4），job 直接红。只有**不带期望版本**的刷新（周更 cron、手动 dispatch 且未修索引源）才可能「安静地什么都没做」；此时索引内容仍是上次正确结果，下一次运行会自愈。
+4. **能真正造成回退的是守卫的基线，不是短路**：见 §13.6 的 B/D 两段——基线不可读或基线滞后时，守卫看到的是「没有要消失的版本」，于是放行，发布脚本再拿**分支副本**（比基线新）比对 → 不等 → 真推送 → 分支变小。
+
+补充：0.1.5 这次索引由 1 个版本变 2 个版本，生成结果与分支副本必然不同，**短路不会误放**（C 段实测：分支 2 版本时推送成功）。
+
+### 13.6 守卫绕过与短路的端到端复现（6 PASS）
+
+本地 bare remote 上的完整链路（`chain.sh`，真实 `origin` 未接触）：
+
+```text
+=== A: fresh packument, build a 2-version index ===
+A branch versions=[0.1.5,0.1.4] sha=52ebe7b count=1
+=== B: baseline UNREADABLE + lagging registry ===
+rollback guard skipped: cannot read the published index at …/missing-baseline.json (… ENOENT)
+Wrote marketplace.json: 1 version(s); skipped: 0.0.0-stage (prerelease)
+ + 52ebe7b...3ae9a90 HEAD -> market-index (forced update)
+B branch versions=[0.1.4] sha=3ae9a90 count=1
+=== C: restore a 2-version branch ===
+C branch versions=[0.1.5,0.1.4] sha=3c400f1 count=1
+=== D: baseline READABLE but stale (small) + lagging registry -> guard blind? ===
+Wrote marketplace.json: 1 version(s); skipped: 0.0.0-stage (prerelease)
+ + 3c400f1...d471df5 HEAD -> market-index (forced update)
+D branch versions=[0.1.4] sha=d471df5 count=1
+=== E: generated == branch (stale registry, no new version) -> already current ===
+index already current for 0.1.5
+E branch sha before=d471df5 after=d471df5 same=yes count=1
+```
+
+| ID | 断言 | 结果 |
+| --- | --- | --- |
+| X1 | A：fresh packument → 分支 2 版本 `[0.1.5,0.1.4]` | PASS |
+| X2 | B：基线不可读 → 守卫跳过 → **分支被推小**（52ebe7b→3ae9a90，2→1 版本） | PASS（行为复现） |
+| X3 | C：重新建回 2 版本分支（3c400f1） | PASS |
+| X4 | D：基线可读但滞后 → 守卫无告警 → **分支被推小**（3c400f1→d471df5） | PASS（行为复现） |
+| X5 | E：生成结果 == 分支副本 → `index already current`、sha 不变、无新提交 | PASS |
+| X6 | 短路不绕过守卫：生成阶段先跑，S13/E 两段均无守卫报错也无推送 | PASS |
+
+基线为什么会滞后：`raw.githubusercontent.com/.../market-index/marketplace.json` 实测响应头 `cache-control: max-age=300`，而守卫取索引走的是同一个 `MARKET_INDEX_URL`（`scripts/market-index.mjs:107-117`，未加 `?t=`）——与脚本给 packument 加 buster 的做法不一致，这是 D-12 的根因；D-13 则是 `readPublishedIndexForGuard` 的 `catch` 把 404 与其它错误一视同仁（`:111-115`），「首次发布不阻塞」的设计在刷新场景下反而成了缺口。
+
+**两条都不是 0.1.5 的阻断项**：release 路径有 `MARKET_EXPECT_VERSION`，且本次索引必变（1→2 版本），短路与守卫缺口都不会触发。建议在 0.1.5 之后按下列顺序加固（成本从低到高）：
+
+1. 守卫取索引也加一次性 `?t=`（一行，与 packument 一致）；
+2. `readPublishedIndexForGuard` 只在 404 时跳过，其它错误按失败处理（或回退到 `git show origin/market-index:marketplace.json`）；
+3. 发布脚本在 `cmp` 之前加一次「版本集合不得变小」断言（分支副本已在手，最可靠）；
+4. `already current` 时输出显式 no-op 标记，便于在 Actions 日志里区分「真刷新」与「空跑」。
+
+### 13.7 未验证项（本轮新增）
+
+- **0.1.5 的 Actions 端到端**（tag → publish → market-index job 自动刷新）：未跑，本轮只做代码级/本地等价验证；U1 继续有效。
+- **GitHub 表达式引擎**：`${{ inputs.allow_shrink && '1' || '' }}` 在 `schedule` 下求值为 `''` 属按文档推理，本机无法执行 Actions 表达式；`if: ${{ !contains(github.ref_name, '-') }}` 同理（表达式文本已断言，运行时求值未验证）。
+- **`npm stage publish` 是否强制 dist-tag**：CHANGELOG `[0.1.4]` 称「npm rejects an untagged prerelease」，本机不能在不写 registry 的前提下验证 `stage publish` 的该校验。
+- DSH 插件市场 GUI 里的真实安装/更新：未验证（与 §10 U4 相同）。
+
+### 13.8 边界声明
+
+- 只追加本文件；未改脚本/workflow/其它文档；未 `git commit/push/tag`；未 `npm publish`（`npm publish --dry-run` 除外）。
+- 未重跑 §2–§7 的 106 条与 §12 的 40 条；§10 的 10 条未验证项继续有效。
+- 新增实验目录：`%TEMP%\dalisi-market-verify\{srv,fixtures,live,pub3,pub4,profile-015}`；真实 `origin` 仅只读 `git fetch`/`ls-remote`。

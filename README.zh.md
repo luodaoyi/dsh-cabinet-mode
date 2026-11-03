@@ -239,7 +239,7 @@ npmjs.com 侧的一次性配置（维护者在网页上完成，无法从本仓�
 - DSH 升级后已装 bundle 或回退 patch 是否保留。
 - `config.id` 语法校验规则（本 id 为 `cabinet`，仅小写字母）。
 - preset 声明的 HMR 热生效、私有源/代理下的 tgz 安装。
-- **npm Trusted Publishing 全流程与插件市场。** 发布工作流尚未运行过：还没有任何版本发布到 npm，`market-index` 分支尚不存在，真实的市场安装/更新也未执行。
+- **插件市场的真实使用。** npm 发布、GitHub Release、`market-index` 分支、索引解析、按 npm spec 安装这五项已在 0.1.4（2026-11-03）处置过程中实测；但 DSH 插件市场 GUI 里的真实安装/更新未执行，tag → 发布 → 自动刷新索引的完整链路以 0.1.5 为首次运行。
 
 ## 已知限制
 

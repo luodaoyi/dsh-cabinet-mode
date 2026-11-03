@@ -383,10 +383,11 @@ These were **not** tested on this machine and must not be presented as verified:
 - Whether `config.id` syntax rules reject unusual ids (this id is `cabinet`).
 - HMR behavior for preset declarations, and private-registry/proxied tarball
   installs.
-- **The npm Trusted Publishing flow and the plugin market.** The release workflow
-  has not run yet, so no version has been published to npm, the `market-index`
-  branch does not exist yet, and no real plugin-market install or update has been
-  performed.
+- **The plugin market in real use.** The npm publish, the GitHub Release, the
+  `market-index` branch, parsing the index and installing from the npm spec were
+  exercised for 0.1.4 (2026-11-03), but no real install or update has been performed
+  in the DSH plugin-market GUI, and 0.1.5 is the first run of the whole
+  tag → publish → automatic index refresh chain.
 
 ## Known limitations
 
