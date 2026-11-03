@@ -1,0 +1,61 @@
+name: CI
+
+# Pull-request and main-branch checks only. The npm publish step lives in
+# release.yml exclusively: npm Trusted Publishing validates the workflow file
+# name, so publishing is deliberately not moved behind a reusable workflow.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Verify package
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Repository and package checks
+        run: node scripts/verify.mjs
+
+      - name: Script syntax checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check scripts/market-index.mjs
+          bash -n scripts/publish-market-index.sh
+
+      - name: Check the publish tarball without credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm pack --dry-run > pack-dry-run.txt 2>&1
+          cat pack-dry-run.txt
+          npm pack
+          tar -tzf dsh-cabinet-mode-*.tgz > tarball.txt
+          for file in \
+            package/package.json \
+            package/cordis.patch.yml \
+            package/icon.svg \
+            package/scripts/market-index.mjs; do
+            grep -qx "$file" tarball.txt || {
+              echo "::error::$file is missing from the tarball"
+              exit 1
+            }
+          done

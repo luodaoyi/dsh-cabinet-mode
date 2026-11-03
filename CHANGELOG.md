@@ -2,6 +2,73 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.1.4] - 2026-11-03
+
+### Added
+
+- **npm publication through npm Trusted Publishing (OIDC).** Pushing a `v*` tag
+  now runs `.github/workflows/release.yml`, which verifies the tree, packs the
+  tarball, publishes `dsh-cabinet-mode` to `registry.npmjs.org` with
+  `npm publish --access public` authenticated by the workflow's OIDC identity
+  (`id-token: write`, no `NPM_TOKEN`), creates the GitHub Release, and refreshes
+  the plugin market index branch. The npm-side trusted publisher must be created
+  on npmjs.com first; the preconditions are documented in both READMEs.
+- **Plugin market index (format 1).** `scripts/market-index.mjs` builds
+  `marketplace.json` from the npm registry: it lists every published version,
+  skips prereleases and deprecated versions, keeps `engines.dsh` optional (this
+  package still declares no DSH version gate, so entries carry no `engines`
+  member), writes integer-second `publishTimestamp` values, and sorts versions in
+  descending SemVer order. `--check` compares the registry with the published
+  index byte for byte. The script uses only Node built-ins; two test seams
+  (`MARKET_REGISTRY_MANIFEST`, and a local path / `file:` URL in
+  `MARKET_INDEX_URL`) allow offline fixture runs without changing the production
+  defaults.
+- `scripts/publish-market-index.sh` publishes `marketplace.json`, `icon.svg` and a
+  README to the orphan `market-index` branch, force-pushing only when the content
+  changed (three attempts). It is the only publisher implementation (CI and
+  `npm run market:publish` both call it) and refuses to run on a working tree with
+  modified tracked files; run it only in a disposable clone with no uncommitted
+  work (Windows uses Git Bash).
+- `.github/workflows/market-index.yml`: manual and weekly refresh of the index
+  branch. `.github/workflows/ci.yml`: pull-request checks (repository
+  verification, script syntax, `npm pack --dry-run` and tarball content checks).
+- **Install/update from the plugin market.** Both READMEs document the index URL
+  `https://raw.githubusercontent.com/luodaoyi/dsh-cabinet-mode/market-index/marketplace.json`,
+  adding it as an index source in the DSH plugin market, installing from it, and
+  the required DSH restart. The documented update path is the real one for
+  third-party plugins — uninstall the old version, install the new one, restart —
+  because the market has no in-place update.
+
+### Changed
+
+- The release workflow no longer says "Nothing is published to npm": the GitHub
+  Release is now an additional artifact, not the only distribution channel.
+- README install/upgrade examples point at the 0.1.4 GitHub Release assets, and
+  the npm-related "unverified" statements now describe the npm/index flow
+  accurately.
+- `docs/cross-platform.md` records the npm Trusted Publishing path, the market
+  index generator, and the code-level update chain (no in-place update, SemVer-only
+  comparison, no periodic check, 10-minute index cache).
+- `files` in `package.json` now lists `docs/cross-platform.md` and `docs/images`
+  explicitly instead of the whole `docs/` directory, so internal research and
+  verification material stays in git but out of the npm tarball.
+- Removed the unused `@deepseek-ai/dsh-plugin-market-index` devDependency and the
+  Windows-only Node copy of the branch publisher: the repository stays
+  dependency-free and the publish pipeline needs no install step.
+
+### Unverified
+
+- The release workflow, the npm publish and the index refresh have **not run
+  yet**: no version is on npm, the `market-index` branch does not exist, and a
+  real plugin-market install/update has not been performed. The UI labels and
+  click path of the plugin market are unverified. The
+  `dsh-cabinet-mode@<version>` install spec was confirmed locally by executing the
+  format-1 reader (`@deepseek-ai/dsh-plugin-market-index@0.2.1-rc.5`,
+  `marketInstallTarget`). The market update path documented in the READMEs (no
+  in-place update; uninstall → install → restart; SemVer-only comparison; no
+  periodic auto-check; 10-minute index cache) is a code-level finding recorded in
+  `docs/research/market-index-research.md` §5, not an end-to-end test.
+
 ## [0.1.3] - 2026-10-31
 
 ### Fixed

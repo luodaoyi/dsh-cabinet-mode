@@ -61,7 +61,7 @@ If any step fails, show the exact error and stop. Do not retry more than once.
 ## Manual install (3 lines)
 
 ```sh
-dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.1.3/dsh-cabinet-mode-0.1.3.tgz
+dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.1.4/dsh-cabinet-mode-0.1.4.tgz
 # fully quit and restart DeepSeek Harness
 # New session -> mode picker -> 内阁模式
 ```
@@ -85,18 +85,67 @@ commands work on Linux and macOS.
 >   `dsh-cabinet-mode` in `dsh.profile.bundles`):
 >
 > ```sh
-> node "<DeepSeek Harness install>\resources\runtime\primary-runtime\dependencies\pnpm\bin\pnpm.mjs" --dir "%USERPROFILE%\.dsh\profiles\desktop" add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.1.3/dsh-cabinet-mode-0.1.3.tgz
+> node "<DeepSeek Harness install>\resources\runtime\primary-runtime\dependencies\pnpm\bin\pnpm.mjs" --dir "%USERPROFILE%\.dsh\profiles\desktop" add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.1.4/dsh-cabinet-mode-0.1.4.tgz
 > ```
 >
 > Back up the profile's `package.json` / `pnpm-lock.yaml` first.
 
+## Install from the plugin market
+
+The bundle is also listed in a DeepSeek Harness plugin market index that is
+generated from the npm registry, so DSH can install and update it without a tarball
+URL or a local checkout:
+
+```text
+https://raw.githubusercontent.com/luodaoyi/dsh-cabinet-mode/market-index/marketplace.json
+```
+
+1. Open **Plugin market** (插件市场) in DSH, open **Index sources** (索引源), add the
+   URL above, and refresh it.
+2. Install **内阁模式 / Cabinet Mode** (`dsh-cabinet-mode`) from the market list that
+   appears. DSH installs `dsh-cabinet-mode@<version>` from
+   `https://registry.npmjs.org` into the current profile. This is the same bundle
+   install as Method A below — use one of them, never both.
+3. **Fully quit and restart DeepSeek Harness**, then create a new session and pick
+   **内阁模式** in the mode picker.
+4. To update later: on the **Installed** (已安装) page, uninstall the old version
+   first, then install the newer version from **Plugin market**, and restart again.
+   The market has **no in-place update** for third-party plugins — the "update
+   available" (有新版本) badge only opens the Installed page.
+
+How "update available" is detected: DSH compares **SemVer versions only**, so a
+package rebuilt under the same version number is not flagged (npm versions are
+immutable, so this does not affect the npm source). There is **no periodic
+auto-check**: the index is fetched when the plugin market is opened or refreshed
+and cached for 10 minutes. These are code-level findings from the DSH 0.2.1-rc.5
+sources, recorded with line references in [docs/cross-platform.md](docs/cross-platform.md) (§7);
+the real update flow was not exercised end to end.
+
+The index is regenerated from the npm registry after every tagged release and only
+lists published, non-deprecated stable versions; do not edit the `market-index`
+branch by hand.
+
+> **First release ordering:** `dsh-cabinet-mode` 0.1.4 is the first version intended
+> for npm. Until that publish succeeds the package is absent from
+> `registry.npmjs.org` and the index URL returns 404 — expected, not an install bug.
+> The release workflow publishes to npm first and refreshes the index only after it.
+
+**Not verified:** the exact market UI labels and click path in your DSH build, and a
+real market install/update — 0.1.4 had not been published yet when this was written.
+The `dsh-cabinet-mode@<version>` install spec is what the format-1 reader
+(`@deepseek-ai/dsh-plugin-market-index@0.2.1-rc.5`, `marketInstallTarget`) returns
+for an npm source; that function was executed locally, the UI was not.
+
 ## Upgrade
 
-Run the same install command with the new version URL (or pick the new `.tgz` in
-the plugin page), then fully quit and restart DeepSeek Harness:
+Installed through the plugin market? Refresh the market, uninstall the old version
+on the **Installed** page, install the newer version from **Plugin market**, and
+restart — there is no tarball URL to change and no one-click update. Otherwise run
+the same install command with the new version URL (or pick the new `.tgz` in the
+plugin page), then fully quit and restart DeepSeek Harness:
 
 ```sh
-dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.1.3/dsh-cabinet-mode-0.1.3.tgz
+dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.1.4/dsh-cabinet-mode-0.1.4.tgz
 ```
 
 `dsh plugin --profile desktop list` should report the new version. Upgrades were
@@ -143,11 +192,13 @@ on DSH 0.2.1-rc.5.
 |---|---|---|---|---|
 | **A. DSH plugin manager** (recommended): plugin page "Add plugin -> local directory/package", or `dsh plugin --profile <profile> add <absolute path / .tgz / release URL>` | ✅ tested locally on 2026-10-29: local-directory install **and GitHub Release asset URL install**; `dsh plugin --profile desktop list` = 3 packages; composition check passed | ⚙️ code-level inference, **not tested on this machine** | ⚙️ code-level inference, **not tested on this machine** | Pure YAML bundle: no build, no dependencies, no OS-specific code. See [docs/cross-platform.md](docs/cross-platform.md). |
 | **B. Fallback node scripts** (no plugin manager): `node scripts/install.mjs --profile <profile>` then `--apply`; writes the profile `cordis.patch.yml` | ✅ scripts tested on Windows (dry-run + temp copies) | ⚙️ code-level inference, **not tested** | ⚙️ code-level inference, **not tested** | Same file layout on all platforms: `<DSH_HOME>/profiles/<profile>/cordis.patch.yml`. |
+| **Plugin market** (index source): see [Install from the plugin market](#install-from-the-plugin-market) | ❌ **not tested** (0.1.4 was not published at the time of writing) | ❌ **not tested** | ❌ **not tested** | Same npm bundle install through DSH's plugin market; requires the npm publish and the `market-index` branch to exist first. |
 
 **Method A and Method B are mutually exclusive.** Both create the preset
 declaration `config.id: cabinet`. Installing both makes the preset id appear
 twice, and the preset declaration then fails to load. Uninstall one method before
-switching to the other.
+switching to the other. The plugin-market route installs the same bundle as
+Method A, so the same exclusivity applies to it.
 
 ### A. Install as a DSH bundle (recommended, all platforms)
 
@@ -205,7 +256,8 @@ were verified on this machine's DSH 0.2.1-rc.3; they describe DSH behavior, not
 restrictions added by this bundle.
 
 - **No hard DSH version limit.** This package declares no `engines.dsh` and no DSH
-  `peerDependencies`, and does no version check at install time. Tested on DSH
+  `peerDependencies` (a product decision recorded in CHANGELOG 0.1.1), and does no
+  version check at install time. Tested on DSH
   0.2.1-rc.3 (composition reference) and 0.2.1-rc.5 (real install + upgrade,
   Windows desktop, 2026-10-31); other versions remain **unverified**. The 22
   plugin rows are copied from the 0.2.1-rc.3 shipped Standard Mode and matched the
@@ -233,8 +285,9 @@ restrictions added by this bundle.
 - **A preset is trusted configuration.** Its plugins can execute host code; only
   install presets from sources you trust.
 - **No OS restriction, no plugin allowlist, no npm account.** The bundle is
-  platform-neutral YAML and is distributed as a GitHub Release tarball; installing
-  from it needs no npm account and no plugin allowlist entry.
+  platform-neutral YAML and is distributed as a GitHub Release tarball and a public
+  npm package; installing either way needs no npm account and no plugin allowlist
+  entry.
 - **Restart, session lock, Web read-only.** Install and uninstall require a DSH
   restart; after a session has produced output its mode is locked for the session
   lifetime; in the Web UI the mode can be selected and its configuration viewed
@@ -252,6 +305,53 @@ touch a `preset-cabinet` entry it did not write (bundle or manual install); remo
 that through the plugin page instead. Both commands are dry-run by default; add
 `--apply` to write.
 
+## Releasing (maintainers)
+
+Pushing a version tag runs `.github/workflows/release.yml`, which verifies the tree,
+packs the tarball, publishes it to npm with **Trusted Publishing (OIDC)** — no
+long-lived npm token — creates the GitHub Release, and then refreshes the
+`market-index` branch that the plugin market reads.
+
+```sh
+# package.json version and the matching CHANGELOG section must both be 0.1.4
+git tag v0.1.4
+git push origin v0.1.4
+```
+
+One-time setup on npmjs.com (a maintainer action; it cannot be done from this
+repository). Add a GitHub Actions trusted publisher for the package with:
+
+- Organization or user: `luodaoyi`
+- Repository: `dsh-cabinet-mode`
+- Workflow filename: `release.yml` (file name only, including the extension; the
+  file must stay at `.github/workflows/release.yml` and keep the publish step)
+- Environment name: leave empty unless the publish job later gets a GitHub
+  environment
+- **Allowed actions: select `npm publish`.** Trusted publishers created after
+  2026-09-03 default to `npm stage publish` only, and a plain `npm publish` is
+  rejected unless it is explicitly allowed.
+
+A newly created trusted-publisher configuration must complete its first successful
+publish within **2 days**, otherwise it expires and must be deleted and recreated.
+`repository.url` in `package.json` must exactly match the GitHub repository, which
+it does (`git+https://github.com/luodaoyi/dsh-cabinet-mode.git`).
+
+These npm-side facts come from the npm documentation page "Trusted publishing for
+npm packages" (https://docs.npmjs.com/trusted-publishers); the current npmjs.com
+page layout was **not verified** from this repository. Trusted publishing requires
+npm CLI >= 11.5.1 and Node >= 22.14.0 — the workflow runs Node 24. `npm whoami` does
+not check trusted-publishing permissions (the npm documentation says so), so the
+workflow does not use it as a pre-flight check.
+
+If the npm publish succeeds but the index job fails, run the **Market index**
+workflow manually to refresh the branch.
+
+The branch publisher is `scripts/publish-market-index.sh` (also wired to
+`npm run market:publish`); it needs `bash`, which ships with Git for Windows. It
+checks out an orphan branch and rewrites the working tree, so run it **only in a
+disposable clone with no uncommitted work** — it refuses when a tracked file is
+modified, but untracked files are not protected.
+
 ## Unverified items
 
 These were **not** tested on this machine and must not be presented as verified:
@@ -268,8 +368,12 @@ These were **not** tested on this machine and must not be presented as verified:
   actually follows the member identity instead of claiming to be the Lead.
 - Whether the installed bundle or the fallback patch survives DSH app upgrades.
 - Whether `config.id` syntax rules reject unusual ids (this id is `cabinet`).
-- HMR behavior for preset declarations, private-registry/proxied tarball installs,
-  and npm publishing (this repository publishes only GitHub Release assets).
+- HMR behavior for preset declarations, and private-registry/proxied tarball
+  installs.
+- **The npm Trusted Publishing flow and the plugin market.** The release workflow
+  has not run yet, so no version has been published to npm, the `market-index`
+  branch does not exist yet, and no real plugin-market install or update has been
+  performed.
 
 ## Known limitations
 

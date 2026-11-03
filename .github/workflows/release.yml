@@ -1,44 +1,146 @@
 name: Release
 
-# Publishes a ready-to-install bundle tarball when a version tag is pushed.
-# Nothing is published to npm; the GitHub Release asset is the distribution channel.
+# Publishes dsh-cabinet-mode to the public npm registry with npm Trusted
+# Publishing (OIDC) when a version tag is pushed, then creates the GitHub Release
+# and refreshes the plugin market index branch that DSH reads.
+#
+# No npm token is used or configured here: `id-token: write` is the only
+# credential. The npm side must already have a trusted publisher for this package
+# that names this workflow file (`release.yml`), allows `npm publish`, and matches
+# repository.url in package.json. See "Releasing (maintainers)" in README.md.
+#
+# Keep the publish step in this file: npm validates the workflow *file name*
+# against the trusted publisher, and a reusable workflow would make the calling
+# workflow's name part of that check instead.
 on:
   push:
     tags:
       - 'v*'
 
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
-  release:
-    name: Pack and publish GitHub Release
+  publish:
+    name: Publish to npm and create the GitHub Release
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write # create the GitHub Release
+      id-token: write # OIDC token for npm Trusted Publishing
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
+          package-manager-cache: false
 
-      - name: Verify bundle package
-        run: node scripts/verify.mjs
+      - name: Require the tagged commit to be contained in main
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::tag $GITHUB_REF_NAME is not contained in main; refusing to publish"
+            exit 1
+          fi
 
-      - name: Pack npm tarball
+      - name: Require package.json and CHANGELOG to match the tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          package_version=$(node -p "require('./package.json').version")
+          if [ "$package_version" != "$version" ]; then
+            echo "::error::package.json version ${package_version} does not match tag ${GITHUB_REF_NAME}"
+            exit 1
+          fi
+          grep -Fq "## [${version}]" CHANGELOG.md || {
+            echo "::error::CHANGELOG.md has no [${version}] section"
+            exit 1
+          }
+
+      - name: Verify the package and the market index scripts
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/verify.mjs
+          node --check scripts/market-index.mjs
+          bash -n scripts/publish-market-index.sh
+
+      - name: Pack the tarball and inspect its contents
+        shell: bash
         run: |
           set -euo pipefail
           npm pack
           sha256sum dsh-cabinet-mode-*.tgz > SHA256SUMS.txt
           cat SHA256SUMS.txt
+          tar -tzf dsh-cabinet-mode-*.tgz > tarball.txt
+          for file in \
+            package/package.json \
+            package/cordis.patch.yml \
+            package/icon.svg \
+            package/README.md \
+            package/README.zh.md \
+            package/docs/cross-platform.md \
+            package/scripts/market-index.mjs \
+            package/scripts/publish-market-index.sh; do
+            grep -qx "$file" tarball.txt || {
+              echo "::error::$file is missing from the tarball"
+              exit 1
+            }
+          done
 
-      - name: Publish GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          generate_release_notes: true
-          files: |
-            dsh-cabinet-mode-*.tgz
-            SHA256SUMS.txt
+      - name: Publish to npm with the trusted publisher
+        shell: bash
+        run: npm publish ./dsh-cabinet-mode-*.tgz --access public
+
+      - name: Create the GitHub Release
+        shell: bash
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release create "$GITHUB_REF_NAME" ./dsh-cabinet-mode-*.tgz SHA256SUMS.txt \
+            --verify-tag --generate-notes
+
+  market-index:
+    name: Refresh the plugin market index
+    needs: publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write # force-push the market-index branch
+    concurrency:
+      group: market-index-publish
+      cancel-in-progress: false
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Regenerate the index from the npm registry
+        shell: bash
+        run: node scripts/market-index.mjs
+
+      - name: Publish the market-index branch
+        shell: bash
+        run: bash scripts/publish-market-index.sh

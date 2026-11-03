@@ -1,0 +1,4 @@
+# The market index publisher ships as a bash script and runs on Linux CI, where a
+# CRLF shebang line fails. Pin shell scripts to LF even on Windows checkouts
+# (core.autocrlf=true would otherwise convert them).
+*.sh text eol=lf

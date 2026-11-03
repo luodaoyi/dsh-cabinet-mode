@@ -1,0 +1,44 @@
+name: Market index
+
+# Refreshes the plugin market index branch from the npm registry, without
+# publishing a release. The release workflow runs the same two commands after a
+# tagged npm publish; this workflow recovers a stale index after a failed
+# release job, after `npm deprecate`, or when the registry state changed.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '23 4 * * 1'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: market-index-publish
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    name: Refresh the market-index branch
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write # force-push the market-index branch
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Regenerate the index from the npm registry
+        shell: bash
+        run: node scripts/market-index.mjs
+
+      - name: Publish the market-index branch
+        shell: bash
+        run: bash scripts/publish-market-index.sh

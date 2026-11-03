@@ -2,6 +2,8 @@ node_modules/
 npm-debug.log*
 *.tgz
 dist/
+.artifacts/
+marketplace.json
 .DS_Store
 Thumbs.db
 .idea/

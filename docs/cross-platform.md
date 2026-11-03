@@ -1,6 +1,6 @@
 # 跨平台兼容性（Windows / Linux / macOS）
 
-> 基线：DeepSeek Harness 0.2.1-rc.3（Desktop 安装包，**实测参照，不是版本限制**）。本包不声明 DSH 版本门禁：`package.json` 无 `engines.dsh`、无 DSH `peerDependencies`，`scripts/verify.mjs` 的 DSH 版本检查仅为信息性 WARN，不因版本不同而失败；其他带声明式 preset 机制的 DSH 版本可尝试，但**未做多版本实测**。本机仅有 Windows，**下文 Linux/macOS 结论均为代码级论证，未在本机实测**，逐条标注「实测/代码级推断」。
+> 基线：DeepSeek Harness 0.2.1-rc.3（Desktop 安装包，**实测参照，不是版本限制**）。本包不声明 DSH 版本门禁：`package.json` 无 `engines.dsh`、无 DSH `peerDependencies`（0.1.1 起的既定产品决定，见 CHANGELOG），`scripts/verify.mjs` 的 DSH 版本检查仅为信息性 WARN，不因版本不同而失败；其他带声明式 preset 机制的 DSH 版本可尝试，但**未做多版本实测**。本机仅有 Windows，**下文 Linux/macOS 结论均为代码级论证，未在本机实测**，逐条标注「实测/代码级推断」。
 > 本文只讨论本插件（纯 YAML bundle：`package.json` + `cordis.patch.yml`）与 DSH 宿主安装链；不修改仓库其它文件。
 > 证据约定：`P = dsh/node_modules/@deepseek-ai/` 为 app.asar 内路径（全文 `P/...:行号`）；本机复核用 `<work-dir>/_work/asar-read.js`（`cat/list` 读取 app.asar 内文件）。实跑命令以 `>` 标注。
 
@@ -20,7 +20,7 @@
 | 10 | 安装后生效 | 重启 Host → 新会话可选 | 同 | 同 | `P/dsh-plugin-manager/README.zh.md:14,73`；`P/dsh-plugin-manager/lib/index.js:2381` | Windows 已实测真实 `add`（2026-10-29，本地目录与 Release 资产 URL；`dsh plugin --profile desktop list` = 3 packages、bundles 写入）；重启后新会话出现模式未实测，后段代码级 |
 | 11 | 是否需要 postinstall / build | 否（纯 YAML） | 否 | 否 | `P/dsh-plugin-manager/lib/types/build-approval.js:1,7-10`；README.zh:64 | 代码级 |
 | 12 | GitHub Release `.tgz` 直接安装 | 实测可用（Release 资产 URL 直装，2026-10-29） | 同 | 同 | `P/dsh-plugin-manager/lib/types/install-spec.js:16-17,62-76`；`pnpm add <tarball url>`（本机 `dsh plugin ... add --help` 实跑输出含 `<tarball url>`） | Windows 实测 + pnpm 帮助实测；Linux/macOS 代码级 |
-| 13 | npm publish 所需字段 | 条件见「发布与分享」 | 同 | 同 | `P/dsh-app-boot/lib/index.js:252,280-304`；`P/dsh-plugin-manager/lib/index.js:313,335-337` | 仅文档条件，未发布 |
+| 13 | npm 发布与插件市场索引 | `release.yml` 走 OIDC Trusted Publishing（未实跑） | 同 | 同 | `.github/workflows/release.yml`、`scripts/market-index.mjs`；npm 官方文档 Trusted publishing；`@deepseek-ai/dsh-plugin-market-index@0.2.1-rc.5` `lib/index.js:32-36,209-225,280-318` | 代码级 + 本机格式读取器实跑；npm 发布与索引分支均未实跑 |
 
 > 附加（不属于平台列）：本包不声明 DSH 版本门禁（`package.json` 无 `engines.dsh`/DSH `peerDependencies`，`scripts/verify.mjs` 版本检查仅信息性 WARN）；本文所有结论以 DSH 0.2.1-rc.3 实测为参照，其他 DSH 版本若内置插件集合不同，需按该版本 `presets/standard.patch.yml` 调整插件行——**未做多版本实测**。
 
@@ -118,15 +118,30 @@ async function runDesktopCli(runtimeDir, supportDir) {
   dsh plugin --profile web add https://github.com/<owner>/<repo>/releases/download/v<ver>/dsh-cabinet-mode-<ver>.tgz
   ```
   （Linux/macOS 未实测；私仓/代理/认证未验证。）本地文件须用**绝对路径**（`install-spec.js:63-65` 明确拒绝相对路径）。
-- **npm 发布（仅列条件，本机无凭证、未发布、未实测）**：
-  - 必需：`name`、`version`；`private` 不得为 true；scoped 包加 `publishConfig.access: "public"`。
+- **npm 发布（0.1.4 起的发布通道，未实跑）**：
+  - **通道**：推送 `v*` tag → `.github/workflows/release.yml` 校验并打包 → `npm publish --access public`（npm Trusted Publishing / OIDC，`id-token: write`，不使用 `NPM_TOKEN` 或任何长期 token）→ 创建 GitHub Release → `market-index` job 重新生成索引并强制推送孤儿分支 `market-index`（`marketplace.json` + `icon.svg` + README）。索引不放在 `main`；**`main` 目前未启用分支保护规则**（2026-11-03 实测：`gh api repos/luodaoyi/dsh-cabinet-mode/rulesets` 返回空数组，`branches/main/protection` 返回 404「Branch not protected」），CI 只在 push/PR 时校验。
+  - **npm 侧外部前置**（维护者在 npmjs.com 完成）：trusted publisher 指向 GitHub 仓库 `luodaoyi/dsh-cabinet-mode`、workflow 文件名 `release.yml`（含扩展名，文件必须在 `.github/workflows/` 内且发布步骤留在该文件）；新建配置须在 **2 天内**完成首次成功发布，否则失效需删除重建；2026-09-03 后创建的配置默认只允许 `npm stage publish`，**必须显式勾选 `npm publish`**。来源：npm 官方文档 Trusted publishing（https://docs.npmjs.com/trusted-publishers）。
+  - **工具版本**：Trusted Publishing 要求 npm CLI ≥ 11.5.1、Node ≥ 22.14.0；工作流用 setup-node 的 Node 24（满足）。`npm whoami` 不能用于验证 trusted publishing 权限（npm 文档明确说明）。
+  - **索引格式（format 1）**：由 `scripts/market-index.mjs` 从 npm registry 生成，规则以 `@deepseek-ai/dsh-plugin-market-index@0.2.1-rc.5` 为准——`format: 1`、`title.en` 必填、`publishTimestamp` 为整数秒、`versions` 按 SemVer 降序、跳过 prerelease 与 deprecated；`engines.dsh` **可选**（本包不声明，条目省略）；`icon` 支持 https URL 或相对索引 URL 的引用，**32 KiB 上限只约束 `data:` 内联图标**，`./icon.svg` 这类相对路径按索引 URL（https）解析，不受该上限约束。读取器 `marketInstallTarget()` 对 npm 源返回 `dsh-cabinet-mode@<version>` + `registry: https://registry.npmjs.org`（本机实跑读取器核对）。
+  - 必需字段：`name`、`version`；`private` 不得为 true；scoped 包才需要 `publishConfig.access: "public"`（本包非 scoped，但仍已显式声明）。
   - bundle 身份：`dsh.bundle.patch` 指向 `cordis.patch.yml`（字符串或有序数组）。这是插件管理器识别「组合包层」的充要字段（`P/dsh-plugin-manager/lib/index.js:313,335-337`）；缺它只会被当作普通依赖安装。
   - `files` 必须包含 `cordis.patch.yml`（npm 打包白名单）。
-  - 兼容性：优先只写 `engines.dsh`（单一声明即决定，`P/dsh-app-boot/lib/index.js:280-284`）；**不要**逐个声明 `@deepseek-ai/dsh-*` 的 `peerDependencies` 精确版本——否则会被逐包校验（`:286-304`），跨平台/跨补丁版本容易误判（本机已见 rc.2 插件在 rc.3 被警告的先例）。
-  - **现状对照（本仓库 `package.json` 已满足）**：`name`/`version`/`private: false`/`files` 含 `cordis.patch.yml`/`dsh.bundle.patch` 均在；未声明 `peerDependencies` 与 `engines.dsh`，因此 DSH 兼容性判定不触发（`P/dsh-app-boot/lib/index.js:280-304`）；未声明 `os`/`cpu`；`engines.node` 只对 npm/yarn 安装器有意义，DSH 兼容性判定不读。发布前仅剩 npm 凭证与 `npm publish`（未做）。
+  - 兼容性：若要声明版本门，优先只写 `engines.dsh`（单一声明即决定，`P/dsh-app-boot/lib/index.js:280-284`）；**不要**逐个声明 `@deepseek-ai/dsh-*` 的 `peerDependencies` 精确版本——否则会被逐包校验（`:286-304`），跨平台/跨补丁版本容易误判（本机已见 rc.2 插件在 rc.3 被警告的先例）。**本仓库的既定产品决定是不声明 `engines.dsh`（0.1.1 起），索引条目因此不写 `engines`**；这不影响 format 1 合法性。
+  - **现状对照（本仓库 `package.json`）**：`name`/`version`（0.1.4）/`private: false`/`files` 含 `cordis.patch.yml`/`dsh.bundle.patch`/`repository`（`git+https://github.com/luodaoyi/dsh-cabinet-mode.git`，无 query/fragment，匹配 trusted publisher 的仓库）均在；未声明 `peerDependencies` 与 `engines.dsh`，因此 DSH 兼容性判定不触发（`P/dsh-app-boot/lib/index.js:280-304`）；未声明 `os`/`cpu`。发布链路已写入 `.github/workflows/release.yml`（**未实跑**）。
   - 不要声明 `os`/`cpu` 限制字段；纯 YAML 无平台二进制。
   - 可选元数据：`description`、`icon`（相对路径，须位于包内，`P/dsh-app-boot/lib/index.js:2074-2097`）、`locale/*.json`（`P/dsh-app-boot/lib/index.js:574` 附近）。
 - **桌面端**：`dsh plugin --profile desktop add` 在 Desktop 载体下可用（Windows 实测 `list`、`add --help` exit 0；`P/dsh-desktop-host/lib/cli.js:97` 的 `manageDesktopProfile: true` 是放行来源）。Windows 已实测本地目录与 Release 资产 URL 两种真实安装（2026-10-29，`dsh plugin --profile desktop list` = 3 packages）；重启后新会话出现内阁模式仍未实测。
+
+### 7. 插件市场更新链路（0.1.4 起，代码级）
+
+依据：`docs/research/market-index-research.md`（2026-11-03 只读取证，rc.5 app.asar 解包读码）第 5、6 节。以下均为**代码级/官方文案**证据，**未做真实 UI 端到端实测**。
+
+- **没有原地升级。** `update(packageName)` 需要 `pkg.installTarget`，而该字段只对官方按需目录条目产生；第三方插件的「已安装」页没有「更新」按钮。「发现」页在 `update-available` 时显示「有新版本」，点击只执行 `onOpenInstalled`（跳到「已安装」页）。官方文案明确「其他插件请先卸载再安装新版」。真实更新路径只能是：**卸载旧版本 → 从市场安装新版本 → 重启 DSH**。
+- **版本比较只按 SemVer**：`update-available` 仅当 `semver.gt(索引版本, 已装版本)`。同一版本号重新构建（不同 commit）不会提示可更新；npm 版本不可变，npm 源不受影响。
+- **没有定时自动检查**：索引文档只在打开/刷新市场时抓取，成功后按 `cacheTtlMs`（默认 600000 ms = 10 分钟）缓存。
+- **npm 源写入 profile 的依赖串是精确版本**（例如 `"dsh-cabinet-mode": "0.1.4"`），便于回退与核对。
+- **`engines.dsh` 缺省 = 不设门禁**（本包产品决定，见 CHANGELOG 0.1.1）：读取器对无 `engines.dsh` 的版本一直判兼容，安装不拦截。若将来声明：运行时用 `semver.satisfies(runtime, range, { includePrerelease: true })`，且会在「安装后校验并回滚」「pnpm 后扫直接依赖」「启动加载 profile bundle」三处硬拦；`~0.2.1` 不含 `0.2.1-rc.5`，`workspace:*`/`latest` 直接被索引校验器拒。
+- **图标**：索引里的 `icon: "./icon.svg"` 按索引 URL 解析为 https 同源文件；**32 KiB 上限只约束 `data:` 内联图标**（rc.5 校验器 `index.js:211-215`），相对路径文件型图标无体积检查，本仓库 `icon.svg` 79384 字节合规。包内 `package.json` 的 `icon` 是另一条链路：必须是包内相对文件、SVG/PNG/JPEG/WebP、≤256 KiB。
 
 ## 未在本机实测清单
 
@@ -136,7 +151,7 @@ async function runDesktopCli(runtimeDir, supportDir) {
 4. ~~GitHub Release `.tgz` URL 的真实安装~~ → **Windows 已实测**（Release 资产 URL 直装成功，2026-10-29）；Linux/macOS 未实测。
 5. ~~真实 `dsh plugin --profile desktop add <bundle>` 安装~~ → **Windows 已实测**（本地目录与 Release URL 两种方式，`list` = 3 packages、bundles 写入，2026-10-29）；重启后新会话出现内阁模式仍未实测。
 6. Linux / macOS 上对 `<本仓库 cordis.patch.yml>` 执行 `dsh --profile web --patch ... --dump-config` 的组合校验（Windows 已实跑 exit 0）。
-7. npm publish 流程与安装验证（无 npm 凭证，未发布）。
+7. npm Trusted Publishing 首次发布、`market-index` 分支发布、以及插件市场里的真实安装/更新：均未实跑（0.1.4 尚未发布，索引分支不存在）。`dsh-cabinet-mode@<version>` 安装 spec 仅由本机执行格式读取器核对。
 8. HMR 开启时 preset 声明的热生效（仅代码级阅读 README 与注册表语义，未实跑）。
 9. 私有仓库/代理/认证下的 tgz 安装。
 
@@ -161,10 +176,15 @@ async function runDesktopCli(runtimeDir, supportDir) {
 | `P/dsh-agent-preset-registry/README.zh.md:12,56,60` | 声明式 preset 启动加载、失败可见 |
 | `P/dsh-client-ui-agent-preset/README.zh.md:28` | 新会话选择器/设置页 roster |
 | `P/dsh/README.zh.md:18,37,42-46` | `dsh plugin` 转发、profile 结构、patch 应用顺序 |
-| 本仓库 `package.json:30-47` | 纯 YAML bundle 声明：`files`、`dsh.bundle.patch`、`scripts`（仅 verify/pack，无安装生命周期） |
+| 本仓库 `package.json:36-51` | 纯 YAML bundle 声明：`files`（含 `docs/cross-platform.md`、`docs/images`，内部卷宗不进 tarball）、`dsh.bundle.patch`、`scripts`（仅 verify/market，无安装生命周期） |
 | 本仓库 `cordis.patch.yml:1-21` | 唯一的 `preset-cabinet` 声明与平台注释 |
 | 本仓库 `scripts/install.mjs:31-36,62-63,103,173`、`uninstall.mjs:24,52-53,106`、`verify.mjs:23-28` | 脚本已用 `fileURLToPath`/`homedir`/`DSH_HOME`/`join`，无手写分隔符 |
 | 实跑：`> dsh --profile web --patch <repo>/cordis.patch.yml --dump-config` → exit 0（66794 字节，含 `preset-cabinet`、`id: cabinet`、`name: 内阁模式`） | Windows 实测：成品补丁可被 rc.3 组合（不启动服务） |
 | 实跑：`> dsh --version` → 0.2.1-rc.3；`> dsh plugin --profile desktop list` → exit 0；`> dsh plugin --profile desktop add --help` → exit 0（pnpm add 帮助）` | Windows 实测 |
+| `docs/research/market-index-research.md:15,223,229-235,249` | 市场更新链路：无原地升级、`semver.gt`、无定时检查、10 分钟缓存 |
+| `docs/research/market-index-research.md:255-289` | `engines.dsh` 运行时判定、三处硬拦、`includePrerelease`、`~0.2.1` 陷阱 |
+| `docs/research/market-index-research.md:94-116` | icon 32 KiB 仅限 `data:`；包内 `icon` 256 KiB、必须相对路径 |
+| `.github/workflows/release.yml`、`scripts/market-index.mjs`、`scripts/publish-market-index.sh` | OIDC 发布、索引生成与索引分支发布（未实跑） |
+| 实跑：`> node scripts/market-index.mjs`（`MARKET_REGISTRY_MANIFEST` 指向 fixture 文件）→ 生成 `marketplace.json`；`> node scripts/market-index.mjs --check`（`MARKET_INDEX_URL` 指向本地索引文件）→ 一致 exit 0，篡改后 exit 1 | Windows 本机实测：离线生成与 `--check`（无网络、无依赖） |
 
 > README 引用锚点：`docs/cross-platform.md#结论矩阵`、`docs/cross-platform.md#未在本机实测清单`、`docs/cross-platform.md#依据索引`。
