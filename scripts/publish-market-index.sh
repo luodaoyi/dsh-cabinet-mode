@@ -16,14 +16,14 @@
 #
 # Run this only in a disposable clone with no uncommitted work: it checks out an
 # orphan branch and rewrites the working tree. The script refuses to start when a
-# tracked file is modified, but untracked files are not protected.
+# tracked file is modified or staged, but untracked files are not protected.
 
 set -euo pipefail
 
 test -s marketplace.json || { echo "marketplace.json is missing or empty; run scripts/market-index.mjs first" >&2; exit 1; }
 test -s icon.svg || { echo "icon.svg is missing; the index references it" >&2; exit 1; }
-if ! git diff --quiet; then
-  echo "refusing to publish from a working tree with modified tracked files; use a disposable clone" >&2
+if ! git diff --quiet || ! git diff --cached --quiet; then
+  echo "refusing to publish from a working tree with modified or staged tracked files; use a disposable clone" >&2
   exit 1
 fi
 

@@ -27,8 +27,8 @@ All notable changes to this project are documented in this file.
   README to the orphan `market-index` branch, force-pushing only when the content
   changed (three attempts). It is the only publisher implementation (CI and
   `npm run market:publish` both call it) and refuses to run on a working tree with
-  modified tracked files; run it only in a disposable clone with no uncommitted
-  work (Windows uses Git Bash).
+  modified or staged tracked files; run it only in a disposable clone with no
+  uncommitted work (Windows uses Git Bash).
 - `.github/workflows/market-index.yml`: manual and weekly refresh of the index
   branch. `.github/workflows/ci.yml`: pull-request checks (repository
   verification, script syntax, `npm pack --dry-run` and tarball content checks).

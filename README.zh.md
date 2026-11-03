@@ -219,11 +219,13 @@ npmjs.com 侧的一次性配置（维护者在网页上完成，无法从本仓�
 
 新建的 trusted publisher 配置必须在 **2 天内**完成首次成功发布，否则失效，只能删除重建。`package.json` 的 `repository.url` 必须与 GitHub 仓库精确匹配——本仓库已满足（`git+https://github.com/luodaoyi/dsh-cabinet-mode.git`）。
 
+**首个版本需要一次性引导。** npm 不允许给尚不存在的包配置 trusted publisher（`npm trust` 要求 Package must exist，npm/cli#8544 仍未关闭）。`dsh-cabinet-mode` 已于 2026-11-03 用 `npm stage publish`（npm ≥ 11.15.0）引导：它公开了一个占位版本 `0.0.0-stage`，真实版本留在暂存区等待审批。占位版是预发布版，插件市场索引不会列出它。之后的版本不再需要引导：推 tag 即由工作流用 OIDC 发布。
+
 以上 npm 侧事实来源为 npm 官方文档《Trusted publishing for npm packages》（https://docs.npmjs.com/trusted-publishers）；npmjs.com 当前界面布局本仓库**未验证**。Trusted Publishing 要求 npm CLI ≥ 11.5.1、Node ≥ 22.14.0——工作流使用 Node 24。`npm whoami` 不能用来检查 trusted publishing 权限（npm 文档明确说明），因此工作流不把它当前置检查。
 
 若 npm 发布成功但索引 job 失败，手动运行 **Market index** 工作流刷新分支。
 
-分支发布脚本是 `scripts/publish-market-index.sh`（`npm run market:publish` 也调用它）；它需要 `bash`，Git for Windows 自带。该脚本会切孤儿分支并改写工作树，**只能在无未提交改动的一次性 clone 里运行**——它遇到被修改的已跟踪文件会拒绝执行，但未跟踪文件不受保护。
+分支发布脚本是 `scripts/publish-market-index.sh`（`npm run market:publish` 也调用它）；它需要 `bash`，Git for Windows 自带。该脚本会切孤儿分支并改写工作树，**只能在无未提交改动的一次性 clone 里运行**——它遇到被修改或已暂存的已跟踪文件会拒绝执行，但未跟踪文件不受保护。
 
 ## 未实测项（不得冒充已验证）
 

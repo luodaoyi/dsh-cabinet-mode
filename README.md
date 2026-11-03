@@ -336,6 +336,14 @@ publish within **2 days**, otherwise it expires and must be deleted and recreate
 `repository.url` in `package.json` must exactly match the GitHub repository, which
 it does (`git+https://github.com/luodaoyi/dsh-cabinet-mode.git`).
 
+**The first version needs a one-time bootstrap.** npm refuses to configure a trusted
+publisher for a package that does not exist yet (`npm trust` requires "Package must
+exist"; npm/cli#8544 is still open). `dsh-cabinet-mode` was bootstrapped on
+2026-11-03 with `npm stage publish` (npm >= 11.15.0): it published the public
+placeholder version `0.0.0-stage` and left the real version staged for approval. The
+placeholder is a prerelease, so the market index never lists it. Later versions need
+no bootstrap: push a tag and the workflow publishes with OIDC.
+
 These npm-side facts come from the npm documentation page "Trusted publishing for
 npm packages" (https://docs.npmjs.com/trusted-publishers); the current npmjs.com
 page layout was **not verified** from this repository. Trusted publishing requires

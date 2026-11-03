@@ -104,7 +104,15 @@ jobs:
 
       - name: Publish to npm with the trusted publisher
         shell: bash
-        run: npm publish ./dsh-cabinet-mode-*.tgz --access public
+        run: |
+          set -euo pipefail
+          # A prerelease must not move the `latest` dist-tag: the market index skips
+          # prerelease versions, so `latest` would otherwise point at a version the
+          # index never lists.
+          version=$(node -p "require('./package.json').version")
+          tag=latest
+          case "$version" in *-*) tag=next ;; esac
+          npm publish ./dsh-cabinet-mode-*.tgz --access public --tag "$tag"
 
       - name: Create the GitHub Release
         shell: bash
