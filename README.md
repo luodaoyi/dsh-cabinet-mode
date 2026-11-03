@@ -125,13 +125,14 @@ The index is regenerated from the npm registry after every tagged release and on
 lists published, non-deprecated stable versions; do not edit the `market-index`
 branch by hand.
 
-> **Release status (2026-11-03):** `dsh-cabinet-mode@0.1.4` and `0.1.5` are published
-> on `registry.npmjs.org` by the tag-triggered OIDC workflow, each with a provenance
-> attestation on sigstore, and the `market-index` branch is refreshed automatically
-> after every publish. The v0.1.5 run of tag → publish → GitHub Release → index
-> refresh succeeded end to end (GitHub Actions run 41657224370), and the index now
-> lists 0.1.5 and 0.1.4. The registry also carries a placeholder `0.0.0-stage`
-> prerelease, which the index intentionally does not list.
+> **Release status (2026-11-03):** `dsh-cabinet-mode@0.1.4`, `0.1.5` and `0.1.6` are
+> published on `registry.npmjs.org` by the tag-triggered OIDC workflow, each with a
+> provenance attestation on sigstore, and the `market-index` branch is refreshed
+> automatically after every publish. The whole tag → publish → GitHub Release → index
+> refresh chain has run green twice (v0.1.5: run 41657224370, v0.1.6: run
+> 41661809576), and the index now lists 0.1.6, 0.1.5 and 0.1.4. The registry also
+> carries a placeholder `0.0.0-stage` prerelease, which the index intentionally does
+> not list.
 >
 > **Not verified:** the exact plugin-market UI labels and click path in your DSH
 > build, and a real install/update in that GUI. The
