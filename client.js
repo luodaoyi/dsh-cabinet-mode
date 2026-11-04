@@ -3014,14 +3014,15 @@ window.__ModuleLoader__.load({
 				t: tt
 			});
 
-			// Cells: every minister first, then 未分派 / 首辅自办 / 不在册 as one
-			// full-width row (grid-column: 1 / -1) after them.
+			// Cells: every minister first, then 未分派 / 首辅自办 / 不在册 as
+			// ordinary grid cells — same width and column cadence as the ministers,
+			// laid out after them (no full-width row, no span: equal cells win).
 			const cells = [];
 			for (const member of mates) cells.push({ key: 'member:' + member.id, member });
-			if (unassigned.length > 0) cells.push({ key: 'group:unassigned', title: tt('task.unassigned'), tasks: unassigned, fullRow: true });
-			if (leadOwn.length > 0) cells.push({ key: 'group:leadown', title: tt('task.leadOwn'), tasks: leadOwn, fullRow: true });
+			if (unassigned.length > 0) cells.push({ key: 'group:unassigned', title: tt('task.unassigned'), tasks: unassigned });
+			if (leadOwn.length > 0) cells.push({ key: 'group:leadown', title: tt('task.leadOwn'), tasks: leadOwn });
 			for (const owner of foreignOwners) {
-				cells.push({ key: 'group:' + owner, title: owner, tasks: tasks.filter((task) => task.ownerName === owner), fullRow: true });
+				cells.push({ key: 'group:' + owner, title: owner, tasks: tasks.filter((task) => task.ownerName === owner) });
 			}
 
 			const treeChildren = [
@@ -3095,8 +3096,7 @@ window.__ModuleLoader__.load({
 					}
 					return h('div', {
 						key: cell.key,
-						'data-cabinet-node': '1',
-						style: cell.fullRow ? { gridColumn: '1 / -1' } : undefined
+						'data-cabinet-node': '1'
 					}, content);
 				})));
 			}
