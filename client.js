@@ -2290,10 +2290,18 @@ window.__ModuleLoader__.load({
 		// #endregion avatars
 
 		// ---------- palette -------------------------------------------------
+		// Fallbacks use light-dark(): a static light-theme grey went dark-on-dark
+		// when a host lacked the alias var (INK2 fallback measured 2.23:1 on the
+		// dark panel). Real DSH defines every alias var, so fallback is a safety net.
 		const RAIL = 'var(--dsw-alias-border-l3, rgba(127,127,127,.4))';
-		const INK = 'var(--dsw-alias-label-primary, #1f2328)';
-		const INK2 = 'var(--dsw-alias-label-secondary, #55595f)';
-		const INK3 = 'var(--dsw-alias-label-tertiary, #8b8f97)';
+		const INK = 'var(--dsw-alias-label-primary, light-dark(#0f1115, #f9fafb))';
+		const INK2 = 'var(--dsw-alias-label-secondary, light-dark(#61666b, #cfd3d6))';
+		const INK3 = 'var(--dsw-alias-label-tertiary, light-dark(#81858c, #adb2b8))';
+		// Org-chart structure colour: solid theme tertiary. --dsw-alias-border-l3/l4
+		// are 12-20% alpha and measure 1.61:1 on light — below the 3:1 non-text
+		// minimum — so the trunk/bus/branches use the tertiary alias instead.
+		const LINE = 'var(--dsw-alias-label-tertiary, light-dark(#81858c, #adb2b8))';
+		const CARD_BORDER = 'var(--dsw-alias-border-l3, light-dark(#0000001f, #ffffff29))';
 		const STATUS_COLOR = {
 			running: '#22c55e',
 			inactive: '#9aa0a6',
@@ -2306,9 +2314,49 @@ window.__ModuleLoader__.load({
 			completed: '#22c55e',
 			deleted: '#5c5f66'
 		};
-		const KEYFRAMES = [
+		const STYLE_ID = 'dsh-cabinet-ui-styles';
+		// One shared <style id="dsh-cabinet-ui-styles">: the panel renders inside a
+		// slot component while the native roster is DOM we inject into, so both read
+		// their animations from here (injected once, removed on dispose). Everything
+		// is CSS-driven — no JS timers — and every animation stands still under
+		// prefers-reduced-motion.
+		const STYLE_CSS = [
+			// status dot pulse (panel)
 			'@keyframes cabinetPulse{0%{box-shadow:0 0 0 0 rgba(34,197,94,.55)}70%{box-shadow:0 0 0 7px rgba(34,197,94,0)}100%{box-shadow:0 0 0 0 rgba(34,197,94,0)}}',
-			'@media (prefers-reduced-motion:reduce){[data-cabinet-status="running"]{animation:none!important}}'
+			// running avatar: rotating conic ring (panel + native roster) and glow
+			'@keyframes cabinetSpin{to{transform:rotate(360deg)}}',
+			'@keyframes cabinetRingGlow{0%,100%{box-shadow:0 0 0 1px rgba(34,197,94,.35)}50%{box-shadow:0 0 0 3px rgba(34,197,94,.6)}}',
+			'.cabinet-avatar-slot{position:relative;display:inline-flex;flex:none;line-height:0}',
+			'.cabinet-avatar-slot.cabinet-ring-live::before{content:"";position:absolute;inset:-3px;border-radius:50%;background:conic-gradient(from 0deg,rgba(34,197,94,0) 0 58%,rgba(34,197,94,.95) 82%,rgba(34,197,94,0) 100%);-webkit-mask:radial-gradient(farthest-side,transparent calc(100% - 2.5px),#000 calc(100% - 2px));mask:radial-gradient(farthest-side,transparent calc(100% - 2.5px),#000 calc(100% - 2px));animation:cabinetSpin 1.2s linear infinite;pointer-events:none}',
+			'img.cabinet-avatar-running{animation:cabinetRingGlow 1.2s ease-in-out infinite}',
+			// running avatar: gentle breathe (panel only)
+			'@keyframes cabinetBreathe{0%,100%{transform:scale(1)}50%{transform:scale(1.05)}}',
+			'.cabinet-live-breathe{animation:cabinetBreathe 1.8s ease-in-out infinite}',
+			// running member row: tint + light sweep
+			'@keyframes cabinetSweep{0%{background-position:130% 0}100%{background-position:-130% 0}}',
+			'.cabinet-row-live{background-color:rgba(34,197,94,.12);background-image:linear-gradient(100deg,rgba(255,255,255,0) 32%,rgba(255,255,255,.38) 50%,rgba(255,255,255,0) 68%);background-size:220% 100%;background-position:130% 0;animation:cabinetSweep 2.4s ease-in-out infinite}',
+			// status text: three bouncing dots after 干活中
+			'@keyframes cabinetDots{0%,80%,100%{opacity:.25;transform:translateY(0)}40%{opacity:1;transform:translateY(-3px)}}',
+			'.cabinet-dots{display:inline-flex;align-items:flex-end;gap:3px;line-height:1}',
+			'.cabinet-dots i{width:4px;height:4px;border-radius:50%;background:currentColor;animation:cabinetDots 1.1s ease-in-out infinite}',
+			'.cabinet-dots i:nth-child(2){animation-delay:.15s}',
+			'.cabinet-dots i:nth-child(3){animation-delay:.3s}',
+			// in-progress task under a running member: pulsing bar on the rail
+			'@keyframes cabinetBarPulse{0%,100%{opacity:.3;transform:scaleY(.55)}50%{opacity:1;transform:scaleY(1)}}',
+			'.cabinet-task-live::after{content:"";position:absolute;left:-9px;top:5px;bottom:5px;width:2px;border-radius:2px;background:#3b82f6;transform-origin:center;animation:cabinetBarPulse 1.6s ease-in-out infinite}',
+			// org-chart cards + first-class lead badge
+			'.cabinet-card{box-sizing:border-box;display:flex;flex-direction:column;gap:4px;min-width:0;padding:8px 10px;border-radius:8px;border:1px solid var(--dsw-alias-border-l3,light-dark(#0000001f,#ffffff29));background:var(--dsw-alias-bg-layer-1,light-dark(#ffffff,#232324))}',
+			'.cabinet-card-lead{border-color:rgba(245,197,24,.55);background-image:linear-gradient(rgba(245,197,24,.10),rgba(245,197,24,.10))}',
+			'.cabinet-badge-lead{font-size:10px;line-height:14px;padding:0 6px;border-radius:4px;font-weight:600;background:rgba(245,197,24,.20);border:1px solid rgba(245,197,24,.45);color:#6b4a00}',
+			'body[data-ds-dark-theme] .cabinet-badge-lead{color:#ffd666}',
+			// status / task text: one colour per state per theme, so 11px copy clears
+			// 3:1 in both themes (audit: old #22c55e/#9aa0a6 on light = 2.28/2.64)
+			'.cabinet-status-running{color:#15803d}.cabinet-status-inactive{color:#61666b}.cabinet-status-provisioning{color:#8a5a00}.cabinet-status-failed{color:#b91c1c}',
+			'body[data-ds-dark-theme] .cabinet-status-running{color:#4ade80}body[data-ds-dark-theme] .cabinet-status-inactive{color:#adb2b8}body[data-ds-dark-theme] .cabinet-status-provisioning{color:#f7ad31}body[data-ds-dark-theme] .cabinet-status-failed{color:#f25a5a}',
+			'.cabinet-task-pending{color:#61666b}.cabinet-task-in_progress{color:#2563eb}.cabinet-task-completed{color:#15803d}',
+			'body[data-ds-dark-theme] .cabinet-task-pending{color:#adb2b8}body[data-ds-dark-theme] .cabinet-task-in_progress{color:#60a5fa}body[data-ds-dark-theme] .cabinet-task-completed{color:#4ed17e}',
+			// accessibility: everything above stands still
+			'@media (prefers-reduced-motion:reduce){[data-cabinet-status="running"],img.cabinet-avatar-running,.cabinet-live-breathe,.cabinet-dots i,.cabinet-task-live::after{animation:none!important}.cabinet-avatar-slot.cabinet-ring-live::before{animation:none!important;opacity:.8}.cabinet-row-live{animation:none!important;background-image:none}}',
 		].join('');
 
 		const PANEL = {
@@ -2353,6 +2401,105 @@ window.__ModuleLoader__.load({
 			return AVATAR_KEYS.some((key) => text.startsWith(key) && AVATAR_PLACEHOLDERS.includes(key));
 		}
 
+		// ---------- DOM enhancement: avatars in the native team roster ----------
+		// The shipped roster (dsh-experimental-client-ui-agent-team) shows a status
+		// dot and the name only, and its bundle is read-only for us (an upgrade would
+		// overwrite any edit), so this enhancer injects an avatar <img> per member
+		// row instead. Matching is structural on the stable class suffix
+		// (memberNameText / memberDot / memberText) — never the hash prefix — and any
+		// failure warns once and degrades silently instead of breaking plugin load.
+		function installTeamRosterAvatars() {
+			let warned = false;
+			let timerId = 0;
+			let observer = null;
+			const warnOnce = (error) => {
+				if (warned) return;
+				warned = true;
+				try { console.warn('[cabinet-ui] native roster avatar injection disabled:', error); } catch (ignored) { /* console may be unavailable */ }
+			};
+			const rowFor = (nameNode) => {
+				if (typeof nameNode.closest === 'function') return nameNode.closest('button');
+				let el = nameNode.parentElement;
+				while (el) {
+					if (el.tagName === 'BUTTON') return el;
+					el = el.parentElement;
+				}
+				return null;
+			};
+			const anchorIn = (row) => row.querySelector('[class*="memberDot"]')
+				|| row.querySelector('[class*="memberText"]')
+				|| null;
+			const injectInto = (nameNode) => {
+				const row = rowFor(nameNode);
+				if (!row) return;
+				let slot = row.querySelector('[data-cabinet-avatar-img]');
+				if (!slot) {
+					const memberName = String(nameNode.textContent || '').trim();
+					const img = document.createElement('img');
+					img.src = avatarFor(memberName);
+					img.alt = '';
+					img.setAttribute('aria-hidden', 'true');
+					// 头像 — 状态点 — 名字 order, 18px to fit the roster's tight row height.
+					img.style.cssText = 'flex:none;width:18px;height:18px;border-radius:50%;object-fit:cover;margin-right:6px;vertical-align:middle;';
+					const wrap = document.createElement('span');
+					wrap.className = 'cabinet-avatar-slot';
+					wrap.setAttribute('data-cabinet-avatar-img', '1');
+					wrap.append(img);
+					const anchor = anchorIn(row) || nameNode;
+					if (anchor && anchor.parentNode) anchor.parentNode.insertBefore(wrap, anchor);
+					else row.insertBefore(wrap, row.firstChild);
+					slot = wrap;
+				}
+				// running = the native spinner inside the row's status dot:
+				// svg[data-state="ongoing"], class like `_spinner_xxxx`.
+				const dot = row.querySelector('[class*="memberDot"]');
+				const running = !!dot && (!!dot.querySelector('svg[data-state="ongoing"]') || !!dot.querySelector('[class*="_spinner_"]'));
+				const img = slot.tagName === 'IMG' ? slot : slot.querySelector('img');
+				if (img) img.className = running ? 'cabinet-avatar-running' : '';
+				if (slot.tagName !== 'IMG') slot.className = running ? 'cabinet-avatar-slot cabinet-ring-live' : 'cabinet-avatar-slot';
+				row.dataset.cabinetAvatar = '1';
+			};
+			const scan = () => {
+				timerId = 0;
+				try {
+					const names = document.querySelectorAll('[class*="memberNameText"]');
+					for (let i = 0; i < names.length; i++) injectInto(names[i]);
+				} catch (error) { warnOnce(error); }
+			};
+			const schedule = () => {
+				if (timerId) return;
+				try { timerId = setTimeout(scan, 150); } catch (error) { warnOnce(error); }
+			};
+			if (typeof MutationObserver === 'undefined' || typeof document === 'undefined' || !document.body) return () => {};
+			try {
+				// The roster popover rebuilds its DOM on every open, so the observer
+				// stays mounted on <body> for the plugin's whole lifetime.
+				observer = new MutationObserver((records) => {
+					try {
+						for (const record of records) {
+							if (record.type !== 'childList') continue;
+							schedule();
+							return;
+						}
+					} catch (error) { warnOnce(error); }
+				});
+				observer.observe(document.body, { childList: true, subtree: true });
+				scan();
+			} catch (error) { warnOnce(error); }
+			return () => {
+				try {
+					if (timerId) { clearTimeout(timerId); timerId = 0; }
+					if (observer) { observer.disconnect(); observer = null; }
+					const marked = document.querySelectorAll('[data-cabinet-avatar]');
+					for (let i = 0; i < marked.length; i++) {
+						const img = marked[i].querySelector('[data-cabinet-avatar-img]');
+						if (img && img.parentNode) img.parentNode.removeChild(img);
+						delete marked[i].dataset.cabinetAvatar;
+					}
+				} catch (error) { warnOnce(error); }
+			};
+		}
+
 		// ---------- slot props are contract-guaranteed, but degrade quietly ----
 		// Wrapping keeps the hook count identical across renders: when a prop is
 		// absent the panel shows its empty state instead of throwing.
@@ -2364,14 +2511,15 @@ window.__ModuleLoader__.load({
 		}
 
 		// ---------- leaf pieces ---------------------------------------------
-		function Avatar({ name, size }) {
-			return h('img', {
+		function Avatar({ name, size, live }) {
+			const img = h('img', {
 				src: avatarFor(name),
 				alt: '',
 				'aria-hidden': 'true',
 				width: size,
 				height: size,
 				loading: 'lazy',
+				className: live ? 'cabinet-live-breathe' : undefined,
 				title: isPlaceholder(name) ? '占位头像（TODO 待终稿替换）' : undefined,
 				style: {
 					width: size,
@@ -2384,6 +2532,10 @@ window.__ModuleLoader__.load({
 					boxShadow: '0 0 0 1px rgba(127,127,127,.4)'
 				}
 			});
+			// running members wear the spinning conic ring; idle members stay bare.
+			return live
+				? h('span', { className: 'cabinet-avatar-slot cabinet-ring-live' }, img)
+				: img;
 		}
 
 		function StatusDot({ status, size = 8 }) {
@@ -2429,7 +2581,7 @@ window.__ModuleLoader__.load({
 					fontSize: 11,
 					fontWeight: 700,
 					letterSpacing: '.06em',
-					color: INK3
+					color: INK2
 				}
 			}, children);
 		}
@@ -2449,12 +2601,16 @@ window.__ModuleLoader__.load({
 			}, children);
 		}
 
-		function Row({ tickTop = 12, highlight, bare, children, style }) {
+		function Row({ tickTop = 12, highlight, bare, className, children, style }) {
 			// Geometry: every RailList is marginLeft 12 + 1px border + paddingLeft 14 and
 			// every row is marginLeft -6 + padding 6, so a tick at left -9 / width 15
 			// starts on the rail and ends exactly at the row content. The tree root
 			// (首辅 row) sits outside any rail and passes bare to skip the tick.
+			// `highlight` (running member) maps to .cabinet-row-live so the animated
+			// sweep lives in CSS instead of an inline background (which would win).
+			const classes = [className, highlight ? 'cabinet-row-live' : ''].filter(Boolean).join(' ');
 			return h('div', {
+				className: classes || undefined,
 				style: Object.assign({
 					position: 'relative',
 					display: 'flex',
@@ -2465,7 +2621,7 @@ window.__ModuleLoader__.load({
 					padding: '3px 6px',
 					marginLeft: -6,
 					borderRadius: 6
-				}, highlight ? { background: 'rgba(34,197,94,.12)' } : {}, style || {})
+				}, style || {})
 			}, bare ? children : [
 				h('span', {
 					key: 'tick',
@@ -2489,45 +2645,52 @@ window.__ModuleLoader__.load({
 			}, children);
 		}
 
-		function MemberLine({ member, running, model, isLead, isCurrent, bare, statusLabel, t }) {
+		// One card of the org chart: avatar + name (+ lead badge / current tag) on
+		// line one; status dot + state text (+ live dots / model) on line two.
+		// State text carries a theme-aware class so 11px copy clears 3:1 in both
+		// themes; the badge keeps lead's formula with a light-theme dark amber.
+		function MemberCard({ member, running, model, isCurrent, lead, statusLabel, t, size }) {
 			const tt = typeof t === 'function' ? t : (key) => key;
 			const status = member.phase === 'active' ? (running ? 'running' : 'inactive') : member.phase;
-			const color = STATUS_COLOR[status] || STATUS_COLOR.inactive;
-			return h(Row, { tickTop: 15, highlight: status === 'running', bare }, [
-				h('span', {
+			return h('div', { className: lead ? 'cabinet-card cabinet-card-lead' : 'cabinet-card' }, [
+				h('div', {
 					key: 'who',
-					style: {
-						fontSize: 13,
-						fontWeight: 600,
-						color: INK,
-						display: 'inline-flex',
-						alignItems: 'center',
-						gap: 6,
-						minWidth: 0
-					}
+					style: { display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', minWidth: 0 }
 				}, [
-					h(Avatar, { key: 'avatar', name: member.name, size: isLead ? 24 : 22 }),
+					h(Avatar, { key: 'avatar', name: member.name, size: size || 22, live: status === 'running' }),
 					h('span', {
 						key: 'n',
-						style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 160 }
+						style: { fontSize: 13, fontWeight: 600, color: INK, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }
 					}, member.name),
-					isLead ? h(Tag, { key: 'lead', background: 'rgba(245,197,24,.35)', color: '#7a5c00' }, tt('lead.tag')) : null,
+					lead ? h('span', { key: 'lead', className: 'cabinet-badge-lead' }, tt('lead.tag')) : null,
 					isCurrent ? h(Tag, { key: 'cur', background: 'rgba(127,127,127,.2)', color: INK2 }, tt('current')) : null
 				]),
-				h(StatusDot, { key: 'dot', status }),
-				h('span', { key: 'st', style: { fontSize: 11, color, flex: 'none' } }, statusLabel(status)),
-				model ? h('span', {
-					key: 'model',
-					style: { fontSize: 11, color: INK3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }
-				}, '· ' + model) : null,
-				member.error ? h('span', {
-					key: 'err',
-					style: { fontSize: 11, color: STATUS_COLOR.failed, width: '100%', wordBreak: 'break-all' }
-				}, member.error) : null
+				h('div', {
+					key: 'state',
+					style: { display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', minWidth: 0 }
+				}, [
+					h(StatusDot, { key: 'dot', status }),
+					h('span', { key: 'st', className: 'cabinet-status-' + status, style: { fontSize: 11, flex: 'none' } }, statusLabel(status)),
+					status === 'running' ? h('span', {
+						key: 'dots',
+						className: 'cabinet-dots cabinet-status-' + status,
+						'aria-hidden': 'true',
+						style: { flex: 'none' }
+					}, [h('i', { key: 0 }), h('i', { key: 1 }), h('i', { key: 2 })]) : null,
+					model ? h('span', {
+						key: 'model',
+						style: { fontSize: 11, color: INK2, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }
+					}, model) : null,
+					member.error ? h('span', {
+						key: 'err',
+						style: { fontSize: 11, color: '#f25a5a', width: '100%', wordBreak: 'break-all' }
+					}, member.error) : null
+				])
 			]);
 		}
 
-		function TaskLine({ task, blockerOf, t, taskLabel }) {
+		function TaskLine({ task, blockerOf, t, taskLabel, ownerRunning }) {
+			const [openBlockers, setOpenBlockers] = React.useState(true);
 			const status = TASK_COLOR[task.status] ? task.status : 'pending';
 			const color = TASK_COLOR[status];
 			const blockers = Array.isArray(task.blockedBy) ? task.blockedBy : [];
@@ -2537,7 +2700,7 @@ window.__ModuleLoader__.load({
 					'aria-hidden': 'true',
 					style: { width: 8, height: 8, flex: 'none', borderRadius: '50%', background: color }
 				}),
-				h('span', { key: 'st', style: { fontSize: 11, color, flex: 'none' } }, taskLabel(status)),
+				h('span', { key: 'st', className: 'cabinet-task-' + status, style: { fontSize: 11, flex: 'none' } }, taskLabel(status)),
 				h('span', {
 					key: 'subj',
 					style: { fontSize: 12.5, color: INK, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
@@ -2546,6 +2709,8 @@ window.__ModuleLoader__.load({
 			];
 			if (!task.ownerName) {
 				parts.push(h(Tag, { key: 'own', background: 'rgba(127,127,127,.18)', color: INK2 }, t('task.unassigned')));
+			} else {
+				parts.push(h(Tag, { key: 'owner', background: 'rgba(127,127,127,.16)', color: INK2 }, 'Owner: ' + task.ownerName));
 			}
 			parts.push(h('span', {
 				key: 'id',
@@ -2553,43 +2718,34 @@ window.__ModuleLoader__.load({
 			}, task.id));
 			const children = [h('div', {
 				key: 'line',
-				style: { display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, width: '100%' }
+				style: { display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', minWidth: 0, width: '100%' }
 			}, parts)];
 			if (blockers.length > 0) {
 				children.push(h('div', {
 					key: 'block',
 					style: { display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap', width: '100%', paddingLeft: 14 }
 				}, [
-					h('span', { key: 'lb', style: { fontSize: 10, color: INK3, flex: 'none' } }, t('task.waits')),
-					...blockers.map((id) => {
+					h('button', {
+						key: 'lb',
+						type: 'button',
+						onClick: () => setOpenBlockers((value) => !value),
+						style: { fontSize: 10, lineHeight: '14px', height: 16, padding: '0 6px', borderRadius: 999, cursor: 'pointer', color: INK2, background: 'transparent', border: '1px solid ' + CARD_BORDER, fontFamily: 'inherit' }
+					}, (openBlockers ? '▾ ' : '▸ ') + t('task.waits') + ' ' + blockers.length),
+					...(openBlockers ? blockers.map((id) => {
 						const blocker = blockerOf(id);
 						const c = blocker ? (TASK_COLOR[blocker.status] || TASK_COLOR.pending) : 'rgba(127,127,127,.5)';
 						return h(Chip, { key: id, color: c, title: blocker ? blocker.subject : id }, [
 							h('span', { key: 'd', style: { width: 6, height: 6, borderRadius: '50%', background: c, flex: 'none' } }),
 							h('span', { key: 't', style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, id)
 						]);
-					})
+					}) : [])
 				]));
 			}
-			return h(Row, { tickTop: 12 }, children);
-		}
-
-		function GroupNode({ title, tasks, blockerOf, t, taskLabel }) {
-			return h('div', null, [
-				h(Row, { key: 'head', tickTop: 12 }, [
-					h('span', {
-						key: 'lb',
-						style: { fontSize: 12, color: INK3, display: 'inline-flex', alignItems: 'center', gap: 6 }
-					}, [title, h('span', { key: 'n', style: { color: INK3 } }, '(' + tasks.length + ')')])
-				]),
-				h(RailList, { key: 'sub' }, tasks.map((task) => h(TaskLine, {
-					key: task.id,
-					task,
-					blockerOf,
-					t,
-					taskLabel
-				})))
-			]);
+			// in_progress tasks pulse only while their owner is actually running.
+			return h(Row, {
+				tickTop: 12,
+				className: ownerRunning && status === 'in_progress' ? 'cabinet-task-live' : undefined
+			}, children);
 		}
 
 		// ---------- the body ------------------------------------------------
@@ -2615,7 +2771,9 @@ window.__ModuleLoader__.load({
 					|| (leadSessionId !== sessionId ? projections[sessionId]?.values?.agentTeam : undefined))
 				: undefined;
 
-			const body = [h('style', { key: 'css', dangerouslySetInnerHTML: { __html: KEYFRAMES } })];
+			// Styles live in one shared <style id="dsh-cabinet-ui-styles"> mounted by
+			// apply(); the panel itself renders no <style> element.
+			const body = [];
 
 			const members = team?.members ?? [];
 			const tasks = (team?.tasks ?? []).filter((task) => task.status !== 'deleted');
@@ -2647,7 +2805,7 @@ window.__ModuleLoader__.load({
 			if (!team) {
 				body.push(h('div', {
 					key: 'empty',
-					style: { marginTop: 12, fontSize: 12, color: INK3, lineHeight: 1.6 }
+					style: { marginTop: 12, fontSize: 12, color: INK2, lineHeight: 1.6 }
 				}, [
 					h('div', { key: 'm' }, tt('empty.hint')),
 					h('div', {
@@ -2672,65 +2830,99 @@ window.__ModuleLoader__.load({
 				if (!foreignOwners.includes(task.ownerName)) foreignOwners.push(task.ownerName);
 			}
 
-			const leadRow = h(MemberLine, {
+			body.push(h(SectionTitle, { key: 'sec' }, tt('section.roster')));
+
+			// ---- org chart: 首辅卡居中 → 竖直主干 → 横向总线 → 左侧竖轨 + ├─ 分支 ----
+			// Single-column trunk by decree: a multi-column bus drifts the moment a
+			// row wraps, and a wrong connector is worse than a tall list. This shape
+			// renders identically at any width; a measured multi-column mode can
+			// come later on top of it.
+			const leadCard = h(MemberCard, {
 				member: leadShown,
 				running: runningOf(leadShown.id),
 				model: modelOf(leadShown.id),
-				isLead: true,
-				bare: true,
 				isCurrent: lead !== undefined ? lead.id === sessionId : true,
+				lead: true,
+				size: 26,
 				statusLabel,
 				t: tt
 			});
+			body.push(h('div', { key: 'leadwrap', style: { display: 'flex', justifyContent: 'center' } }, leadCard));
 
-			body.push(h(SectionTitle, { key: 'sec' }, tt('section.roster')));
-			body.push(h('div', { key: 'lead' }, leadRow));
-
-			// Dispatch tree: 首辅 -> 未分派/首辅自办/不在册 -> 每位阁臣 -> 其任务.
-			const nodes = [];
-			if (unassigned.length > 0) nodes.push({ key: 'unassigned', title: tt('task.unassigned'), tasks: unassigned });
-			if (leadOwn.length > 0) nodes.push({ key: 'leadown', title: tt('task.leadOwn'), tasks: leadOwn });
+			// Cells: every minister, then the 未分派 / 首辅自办 / 不在册 groups as
+			// independent columns of the same chart.
+			const cells = [];
+			for (const member of mates) cells.push({ key: 'member:' + member.id, member });
+			if (unassigned.length > 0) cells.push({ key: 'group:unassigned', title: tt('task.unassigned'), tasks: unassigned });
+			if (leadOwn.length > 0) cells.push({ key: 'group:leadown', title: tt('task.leadOwn'), tasks: leadOwn });
 			for (const owner of foreignOwners) {
-				nodes.push({ key: 'foreign:' + owner, title: owner, tasks: tasks.filter((task) => task.ownerName === owner) });
+				cells.push({ key: 'group:' + owner, title: owner, tasks: tasks.filter((task) => task.ownerName === owner) });
 			}
-			for (const member of mates) nodes.push({ key: 'member:' + member.id, member });
 
-			const rendered = nodes.map((node) => {
-				if (node.member === undefined) {
-					return h(GroupNode, {
-						key: node.key,
-						title: node.title,
-						tasks: node.tasks,
-						blockerOf,
-						t: tt,
-						taskLabel
-					});
-				}
-				const member = node.member;
-				const own = tasks.filter((task) => task.ownerName === member.name);
-				return h('div', { key: node.key }, [
-					h(MemberLine, {
-						key: 'line',
-						member,
-						running: runningOf(member.id),
-						model: modelOf(member.id),
-						isCurrent: member.id === sessionId,
-						statusLabel,
-						t: tt
-					}),
-					own.length > 0
-						? h(RailList, { key: 'sub' }, own.map((task) => h(TaskLine, {
-							key: task.id,
-							task,
-							blockerOf,
-							t: tt,
-							taskLabel
-						})))
-						: h('div', { key: 'none', style: { marginLeft: 26, fontSize: 11, color: INK3, padding: '2px 0 4px' } }, tt('task.none'))
-				]);
-			});
-
-			body.push(h(RailList, { key: 'tree' }, rendered));
+			if (cells.length > 0) {
+				const rows = cells.map((cell) => {
+					let content;
+					if (cell.member !== undefined) {
+						const member = cell.member;
+						const memberRunning = runningOf(member.id);
+						const own = tasks.filter((task) => task.ownerName === member.name);
+						content = [
+							h(MemberCard, {
+								key: 'card',
+								member,
+								running: memberRunning,
+								model: modelOf(member.id),
+								isCurrent: member.id === sessionId,
+								statusLabel,
+								t: tt
+							}),
+							own.length > 0
+								? h(RailList, { key: 'tasks', style: { marginTop: 6 } }, own.map((task) => h(TaskLine, {
+									key: task.id,
+									task,
+									blockerOf,
+									t: tt,
+									taskLabel,
+									ownerRunning: memberRunning
+								})))
+								: h('div', { key: 'none', style: { marginLeft: 26, fontSize: 11, color: INK3, padding: '2px 0 4px' } }, tt('task.none'))
+						];
+					} else {
+						content = [
+							h('div', { key: 'head', className: 'cabinet-card', style: { flexDirection: 'row', alignItems: 'center', gap: 6 } }, [
+								h('span', { key: 'title', style: { fontSize: 12, fontWeight: 600, color: INK, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, cell.title),
+								h('span', { key: 'count', style: { fontSize: 11, color: INK3, flex: 'none' } }, '(' + cell.tasks.length + ')')
+							]),
+							h(RailList, { key: 'tasks', style: { marginTop: 6 } }, cell.tasks.map((task) => h(TaskLine, {
+								key: task.id,
+								task,
+								blockerOf,
+								t: tt,
+								taskLabel,
+								ownerRunning: false
+							})))
+						];
+					}
+					return h('div', { key: cell.key, style: { position: 'relative' } }, [
+						h('span', {
+							key: 'tick',
+							'aria-hidden': 'true',
+							style: { position: 'absolute', left: -14, top: 20, width: 14, height: 2, background: LINE }
+						}),
+						...content
+					]);
+				});
+				body.push(h('div', { key: 'chart', style: { marginTop: 10 } }, [
+					// trunk: straight down from the lead card's bottom centre
+					h('div', { key: 'trunk', style: { height: 12, width: 2, margin: '0 auto', background: LINE } }),
+					// bus: from the trunk's foot leftwards to the vertical rail
+					h('div', { key: 'bus', style: { position: 'relative', height: 2 } }, [
+						h('span', { key: 'line', style: { position: 'absolute', left: 1, top: 0, height: 2, width: 'calc(50% - 1px)', background: LINE, borderTopRightRadius: 2 } })
+					]),
+					// vertical rail; every card joins it with a ├─ / └─ branch
+					h('div', { key: 'stack', style: { marginLeft: 1, borderLeft: '2px solid ' + LINE, paddingLeft: 14, display: 'flex', flexDirection: 'column', gap: 12 } }, rows)
+				]));
+			}
 			body.push(h('div', {
 				key: 'legend',
 				style: { marginTop: 12, fontSize: 10.5, color: INK3, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }
@@ -2803,7 +2995,34 @@ window.__ModuleLoader__.load({
 		const inject = ['slots', 'locale', 'sidebarRightTabs'];
 		const TAB_ID = 'cabinet-panel';
 
+		function injectStyles() {
+			if (typeof document === 'undefined') return () => {};
+			try {
+				let element = document.getElementById(STYLE_ID);
+				let owned = false;
+				if (!element) {
+					element = document.createElement('style');
+					element.id = STYLE_ID;
+					element.textContent = STYLE_CSS;
+					(document.head || document.body).append(element);
+					owned = true;
+				}
+				return () => {
+					try {
+						// Only the instance that created it removes it (idempotent mount).
+						if (owned && element && element.parentNode) element.parentNode.removeChild(element);
+					} catch (ignored) { /* best effort */ }
+				};
+			} catch (error) {
+				try { console.warn('[cabinet-ui] style injection disabled:', error); } catch (ignored) { /* console may be unavailable */ }
+				return () => {};
+			}
+		}
+
 		function apply(ctx) {
+			// One shared <style id="dsh-cabinet-ui-styles"> for the panel and the
+			// injected native roster; removed when the plugin is disposed.
+			ctx.effect(() => injectStyles(), 'cabinet-ui: styles');
 			ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'cabinet-ui: dictionaries');
 			const t = ctx.locale.bind(NS);
 			// Stage one: declare the page type. No patterns => a page type, opened by kind.
@@ -2825,6 +3044,13 @@ window.__ModuleLoader__.load({
 				key: TAB_ID,
 				locale: NS
 			}, CabinetPanel)), 'cabinet-ui: sidebar body');
+			// Native agent-team roster: inject avatars without touching its bundle.
+			ctx.effect(() => {
+				try { return installTeamRosterAvatars(); } catch (error) {
+					try { console.warn('[cabinet-ui] native roster avatar injection disabled:', error); } catch (ignored) { /* console may be unavailable */ }
+					return () => {};
+				}
+			}, 'cabinet-ui: native roster avatars');
 		}
 
 		return { inject, apply };
