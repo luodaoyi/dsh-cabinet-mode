@@ -7,18 +7,29 @@
 </p>
 <p align="center"><sub>Icon: Ming-dynasty grand-secretary portrait provided by the project owner (shipped as <code>icon.svg</code>).</sub></p>
 
-A small **declarative DSH bundle** that adds **Cabinet Mode** (`内阁模式`) to
+A small **DSH bundle** that adds **Cabinet Mode** (`内阁模式`) to
 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness). Install the
 bundle, restart DSH, and pick **内阁模式** when starting a new session. The mode is
 a research-team preset modeled on the Great Ming Research Bureau cabinet
 (大明科研司·内阁): a Lead (内阁首辅) directs members (阁臣) of four bureaus, defaults
 to research before touching code, and must never fabricate sources.
 
-The package contains **no plugin-runtime JavaScript** (no `main`/`lib`) and has no
-dependencies; it only ships optional Node.js fallback scripts (`scripts/*.mjs`).
-It declares one `@deepseek-ai/dsh-agent-preset` row and reuses the plugin list
-shipped with DSH **Standard Mode**, so the mode has the same tools as Standard
-Mode; only the persona differs.
+The package ships a host half (`index.js`, an empty `apply`) and a browser half
+(`client.js`, the right-Sidebar **Cabinet** panel) with the five member avatars
+embedded as 128px data URLs (square sources in `docs/images/avatars/`,
+downscaled by `src/build_avatars.py`); it also keeps the optional Node.js
+fallback scripts (`scripts/*.mjs`). It has **no third-party runtime
+dependencies** — React and friends come from the DSH client module table, with no
+bundled duplicate and no CDN.
+
+It declares **two rows** — `preset-cabinet` (one `@deepseek-ai/dsh-agent-preset`
+declaration) and `cabinet-ui` (the Loader row that loads this package's
+JavaScript) — and reuses the plugin list shipped with DSH **Standard Mode**, so
+the mode has the same tools as Standard Mode; what differs is the persona, plus
+the right-Sidebar **Cabinet** panel. Team tools (`spawn_teammate`, `team_task_*`,
+and the rest) come from the profile-level
+`@deepseek-ai/dsh-experimental-agent-team-profile` bundle; **this preset does not
+ship them**.
 
 This bundle declares **no hard DSH version gate**: no `engines.dsh`, no DSH
 `peerDependencies`, no install-time version check. It was tested on DSH
@@ -34,6 +45,53 @@ may work, but are **not verified** (see [DSH-side constraints](#dsh-side-constra
 Real runtime captures (mode picker, Agent-preset card, a cabinet session) are
 welcome — open a PR or send them to us and we will include them here. The image
 above is a layout diagram of the persona, not a screenshot.
+
+## Cabinet panel and member avatars
+
+A new right-Sidebar **「Cabinet」** tab, registered by this package's browser half
+(`client.js`) through its second Loader row `cabinet-ui`, independent of the
+preset declaration:
+
+- **Dispatch tree** — the Lead sits on top; every task hangs under the member
+  named by its `ownerName`, with `blockedBy` dependencies shown as chips beneath
+  the task: who was assigned what, and what blocks it, at a glance.
+- **Who is working** — a running member's row is tinted green and its status dot
+  pulses; idle / starting / failed use gray / amber / red dots, and the Lead's
+  row highlights the same way.
+- **Task colours** — pending gray, in progress blue, completed green (legend at
+  the bottom of the panel).
+- **Member look** — each row carries a circular avatar (22px, 24px for the Lead),
+  the name, a status label and the current model; avatars map by name prefix and
+  fall back to the Lead tint when unmatched.
+
+The five member avatars are tinted per bureau: Lead bright yellow, 翰林院编修
+(编辑) cyan, 工部主事 (执行) red, 大理寺评事 (核验) dark, 都察院御史 (验收)
+crimson — light-toned, Chinese-style 3D semi-realistic three-quarter profile
+busts (soft-focus guofeng backdrop inside the circle). They are
+embedded in `client.js` as 128px data URLs; the square source PNGs live in
+`docs/images/avatars/` and are downscaled by `src/build_avatars.py` (originals
+are 1MB+ and are never embedded directly).
+
+Example (the other four are in the same directory: `hanlin.png` / `works.png` /
+`dali.png` / `yushi.png`):
+
+![Lead avatar example](docs/images/avatars/lead.png)
+
+The panel reads two existing data channels only — per-session running status
+(`api-session/status`) and the `agentTeam` session projection (roster and task
+board). It adds no service and no protocol.
+
+## How it takes effect
+
+- **Fully quit and restart DSH after installing or updating**: the preset
+  declaration and the client plugin are only assembled at startup, so nothing
+  takes effect before the restart.
+- After the restart, start a **new session** and pick **内阁模式** (`cabinet`) in
+  the mode picker.
+- Opening the right-Sidebar **Cabinet** tab: the **+** on the tab strip, then the
+  **Cabinet** entry on the guide page.
+- The panel renders in the **browser** (`client.js`): exercise it in a real
+  session after a restart; this repository ships no browser screenshot yet.
 
 ---
 

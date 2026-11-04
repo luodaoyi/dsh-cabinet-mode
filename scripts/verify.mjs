@@ -4,7 +4,9 @@
  *
  * Structural checks (always):
  *  - package.json fields for npm + DSH bundle semantics, no runtime dependencies,
- *    no main/lib JavaScript (this is a pure YAML bundle), and no DSH version gate
+ *    no `main`/`types` entries (the browser half ships through `exports."./client"`
+ *    plus `dsh.client`, which the DSH client-plugin loader requires), and no DSH
+ *    version gate
  *    (no `engines.dsh`, no DSH `peerDependencies`)
  *  - cordis.patch.yml preset declaration, 22-row plugin list, dual-identity persona,
  *    cross-platform `!!js process.platform` guards, no absolute paths / template vars
@@ -99,8 +101,8 @@ if (pkg) {
   if (!/>=?\s*20/.test(String(pkg.engines?.node ?? ''))) problems.push('engines.node is not >=20');
   if (pkg.dsh?.bundle?.patch !== './cordis.patch.yml') problems.push('dsh.bundle.patch is not ./cordis.patch.yml');
   if (Object.keys(pkg.dependencies ?? {}).length > 0) problems.push('runtime dependencies are not empty');
-  if (pkg.main || pkg.types || pkg.exports) problems.push('main/types/exports present; pure YAML bundle should not ship JS');
-  if (problems.length === 0) ok('package.json fields (npm + DSH bundle, no runtime deps, no JS entry)');
+  if (pkg.main || pkg.types) problems.push('main/types entry present; the browser half must ship through exports."./client" + dsh.client, not a main/types entry');
+  if (problems.length === 0) ok('package.json fields (npm + DSH bundle, no runtime deps, no main/types entry; exports + dsh.client allowed)');
   else bad('package.json fields', problems.join('; '));
 
   // No DSH version gate: docs claim the bundle declares no DSH version dependency.
@@ -113,6 +115,56 @@ if (pkg) {
   const libDir = join(ROOT, 'lib');
   if (existsSync(libDir) && readdirSync(libDir).length > 0) bad('no lib/ build output in repository');
   else ok('no lib/ build output in repository');
+}
+
+// Browser half + avatars: the client plugin must ship, parse, and carry five avatars.
+{
+  const AVATAR_KEYS = ['lead', 'hanlin', 'works', 'dali', 'yushi'];
+  const clientJsPath = join(ROOT, 'client.js');
+  const avatarsJsPath = join(ROOT, 'src', 'avatars.js');
+
+  const missingHalf = ['index.js', 'client.js'].filter((file) => !existsSync(join(ROOT, file)));
+  if (missingHalf.length > 0) bad('browser half files exist', `missing ${missingHalf.join(', ')}`);
+  else {
+    const syntaxErrors = ['index.js', 'client.js'].map((file) => {
+      const result = spawnSync(process.execPath, ['--check', join(ROOT, file)], { encoding: 'utf8', timeout: 30000, windowsHide: true });
+      if (result.status === 0) return null;
+      return `${file}: ${String(result.stderr || result.stdout || '').trim().split('\n')[0]}`;
+    }).filter(Boolean);
+    if (syntaxErrors.length > 0) bad('index.js/client.js pass node --check', syntaxErrors.join(' | '));
+    else ok('index.js/client.js present and pass node --check');
+  }
+
+  if (existsSync(clientJsPath) && existsSync(avatarsJsPath)) {
+    const clientSrc = readFileSync(clientJsPath, 'utf8');
+    const avatarsSrc = readFileSync(avatarsJsPath, 'utf8');
+    const dataUrlCount = (clientSrc.match(/data:image\/png;base64/g) ?? []).length;
+    const clientKeys = AVATAR_KEYS.filter((key) => new RegExp(`\\b${key}:\\s*'data:image/png;base64`, 'u').test(clientSrc));
+    const moduleKeys = AVATAR_KEYS.filter((key) => new RegExp(`export const ${key} = 'data:image/png;base64`, 'u').test(avatarsSrc));
+    if (dataUrlCount !== AVATAR_KEYS.length) bad('client.js avatar data URLs', `found ${dataUrlCount}, expected ${AVATAR_KEYS.length}`);
+    else if (clientKeys.length !== moduleKeys.length) bad('avatar key parity (client.js vs src/avatars.js)', `client.js=${clientKeys.length}, src/avatars.js=${moduleKeys.length}`);
+    else ok(`client.js carries ${dataUrlCount} avatar data URLs; key count matches src/avatars.js (${moduleKeys.length})`);
+  } else bad('client.js and src/avatars.js present for the avatar check', 'one of the two files is missing');
+
+  const pngSize = (path) => {
+    const buffer = readFileSync(path);
+    if (buffer.length < 24 || buffer.readUInt32BE(0) !== 0x89504e47) return null;
+    return [buffer.readUInt32BE(16), buffer.readUInt32BE(20)];
+  };
+  const resizedProblems = [];
+  const sourceProblems = [];
+  for (const key of AVATAR_KEYS) {
+    const resizedPath = join(ROOT, 'src', 'avatars', `${key}.png`);
+    const sourcePath = join(ROOT, 'docs', 'images', 'avatars', `${key}.png`);
+    const dimension = existsSync(resizedPath) ? pngSize(resizedPath) : null;
+    if (!dimension) resizedProblems.push(`${key}.png missing or not a PNG`);
+    else if (dimension[0] !== 128 || dimension[1] !== 128) resizedProblems.push(`${key}.png is ${dimension[0]}x${dimension[1]}`);
+    if (!existsSync(sourcePath) || readFileSync(sourcePath).length === 0) sourceProblems.push(`${key}.png missing or empty`);
+  }
+  if (resizedProblems.length === 0) ok('src/avatars/ has five 128x128 PNGs');
+  else bad('src/avatars/ five 128x128 PNGs', resizedProblems.join('; '));
+  if (sourceProblems.length === 0) ok('docs/images/avatars/ has five source PNGs');
+  else bad('docs/images/avatars/ five source PNGs', sourceProblems.join('; '));
 }
 
 if (existsSync(PATCH_PATH)) ok('cordis.patch.yml exists');

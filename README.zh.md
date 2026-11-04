@@ -7,11 +7,13 @@
 </p>
 <p align="center"><sub>图标：明代官员画像，由项目所有者提供（已作 <code>icon.svg</code> 随包发布）。</sub></p>
 
-一个纯声明式 **DSH bundle**：给 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 增加 **内阁模式**（`config.id: cabinet`）。安装本 bundle、重启 DSH，新建会话时在模式选择器里选「内阁模式」即可。
+一个 **DSH bundle**：给 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 增加 **内阁模式**（`config.id: cabinet`）。安装本 bundle、重启 DSH，新建会话时在模式选择器里选「内阁模式」即可。
 
 模式设定取自大明科研司·内阁：首辅（Lead）统摄，阁臣（成员）分曹——翰林院编修主调研、工部主事主执行、大理寺评事主核验、都察院御史主验收；默认只调研不改码，不编造数据来源。
 
-本包**不含插件运行时 JavaScript**（无 `main`/`lib`）、无运行时依赖；仅随包提供可选的 Node.js 回退脚本（`scripts/*.mjs`）。它只声明一条 `@deepseek-ai/dsh-agent-preset`，并复用 DSH **标准模式**（Standard Mode）出厂的 22 行插件清单，因此工具与标准模式一致，仅 persona 不同。
+本包含 host 半部 `index.js`（空 `apply`）与浏览器半部 `client.js`（右栏「内阁」面板），面板内嵌五张成员头像（128px data URL；源图在 `docs/images/avatars/`，由 `src/build_avatars.py` 缩放生成）；另随包提供可选的 Node.js 回退脚本（`scripts/*.mjs`）。本包**无第三方运行时依赖**，React 等经 DSH 客户端模块表取用，不自带重复依赖或 CDN。
+
+它声明**两行**——`preset-cabinet`（一条 `@deepseek-ai/dsh-agent-preset` 声明）与 `cabinet-ui`（载入本包 JavaScript 的 Loader 行）——并复用 DSH **标准模式**（Standard Mode）出厂的 22 行插件清单，因此工具与标准模式一致；与出厂模式的差异是 persona，并另加右栏「内阁」面板。团队工具（`spawn_teammate`、`team_task_*` 等）由 profile 层的 `@deepseek-ai/dsh-experimental-agent-team-profile` 提供，**本 preset 未内置**。
 
 本包声明 **无 DSH 版本硬限制**：没有 `engines.dsh`、没有 DSH `peerDependencies`、安装时不做版本检查。本机在 DSH **0.2.1-rc.3** 实测；其他提供声明式 preset 机制的 DSH 版本可尝试安装，但**未经验证**（见 [DSH 侧限制与说明](#dsh-侧限制与说明)）。
 
@@ -22,6 +24,30 @@
 ### 运行截图
 
 真实运行截图（模式选择器、Agent 预设卡片、内阁会话实况）欢迎贡献——提 PR 或发给我们即可补进此处。上图是 persona 结构示意图，不是截图。
+
+## 内阁面板与成员形象
+
+右栏新增「内阁」页签（由本包浏览器半部 `client.js` 注册，走第二条 Loader 行 `cabinet-ui`，与 preset 声明互不相干）：
+
+- **派活树**：首辅行在顶，任务按 `ownerName` 缩进挂到对应阁臣名下，`blockedBy` 依赖以标签挂在任务下方——首辅给谁派了什么活、被哪条任务卡住，一眼可见。
+- **谁在干活**：成员 running 时整行浅绿高亮、状态点持续脉冲；空闲 / 启动中 / 失败分别用灰 / 琥珀 / 红点区分，首辅行同样参与高亮。
+- **任务三色**：待办灰、进行中蓝、已完成绿（面板底部附图例）。
+- **成员形象**：每行头像（圆形 22px，首辅 24px）＋姓名＋状态文字＋当前模型；头像按姓名前缀匹配，未匹配的成员回落首辅色。
+
+五张成员头像按衙门分色：首辅明黄、翰林院编修青、工部主事赤、大理寺评事玄、都察院御史绯——浅色系国风 3D 半写实 3/4 侧颜胸像（圈内浅景深国风背景）。头像以 128px data URL 内嵌进 `client.js`，源图为正方形 PNG 存于 `docs/images/avatars/`，由 `src/build_avatars.py` 缩放生成（原图 1MB+，不直接内嵌）。
+
+示例（其余四张同目录：`hanlin.png` / `works.png` / `dali.png` / `yushi.png`）：
+
+![首辅头像示例](docs/images/avatars/lead.png)
+
+面板只读取两条既有数据通道：成员运行状态（`api-session/status`）与会话投影 `agentTeam`（成员名册与任务板），不新增服务、不新增协议。
+
+## 生效说明
+
+- **安装或更新后必须完全退出并重启 DSH**：preset 声明与 client 插件都只在启动时装配，重启前改动不生效。
+- 重启后**新建会话**，在模式选择器中选择**内阁模式**（`cabinet`）。
+- 打开右栏「内阁」页签：侧栏页签条右上角的「**+**」→ 指南页里的「**内阁**」入口。
+- 面板渲染在**浏览器端**（`client.js`）：须重启后在真实会话里实测；本仓库尚未提供浏览器截图验证。
 
 ---
 
