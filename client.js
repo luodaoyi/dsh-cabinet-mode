@@ -2649,10 +2649,10 @@ window.__ModuleLoader__.load({
 		// line one; status dot + state text (+ live dots / model) on line two.
 		// State text carries a theme-aware class so 11px copy clears 3:1 in both
 		// themes; the badge keeps lead's formula with a light-theme dark amber.
-		function MemberCard({ member, running, model, isCurrent, lead, statusLabel, t, size }) {
+		function MemberCard({ member, running, model, isCurrent, lead, statusLabel, t, size, children }) {
 			const tt = typeof t === 'function' ? t : (key) => key;
 			const status = member.phase === 'active' ? (running ? 'running' : 'inactive') : member.phase;
-			return h('div', { className: lead ? 'cabinet-card cabinet-card-lead' : 'cabinet-card' }, [
+			return h('div', { className: lead ? 'cabinet-card cabinet-card-lead' : 'cabinet-card', style: { position: 'relative', zIndex: 1 } }, [
 				h('div', {
 					key: 'who',
 					style: { display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', minWidth: 0 }
@@ -2685,7 +2685,9 @@ window.__ModuleLoader__.load({
 						key: 'err',
 						style: { fontSize: 11, color: '#f25a5a', width: '100%', wordBreak: 'break-all' }
 					}, member.error) : null
-				])
+				]),
+				// the member's own task list hangs inside the card (品字形 layout)
+				children
 			]);
 		}
 
@@ -2748,6 +2750,82 @@ window.__ModuleLoader__.load({
 			}, children);
 		}
 
+		// #region connectors — pure geometry (the self-test harness extracts this)
+		// Builds the 品字形 org-chart links for one tree: trunk from the lead card's
+		// bottom centre, a bus across the children, one branch per child. Children
+		// are clustered into grid rows by their top edge; row 0 hangs straight off
+		// the bus, wrapped rows route through a column gutter (or the container's
+		// left margin when a full-width group card sits above them) so no line ever
+		// crosses a card. Returns null while the panel is hidden (zero-size rects)
+		// so a collapsed pane never gets a stale, misplaced drawing.
+		function buildConnectorPaths(base, lead, nodes, channelX) {
+			if (!base || !lead || base.width === 0 || base.height === 0 || lead.width === 0) return null;
+			const live = nodes.filter((node) => node.width > 0 && node.height > 0);
+			if (live.length === 0) return [];
+			const channel = typeof channelX === 'number' ? channelX : -8;
+			const toLocal = (rect) => ({
+				x: rect.left + rect.width / 2 - base.left,
+				y: rect.top - base.top,
+				full: rect.width > base.width * 0.8
+			});
+			const ax = lead.left + lead.width / 2 - base.left;
+			const ay = lead.top + lead.height - base.top;
+			const points = live.map(toLocal);
+			const ys = points.map((p) => p.y);
+			const xs = points.map((p) => p.x);
+			const minY = Math.min.apply(null, ys);
+			const minBx = Math.min.apply(null, xs);
+			const maxBx = Math.max.apply(null, xs);
+			// busY: 14px under the lead card unless a child already starts higher.
+			let busY = ay + 14;
+			if (!points.every((p) => p.y > busY)) busY = minY - 12;
+			// rows: the auto-fill grid places row-major, so tops are monotonic.
+			const rowTops = [];
+			const rowOf = points.map((p) => {
+				const found = rowTops.findIndex((top) => Math.abs(top - p.y) <= 8);
+				if (found !== -1) return found;
+				rowTops.push(p.y);
+				return rowTops.length - 1;
+			});
+			// gutters: midpoints between adjacent top-row column centres — these are
+			// clear of every card in every row (all rows share the same columns).
+			const topIdx = points.map((_, i) => i).filter((i) => rowOf[i] === 0).sort((i, j) => points[i].x - points[j].x);
+			const gutters = [];
+			for (let k = 0; k + 1 < topIdx.length; k++) {
+				gutters.push((points[topIdx[k]].x + points[topIdx[k + 1]].x) / 2);
+			}
+			const paths = [];
+			paths.push('M ' + ax + ' ' + ay + ' L ' + ax + ' ' + busY);
+			if (maxBx - minBx > 0.5) paths.push('M ' + minBx + ' ' + busY + ' L ' + maxBx + ' ' + busY);
+			// lead axis outside the bus span: join it horizontally first.
+			if (ax < minBx - 0.5) paths.push('M ' + ax + ' ' + busY + ' L ' + minBx + ' ' + busY);
+			else if (ax > maxBx + 0.5) paths.push('M ' + ax + ' ' + busY + ' L ' + maxBx + ' ' + busY);
+			let marginFeed = false;
+			for (let i = 0; i < points.length; i++) {
+				const p = points[i];
+				const row = rowOf[i];
+				if (row === 0) {
+					paths.push('M ' + p.x + ' ' + busY + ' L ' + p.x + ' ' + p.y);
+					continue;
+				}
+				const fullAbove = points.some((q, j) => q.full && rowOf[j] < row);
+				let gx = null;
+				if (gutters.length > 0 && !fullAbove) {
+					gx = gutters[0];
+					for (const g of gutters) if (Math.abs(g - p.x) < Math.abs(gx - p.x)) gx = g;
+				}
+				if (gx === null) {
+					gx = channel;
+					marginFeed = true;
+				}
+				// up into the inter-row gap, across to the channel, up to the bus.
+				paths.push('M ' + p.x + ' ' + p.y + ' L ' + p.x + ' ' + (p.y - 6) + ' L ' + gx + ' ' + (p.y - 6) + ' L ' + gx + ' ' + busY);
+			}
+			if (marginFeed) paths.push('M ' + channel + ' ' + busY + ' L ' + minBx + ' ' + busY);
+			return paths;
+		}
+		// #endregion connectors
+
 		// ---------- the body ------------------------------------------------
 		function CabinetPanel({ sessionId, useSession, useSessions, useSessionStatus, t }) {
 			const tt = typeof t === 'function' ? t : (key) => key;
@@ -2770,6 +2848,65 @@ window.__ModuleLoader__.load({
 				? (projections[leadSessionId]?.values?.agentTeam
 					|| (leadSessionId !== sessionId ? projections[sessionId]?.values?.agentTeam : undefined))
 				: undefined;
+
+			// ---- measured connector layer (品字形 org chart) ----
+			const treeRef = React.useRef(null);
+			const leadRef = React.useRef(null);
+			const [linkPaths, setLinkPaths] = React.useState([]);
+			const measureLinks = React.useCallback(() => {
+				const tree = treeRef.current;
+				const leadEl = leadRef.current;
+				if (!tree || !leadEl) return;
+				const base = tree.getBoundingClientRect();
+				const leadRect = leadEl.getBoundingClientRect();
+				const nodes = Array.from(tree.querySelectorAll('[data-cabinet-node]')).map((el) => el.getBoundingClientRect());
+				const paths = buildConnectorPaths(base, leadRect, nodes, -8);
+				if (paths === null) return; // hidden pane: keep the last drawing, redraw on wake
+				setLinkPaths((prev) => (prev.join(' ') === paths.join(' ') ? prev : paths));
+			}, []);
+			// Re-measure after every commit: React owns card content, so a bare
+			// layout effect catches member/task/model changes without a dep list.
+			React.useLayoutEffect(() => { measureLinks(); });
+			const hasTeam = team !== undefined;
+			React.useEffect(() => {
+				const tree = treeRef.current;
+				if (!tree || typeof window === 'undefined') return undefined;
+				let pending = null;
+				const schedule = () => {
+					if (pending !== null) return;
+					if (typeof requestAnimationFrame === 'function') {
+						pending = { kind: 'raf', id: requestAnimationFrame(() => { pending = null; measureLinks(); }) };
+					} else {
+						pending = { kind: 'timer', id: setTimeout(() => { pending = null; measureLinks(); }, 16) };
+					}
+				};
+				const cancel = () => {
+					if (pending === null) return;
+					if (pending.kind === 'raf' && typeof cancelAnimationFrame === 'function') cancelAnimationFrame(pending.id);
+					else clearTimeout(pending.id);
+					pending = null;
+				};
+				// container size, any DOM change inside it, and window resize all
+				// funnel into one rAF-throttled re-measure; none of them animate.
+				let ro = null;
+				if (typeof ResizeObserver !== 'undefined') {
+					ro = new ResizeObserver(schedule);
+					ro.observe(tree);
+				}
+				let mo = null;
+				if (typeof MutationObserver !== 'undefined') {
+					mo = new MutationObserver(schedule);
+					mo.observe(tree, { childList: true, subtree: true });
+				}
+				window.addEventListener('resize', schedule);
+				schedule();
+				return () => {
+					cancel();
+					if (ro) ro.disconnect();
+					if (mo) mo.disconnect();
+					window.removeEventListener('resize', schedule);
+				};
+			}, [measureLinks, hasTeam]);
 
 			// Styles live in one shared <style id="dsh-cabinet-ui-styles"> mounted by
 			// apply(); the panel itself renders no <style> element.
@@ -2832,11 +2969,11 @@ window.__ModuleLoader__.load({
 
 			body.push(h(SectionTitle, { key: 'sec' }, tt('section.roster')));
 
-			// ---- org chart: 首辅卡居中 → 竖直主干 → 横向总线 → 左侧竖轨 + ├─ 分支 ----
-			// Single-column trunk by decree: a multi-column bus drifts the moment a
-			// row wraps, and a wrong connector is worse than a tall list. This shape
-			// renders identically at any width; a measured multi-column mode can
-			// come later on top of it.
+			// ---- 品字形 org chart: lead on top, ministers in an auto-fit grid below,
+			// wired by a measured SVG overlay — no CSS guessing, no left file-tree
+			// rail. Rows wrap freely (品 = 1 up / 2 down, more nodes spill to further
+			// rows); connectors re-route through a column gutter or the left margin
+			// so no line ever crosses a card.
 			const leadCard = h(MemberCard, {
 				member: leadShown,
 				running: runningOf(leadShown.id),
@@ -2847,37 +2984,61 @@ window.__ModuleLoader__.load({
 				statusLabel,
 				t: tt
 			});
-			body.push(h('div', { key: 'leadwrap', style: { display: 'flex', justifyContent: 'center' } }, leadCard));
 
-			// Cells: every minister, then the 未分派 / 首辅自办 / 不在册 groups as
-			// independent columns of the same chart.
+			// Cells: every minister first, then 未分派 / 首辅自办 / 不在册 as one
+			// full-width row (grid-column: 1 / -1) after them.
 			const cells = [];
 			for (const member of mates) cells.push({ key: 'member:' + member.id, member });
-			if (unassigned.length > 0) cells.push({ key: 'group:unassigned', title: tt('task.unassigned'), tasks: unassigned });
-			if (leadOwn.length > 0) cells.push({ key: 'group:leadown', title: tt('task.leadOwn'), tasks: leadOwn });
+			if (unassigned.length > 0) cells.push({ key: 'group:unassigned', title: tt('task.unassigned'), tasks: unassigned, fullRow: true });
+			if (leadOwn.length > 0) cells.push({ key: 'group:leadown', title: tt('task.leadOwn'), tasks: leadOwn, fullRow: true });
 			for (const owner of foreignOwners) {
-				cells.push({ key: 'group:' + owner, title: owner, tasks: tasks.filter((task) => task.ownerName === owner) });
+				cells.push({ key: 'group:' + owner, title: owner, tasks: tasks.filter((task) => task.ownerName === owner), fullRow: true });
 			}
 
+			const treeChildren = [
+				h('svg', {
+					key: 'links',
+					'aria-hidden': 'true',
+					style: { position: 'absolute', left: 0, top: 0, width: '100%', height: '100%', pointerEvents: 'none', overflow: 'visible', zIndex: 0 }
+				}, linkPaths.map((d, index) => h('path', {
+					key: index,
+					d,
+					style: { fill: 'none', stroke: LINE, strokeWidth: 2, strokeLinecap: 'round' }
+				}))),
+				h('div', {
+					key: 'leadwrap',
+					ref: leadRef,
+					style: { position: 'relative', zIndex: 1, display: 'flex', justifyContent: 'center', marginBottom: 30 }
+				}, leadCard)
+			];
+
 			if (cells.length > 0) {
-				const rows = cells.map((cell) => {
+				treeChildren.push(h('div', {
+					key: 'grid',
+					style: {
+						position: 'relative',
+						zIndex: 1,
+						display: 'grid',
+						gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))',
+						gap: '12px 14px',
+						width: '100%'
+					}
+				}, cells.map((cell) => {
 					let content;
 					if (cell.member !== undefined) {
 						const member = cell.member;
 						const memberRunning = runningOf(member.id);
 						const own = tasks.filter((task) => task.ownerName === member.name);
-						content = [
-							h(MemberCard, {
-								key: 'card',
-								member,
-								running: memberRunning,
-								model: modelOf(member.id),
-								isCurrent: member.id === sessionId,
-								statusLabel,
-								t: tt
-							}),
-							own.length > 0
-								? h(RailList, { key: 'tasks', style: { marginTop: 6 } }, own.map((task) => h(TaskLine, {
+						content = h(MemberCard, {
+							member,
+							running: memberRunning,
+							model: modelOf(member.id),
+							isCurrent: member.id === sessionId,
+							statusLabel,
+							t: tt,
+							// tasks live inside the card, elbow-connected by RailList
+							children: own.length > 0
+								? h(RailList, { style: { marginTop: 4 } }, own.map((task) => h(TaskLine, {
 									key: task.id,
 									task,
 									blockerOf,
@@ -2885,15 +3046,15 @@ window.__ModuleLoader__.load({
 									taskLabel,
 									ownerRunning: memberRunning
 								})))
-								: h('div', { key: 'none', style: { marginLeft: 26, fontSize: 11, color: INK3, padding: '2px 0 4px' } }, tt('task.none'))
-						];
+								: h('div', { style: { fontSize: 11, color: INK3, padding: '2px 0' } }, tt('task.none'))
+						});
 					} else {
-						content = [
-							h('div', { key: 'head', className: 'cabinet-card', style: { flexDirection: 'row', alignItems: 'center', gap: 6 } }, [
+						content = h('div', { className: 'cabinet-card', style: { position: 'relative', zIndex: 1 } }, [
+							h('div', { key: 'head', style: { display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 } }, [
 								h('span', { key: 'title', style: { fontSize: 12, fontWeight: 600, color: INK, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, cell.title),
 								h('span', { key: 'count', style: { fontSize: 11, color: INK3, flex: 'none' } }, '(' + cell.tasks.length + ')')
 							]),
-							h(RailList, { key: 'tasks', style: { marginTop: 6 } }, cell.tasks.map((task) => h(TaskLine, {
+							h(RailList, { key: 'tasks', style: { marginTop: 4 } }, cell.tasks.map((task) => h(TaskLine, {
 								key: task.id,
 								task,
 								blockerOf,
@@ -2901,28 +3062,17 @@ window.__ModuleLoader__.load({
 								taskLabel,
 								ownerRunning: false
 							})))
-						];
+						]);
 					}
-					return h('div', { key: cell.key, style: { position: 'relative' } }, [
-						h('span', {
-							key: 'tick',
-							'aria-hidden': 'true',
-							style: { position: 'absolute', left: -14, top: 20, width: 14, height: 2, background: LINE }
-						}),
-						...content
-					]);
-				});
-				body.push(h('div', { key: 'chart', style: { marginTop: 10 } }, [
-					// trunk: straight down from the lead card's bottom centre
-					h('div', { key: 'trunk', style: { height: 12, width: 2, margin: '0 auto', background: LINE } }),
-					// bus: from the trunk's foot leftwards to the vertical rail
-					h('div', { key: 'bus', style: { position: 'relative', height: 2 } }, [
-						h('span', { key: 'line', style: { position: 'absolute', left: 1, top: 0, height: 2, width: 'calc(50% - 1px)', background: LINE, borderTopRightRadius: 2 } })
-					]),
-					// vertical rail; every card joins it with a ├─ / └─ branch
-					h('div', { key: 'stack', style: { marginLeft: 1, borderLeft: '2px solid ' + LINE, paddingLeft: 14, display: 'flex', flexDirection: 'column', gap: 12 } }, rows)
-				]));
+					return h('div', {
+						key: cell.key,
+						'data-cabinet-node': '1',
+						style: cell.fullRow ? { gridColumn: '1 / -1' } : undefined
+					}, content);
+				})));
 			}
+
+			body.push(h('div', { key: 'tree', ref: treeRef, style: { position: 'relative', marginTop: 10 } }, treeChildren));
 			body.push(h('div', {
 				key: 'legend',
 				style: { marginTop: 12, fontSize: 10.5, color: INK3, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }
