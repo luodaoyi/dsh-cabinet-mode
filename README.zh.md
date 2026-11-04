@@ -75,7 +75,7 @@
 ## 手动安装（3 行）
 
 ```sh
-dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.1.6/dsh-cabinet-mode-0.1.6.tgz
+dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.2.0/dsh-cabinet-mode-0.2.0.tgz
 # 完全退出并重启 DeepSeek Harness
 # 新建任务 -> 模式选择器 -> 内阁模式
 ```
@@ -96,7 +96,7 @@ dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/re
 >   `dsh.profile.bundles` 里保留了 `dsh-cabinet-mode`：
 >
 > ```sh
-> node "<DeepSeek Harness 安装目录>\resources\runtime\primary-runtime\dependencies\pnpm\bin\pnpm.mjs" --dir "%USERPROFILE%\.dsh\profiles\desktop" add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.1.6/dsh-cabinet-mode-0.1.6.tgz
+> node "<DeepSeek Harness 安装目录>\resources\runtime\primary-runtime\dependencies\pnpm\bin\pnpm.mjs" --dir "%USERPROFILE%\.dsh\profiles\desktop" add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.2.0/dsh-cabinet-mode-0.2.0.tgz
 > ```
 >
 > 操作前先备份该 profile 的 `package.json` / `pnpm-lock.yaml`。
@@ -127,7 +127,7 @@ https://raw.githubusercontent.com/luodaoyi/dsh-cabinet-mode/market-index/marketp
 若通过插件市场安装：刷新市场，先在**已安装**页卸载旧版本，再从**插件市场**安装新版本，然后重启——没有 tgz URL 要换，也没有一键更新。否则用同一条安装命令换新版本 URL（或在插件页选新 `.tgz`），然后完全退出并重启 DeepSeek Harness：
 
 ```sh
-dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.1.6/dsh-cabinet-mode-0.1.6.tgz
+dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.2.0/dsh-cabinet-mode-0.2.0.tgz
 ```
 
 `dsh plugin --profile desktop list` 应显示新版本。升级已在 Windows 实测：
@@ -230,9 +230,9 @@ node scripts/verify.mjs                             # 仓库校验 + dsh 合成�
 推送版本 tag 会触发 `.github/workflows/release.yml`：校验工作树 → 打包 tarball → 用 **Trusted Publishing（OIDC）** 发布到 npm（不使用长期 npm token）→ 创建 GitHub Release → 刷新插件市场读取的 `market-index` 分支。
 
 ```sh
-# package.json 版本与 CHANGELOG 对应章节都必须是 0.1.6
-git tag v0.1.6
-git push origin v0.1.6
+# package.json 版本与 CHANGELOG 对应章节都必须是 0.2.0
+git tag v0.2.0
+git push origin v0.2.0
 ```
 
 npmjs.com 侧的一次性配置（维护者在网页上完成，无法从本仓库完成）。为该包添加 GitHub Actions trusted publisher：

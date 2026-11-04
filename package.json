@@ -48,7 +48,8 @@
     "CHANGELOG.md",
     "docs/cross-platform.md",
     "docs/images",
-    "scripts"
+    "scripts",
+    "src"
   ],
   "dsh": {
     "bundle": {

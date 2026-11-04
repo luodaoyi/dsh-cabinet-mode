@@ -32,6 +32,7 @@ import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
+const HOME = process.env.HOME || process.env.USERPROFILE || '';
 const PATCH_PATH = join(ROOT, 'cordis.patch.yml');
 const PACKAGE_PATH = join(ROOT, 'package.json');
 const TESTS_ON = '0.2.1-rc.3';
@@ -323,8 +324,28 @@ if (!dshVersion) {
   } else {
     warning('dsh version differs from the tested reference', `${TESTS_ON} tested, running ${dshVersion}; informational only, no version gate and no failure`);
   }
+  // The bundle already ships this patch through `dsh.bundle.patch`, so a profile
+  // that installs dsh-cabinet-mode applies it once on its own. Passing --patch
+  // as well would apply the same patch twice and report two preset-cabinet rows,
+  // so only overlay it when the active profile does not install this package.
   const patchArg = PATCH_PATH.includes(' ') ? `"${PATCH_PATH}"` : PATCH_PATH;
-  const command = `dsh --profile web --patch ${patchArg} --dump-config`;
+  const profileInstallsBundle = (() => {
+    const profilePackage = join(HOME, '.dsh', 'profiles', 'web', 'package.json');
+    if (!existsSync(profilePackage)) return false;
+    try {
+      const parsed = JSON.parse(readFileSync(profilePackage, 'utf8'));
+      const deps = { ...(parsed.dependencies ?? {}), ...(parsed.devDependencies ?? {}) };
+      return Boolean(deps['dsh-cabinet-mode']);
+    } catch {
+      return false;
+    }
+  })();
+  const command = profileInstallsBundle
+    ? 'dsh --profile web --dump-config'
+    : `dsh --profile web --patch ${patchArg} --dump-config`;
+  if (profileInstallsBundle) {
+    console.log('  profile web already installs dsh-cabinet-mode: bundle patch applied once, --patch not re-applied');
+  }
   const result = spawnSync(command, {
     shell: true,
     encoding: 'utf8',

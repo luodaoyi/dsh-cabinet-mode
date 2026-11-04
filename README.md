@@ -119,7 +119,7 @@ If any step fails, show the exact error and stop. Do not retry more than once.
 ## Manual install (3 lines)
 
 ```sh
-dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.1.6/dsh-cabinet-mode-0.1.6.tgz
+dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.2.0/dsh-cabinet-mode-0.2.0.tgz
 # fully quit and restart DeepSeek Harness
 # New session -> mode picker -> 内阁模式
 ```
@@ -143,7 +143,7 @@ commands work on Linux and macOS.
 >   `dsh-cabinet-mode` in `dsh.profile.bundles`):
 >
 > ```sh
-> node "<DeepSeek Harness install>\resources\runtime\primary-runtime\dependencies\pnpm\bin\pnpm.mjs" --dir "%USERPROFILE%\.dsh\profiles\desktop" add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.1.6/dsh-cabinet-mode-0.1.6.tgz
+> node "<DeepSeek Harness install>\resources\runtime\primary-runtime\dependencies\pnpm\bin\pnpm.mjs" --dir "%USERPROFILE%\.dsh\profiles\desktop" add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.2.0/dsh-cabinet-mode-0.2.0.tgz
 > ```
 >
 > Back up the profile's `package.json` / `pnpm-lock.yaml` first.
@@ -207,7 +207,7 @@ the same install command with the new version URL (or pick the new `.tgz` in the
 plugin page), then fully quit and restart DeepSeek Harness:
 
 ```sh
-dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.1.6/dsh-cabinet-mode-0.1.6.tgz
+dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.2.0/dsh-cabinet-mode-0.2.0.tgz
 ```
 
 `dsh plugin --profile desktop list` should report the new version. Upgrades were
@@ -375,9 +375,9 @@ long-lived npm token — creates the GitHub Release, and then refreshes the
 `market-index` branch that the plugin market reads.
 
 ```sh
-# package.json version and the matching CHANGELOG section must both be 0.1.6
-git tag v0.1.6
-git push origin v0.1.6
+# package.json version and the matching CHANGELOG section must both be 0.2.0
+git tag v0.2.0
+git push origin v0.2.0
 ```
 
 One-time setup on npmjs.com (a maintainer action; it cannot be done from this
