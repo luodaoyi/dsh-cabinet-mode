@@ -2751,77 +2751,106 @@ window.__ModuleLoader__.load({
 		}
 
 		// #region connectors — pure geometry (the self-test harness extracts this)
-		// Builds the 品字形 org-chart links for one tree: trunk from the lead card's
-		// bottom centre, a bus across the children, one branch per child. Children
-		// are clustered into grid rows by their top edge; row 0 hangs straight off
-		// the bus, wrapped rows route through a column gutter (or the container's
-		// left margin when a full-width group card sits above them) so no line ever
-		// crosses a card. Returns null while the panel is hidden (zero-size rects)
-		// so a collapsed pane never gets a stale, misplaced drawing.
+		// Builds the 品字形 org-chart links per row: every row owns a horizontal bus
+		// 8px above its cards, each card drops a short vertical stub onto that bus,
+		// the lead card feeds row 0's bus with a trunk (joining horizontally when
+		// the lead axis sits off the bus span), and consecutive rows are tied by a
+		// polyline that leaves a bus END, turns at a side clear of every card
+		// (right side first, then left, then the container margin channel) and
+		// lands on the previous row's bus. Every candidate segment is validated
+		// against the measured card rectangles — a hit tries the next side — so no
+		// line ever crosses a card. Returns null while the panel is hidden
+		// (zero-size rects) so a collapsed pane keeps no stale drawing.
 		function buildConnectorPaths(base, lead, nodes, channelX) {
 			if (!base || !lead || base.width === 0 || base.height === 0 || lead.width === 0) return null;
 			const live = nodes.filter((node) => node.width > 0 && node.height > 0);
 			if (live.length === 0) return [];
 			const channel = typeof channelX === 'number' ? channelX : -8;
-			const toLocal = (rect) => ({
-				x: rect.left + rect.width / 2 - base.left,
-				y: rect.top - base.top,
-				full: rect.width > base.width * 0.8
+			const cards = live.map((rect) => {
+				const left = rect.left - base.left;
+				const top = rect.top - base.top;
+				return { left, top, right: left + rect.width, bottom: top + rect.height, cx: left + rect.width / 2 };
 			});
 			const ax = lead.left + lead.width / 2 - base.left;
 			const ay = lead.top + lead.height - base.top;
-			const points = live.map(toLocal);
-			const ys = points.map((p) => p.y);
-			const xs = points.map((p) => p.x);
-			const minY = Math.min.apply(null, ys);
-			const minBx = Math.min.apply(null, xs);
-			const maxBx = Math.max.apply(null, xs);
-			// busY: 14px under the lead card unless a child already starts higher.
-			let busY = ay + 14;
-			if (!points.every((p) => p.y > busY)) busY = minY - 12;
-			// rows: the auto-fill grid places row-major, so tops are monotonic.
+
+			// Cluster cards into grid rows by their top edge (8px tolerance); the
+			// auto-fill grid is row-major, so DOM order already walks rows.
 			const rowTops = [];
-			const rowOf = points.map((p) => {
-				const found = rowTops.findIndex((top) => Math.abs(top - p.y) <= 8);
-				if (found !== -1) return found;
-				rowTops.push(p.y);
-				return rowTops.length - 1;
+			const rows = [];
+			for (const card of cards) {
+				let index = rowTops.findIndex((top) => Math.abs(top - card.top) <= 8);
+				if (index === -1) {
+					rowTops.push(card.top);
+					rows.push([]);
+					index = rows.length - 1;
+				}
+				rows[index].push(card);
+			}
+			const info = rows.map((row, index) => {
+				const sorted = row.slice().sort((a, b) => a.cx - b.cx);
+				const top = Math.min.apply(null, row.map((card) => card.top));
+				// Row bus sits 8px above the cards. Row 0 additionally keeps the bus
+				// below the lead card's bottom edge (never through it) and above the
+				// cards (never inside them); the midpoint handles a squeezed gap.
+				let busY = top - 8;
+				if (index === 0 && busY < ay + 2) busY = Math.min(top - 2, Math.max(ay + 2, (ay + top) / 2));
+				return { cards: sorted, busY, left: sorted[0].cx, right: sorted[sorted.length - 1].cx };
 			});
-			// gutters: midpoints between adjacent top-row column centres — these are
-			// clear of every card in every row (all rows share the same columns).
-			const topIdx = points.map((_, i) => i).filter((i) => rowOf[i] === 0).sort((i, j) => points[i].x - points[j].x);
-			const gutters = [];
-			for (let k = 0; k + 1 < topIdx.length; k++) {
-				gutters.push((points[topIdx[k]].x + points[topIdx[k + 1]].x) / 2);
-			}
+
+			const hits = (x1, y1, x2, y2) => {
+				const loX = Math.min(x1, x2);
+				const hiX = Math.max(x1, x2);
+				const loY = Math.min(y1, y2);
+				const hiY = Math.max(y1, y2);
+				return cards.some((r) => hiX > r.left && loX < r.right && hiY > r.top && loY < r.bottom);
+			};
+			const maxRight = Math.max.apply(null, cards.map((r) => r.right));
+			const minLeft = Math.min.apply(null, cards.map((r) => r.left));
+
 			const paths = [];
-			paths.push('M ' + ax + ' ' + ay + ' L ' + ax + ' ' + busY);
-			if (maxBx - minBx > 0.5) paths.push('M ' + minBx + ' ' + busY + ' L ' + maxBx + ' ' + busY);
-			// lead axis outside the bus span: join it horizontally first.
-			if (ax < minBx - 0.5) paths.push('M ' + ax + ' ' + busY + ' L ' + minBx + ' ' + busY);
-			else if (ax > maxBx + 0.5) paths.push('M ' + ax + ' ' + busY + ' L ' + maxBx + ' ' + busY);
-			let marginFeed = false;
-			for (let i = 0; i < points.length; i++) {
-				const p = points[i];
-				const row = rowOf[i];
-				if (row === 0) {
-					paths.push('M ' + p.x + ' ' + busY + ' L ' + p.x + ' ' + p.y);
-					continue;
+			const first = info[0];
+			// lead → row 0 bus; horizontal join first when the axis is off-span.
+			paths.push('M ' + ax + ' ' + ay + ' L ' + ax + ' ' + first.busY);
+			if (ax < first.left - 0.5) paths.push('M ' + ax + ' ' + first.busY + ' L ' + first.left + ' ' + first.busY);
+			else if (ax > first.right + 0.5) paths.push('M ' + ax + ' ' + first.busY + ' L ' + first.right + ' ' + first.busY);
+
+			for (let index = 0; index < info.length; index++) {
+				const row = info[index];
+				// (1) this row's bus + (2) one stub per card down to its top centre.
+				if (row.right - row.left > 0.5) paths.push('M ' + row.left + ' ' + row.busY + ' L ' + row.right + ' ' + row.busY);
+				for (const card of row.cards) paths.push('M ' + card.cx + ' ' + row.busY + ' L ' + card.cx + ' ' + card.top);
+				if (index === 0) continue;
+
+				// (4) row N → row N-1: a polyline off the row bus's END. Candidates run
+				// right side first, then left (lead's order), with clear air beyond the
+				// cards and the margin channel last; the first whose segments clear
+				// every card rect wins.
+				const prev = info[index - 1];
+				const candidates = [
+					row.right, prev.right, maxRight + 10,
+					row.left, prev.left, minLeft - 10,
+					channel
+				];
+				const plan = (side) => {
+					const segs = [[side, row.busY, side, prev.busY]];
+					if (side > row.right + 0.5) segs.push([row.right, row.busY, side, row.busY]);
+					else if (side < row.left - 0.5) segs.push([row.left, row.busY, side, row.busY]);
+					if (side > prev.right + 0.5) segs.push([side, prev.busY, prev.right, prev.busY]);
+					else if (side < prev.left - 0.5) segs.push([side, prev.busY, prev.left, prev.busY]);
+					return segs;
+				};
+				let chosen = null;
+				for (const candidate of candidates) {
+					const segs = plan(candidate);
+					if (segs.every((s) => !hits(s[0], s[1], s[2], s[3]))) {
+						chosen = segs;
+						break;
+					}
 				}
-				const fullAbove = points.some((q, j) => q.full && rowOf[j] < row);
-				let gx = null;
-				if (gutters.length > 0 && !fullAbove) {
-					gx = gutters[0];
-					for (const g of gutters) if (Math.abs(g - p.x) < Math.abs(gx - p.x)) gx = g;
-				}
-				if (gx === null) {
-					gx = channel;
-					marginFeed = true;
-				}
-				// up into the inter-row gap, across to the channel, up to the bus.
-				paths.push('M ' + p.x + ' ' + p.y + ' L ' + p.x + ' ' + (p.y - 6) + ' L ' + gx + ' ' + (p.y - 6) + ' L ' + gx + ' ' + busY);
+				if (chosen === null) chosen = plan(channel); // margin channel never hits (x < every card)
+				for (const s of chosen) paths.push('M ' + s[0] + ' ' + s[1] + ' L ' + s[2] + ' ' + s[3]);
 			}
-			if (marginFeed) paths.push('M ' + channel + ' ' + busY + ' L ' + minBx + ' ' + busY);
 			return paths;
 		}
 		// #endregion connectors
