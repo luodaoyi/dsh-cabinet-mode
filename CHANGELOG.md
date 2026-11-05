@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.2.3] - 2026-11-05
+
+### Documentation
+
+- Include the separately required Enable now / Installed-page toggle after market
+  installation; restarting alone does not activate a disabled bundle. Confirmed
+  with a real rc.5 market uninstall/reinstall to 0.2.2 in an isolated web profile.
+
 ## [0.2.2] - 2026-11-05
 
 ### Documentation
