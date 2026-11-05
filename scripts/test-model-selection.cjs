@@ -39,6 +39,10 @@ const {attachMemberModel}=require('../index.js');
   member={role:'teammate',name:'hanlin-bianxiu'};await check({provider:'cabinet',model:'member'});
   config.members=[{key:'lead',model:'cabinet/lead'}];await check({provider:'cabinet',model:'lead'});
   config.members=[];await check(defaults);
+  if(order!=='no-official') {
+   defaults={...native.current,reasoningEffort:'low'};
+   await check(native.current); // Same route keeps native high, not deployment low.
+  }
   defaults={provider:'new-default',model:'next'};await check(defaults);
   config.members=[{key:'hanlin',model:'official/native'}];if(order!=='no-official')await check(native.current);
   // Different turns and signal-free previews never overwrite each other's snapshot.
@@ -52,7 +56,15 @@ const {attachMemberModel}=require('../index.js');
   for(const [signal,model]of [[a,'A'],[b,'B']])assert.equal((await events.waterfall('agent/request',{signal},async()=>({provider:'x',model:'x'}))).model,model);
   unblock();passed++;
   preset='standard';await assert.rejects(events.waterfall('agent/request',{signal:a},async()=>({provider:'x',model:'x'})),/mode changed/);passed++;
-  preset='cabinet';off();assert.equal(cancellations.length,1);assert.equal(cancellations[0].cause.kind,'hook');assert.equal(cancellations[0].options.keepInbox,true);assert.deepEqual(await events.waterfall('agent/request',{signal:a},async()=>({provider:'seed',model:'seed'})),order==='no-official'?{provider:'seed',model:'seed'}:native.current);passed++;
+  preset='cabinet';
+  const live=new AbortController();
+  agent.cancel=(cause,options)=>{cancellations.push({cause,options});live.abort(cause);};
+  config.members=[{key:'hanlin',model:'p/override'}];
+  assert.equal((await ctx.systemPrompt.assemble(assembleContextFor(agent,live.signal))).variables.model,'override');
+  await ctx.systemPrompt.assemble(assembleContextFor(agent)); // Preview AFTER live assembly.
+  off();assert.equal(cancellations.length,1);assert.equal(cancellations[0].cause.kind,'hook');assert.equal(cancellations[0].options.keepInbox,true);
+  assert.equal(live.signal.aborted,true,'AgentLoop must abort before sending a differently routed request');
+  passed++;
   await scope.dispose();
  }
  console.log('PASS '+passed+' official Cordis/SystemPrompt/installModelSelection combinations; identity/default services stubbed, no model calls');

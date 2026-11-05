@@ -3637,7 +3637,7 @@ window.__ModuleLoader__.load({
 						onChange: (event) => update(key, { name: event?.target?.value ?? '' })
 					}),
 					h('label', { key: 'ml', style: { display: 'block', fontSize: 11, color: INK2, margin: '8px 0 2px' } }, t('member.model')),
-					modelCatalog !== undefined && modelCatalog !== null
+					modelOptions.length > 0
 						? (function () {
 							const value = draft[key].model || '';
 							const opts = [h('option', { key: '', value: '' }, t(key === 'lead' ? 'member.model.defaultLead' : 'member.model.default'))];

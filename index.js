@@ -319,7 +319,7 @@ function attachMemberModel(ctx, config, agent, attached, routeMemory = new Map()
 			if (key === undefined && previous && sameRoute(assembled.variables, previous.override)) state.route = previous.baseline;
 			if (key !== undefined && !state.route) throw new Error('Cabinet: no default model available to clear the member override');
 			state.pending = false;
-			controlledSignal = state.route ? signal : undefined;
+			if (signal) controlledSignal = state.route ? signal : undefined;
 			return state.route ? { ...assembled, variables: { ...assembled.variables, provider: state.route.provider, model: state.route.model } } : assembled;
 		} catch (error) { if (signal && turns.get(signal) === state) turns.delete(signal); throw error; }
 	}, { prepend: true });
@@ -347,7 +347,7 @@ function attachMemberModel(ctx, config, agent, attached, routeMemory = new Map()
 		} else routeMemory.delete(agent.id);
 		// Preserve native effort on the same route; a different model must use
 		// its own adapter default rather than another model's effort identifier.
-		if (sameRoute(state.route, resolved) && state.route.reasoningEffort === undefined) return { ...resolved, ...state.route };
+		if (sameRoute(state.route, resolved)) return resolved;
 		const { reasoningEffort: _oldEffort, ...rest } = resolved;
 		return { ...rest, ...state.route };
 	}, { prepend: true });
