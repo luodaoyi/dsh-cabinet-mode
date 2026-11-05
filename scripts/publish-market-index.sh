@@ -31,12 +31,38 @@ version=$(node -p "require('./package.json').version")
 staging=$(mktemp -d)
 cp marketplace.json icon.svg "$staging/"
 
+cat > "$staging/README.md" <<'EOF'
+# Plugin market index
+
+## Add this source in DSH
+
+Enable **Custom plugin market** under Plugins > Experimental plugins, then open
+**Discover > Index sources** and paste this exact raw JSON URL:
+
+```text
+https://raw.githubusercontent.com/luodaoyi/dsh-cabinet-mode/market-index/marketplace.json
+```
+
+Do not paste a GitHub `tree` or `blob` page URL. Those return a web page rather
+than the format-1 index and DSH reports `$.format must be 1`. Remove that invalid
+source and add the raw URL above. The same rule applies to other markets.
+
+请复制上面的 raw JSON 地址到「发现 → 索引源」。不要填写本页的 GitHub
+网页地址；遇到 `$.format must be 1` 时，移除错误源并重新添加上述地址。
+
+Generated from the npm registry by `scripts/market-index.mjs` for `dsh-cabinet-mode`.
+Do not edit this branch by hand: the release workflow force-pushes it after every
+tagged publish, and maintainers can refresh it with the `Market index` workflow.
+EOF
+
 git config user.name 'github-actions[bot]'
 git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
 
 # Skip the push when the published copy already matches the regenerated one.
 if git fetch --no-tags origin market-index 2>/dev/null \
-  && git show origin/market-index:marketplace.json 2>/dev/null | cmp -s - marketplace.json; then
+  && git show origin/market-index:marketplace.json 2>/dev/null | cmp -s - marketplace.json \
+  && git show origin/market-index:icon.svg 2>/dev/null | cmp -s - icon.svg \
+  && git show origin/market-index:README.md 2>/dev/null | cmp -s - "$staging/README.md"; then
   echo "index already current for ${version}"
   exit 0
 fi
@@ -44,13 +70,8 @@ fi
 git checkout --orphan market-index-publish
 git rm -rf .
 cp "$staging/marketplace.json" "$staging/icon.svg" .
-cat > README.md <<'EOF'
-# Plugin market index
+cp "$staging/README.md" .
 
-Generated from the npm registry by `scripts/market-index.mjs` for `dsh-cabinet-mode`.
-Do not edit this branch by hand: the release workflow force-pushes it after every
-tagged publish, and maintainers can refresh it with the `Market index` workflow.
-EOF
 git add marketplace.json icon.svg README.md
 git commit -m "chore: refresh plugin market index for ${version}"
 

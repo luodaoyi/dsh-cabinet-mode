@@ -121,7 +121,7 @@ If any step fails, show the exact error and stop. Do not retry more than once.
 ## Manual install (3 lines)
 
 ```sh
-dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.2.0/dsh-cabinet-mode-0.2.0.tgz
+dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.2.1/dsh-cabinet-mode-0.2.1.tgz
 # fully quit and restart DeepSeek Harness
 # New session -> mode picker -> 内阁模式
 ```
@@ -145,7 +145,7 @@ commands work on Linux and macOS.
 >   `dsh-cabinet-mode` in `dsh.profile.bundles`):
 >
 > ```sh
-> node "<DeepSeek Harness install>\resources\runtime\primary-runtime\dependencies\pnpm\bin\pnpm.mjs" --dir "%USERPROFILE%\.dsh\profiles\desktop" add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.2.0/dsh-cabinet-mode-0.2.0.tgz
+> node "<DeepSeek Harness install>\resources\runtime\primary-runtime\dependencies\pnpm\bin\pnpm.mjs" --dir "%USERPROFILE%\.dsh\profiles\desktop" add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.2.1/dsh-cabinet-mode-0.2.1.tgz
 > ```
 >
 > Back up the profile's `package.json` / `pnpm-lock.yaml` first.
@@ -159,6 +159,8 @@ URL or a local checkout:
 ```text
 https://raw.githubusercontent.com/luodaoyi/dsh-cabinet-mode/market-index/marketplace.json
 ```
+
+Use the **raw JSON URL** above, not a GitHub `tree` or `blob` page. If DSH reports `$.format must be 1`, remove the invalid source and add the raw URL. First enable **Custom plugin market** in Plugins → Experimental plugins, then open **Discover → Index sources**.
 
 1. Open **Plugin market** (插件市场) in DSH, open **Index sources** (索引源), add the
    URL above, and refresh it.
@@ -209,7 +211,7 @@ the same install command with the new version URL (or pick the new `.tgz` in the
 plugin page), then fully quit and restart DeepSeek Harness:
 
 ```sh
-dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.2.0/dsh-cabinet-mode-0.2.0.tgz
+dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.2.1/dsh-cabinet-mode-0.2.1.tgz
 ```
 
 `dsh plugin --profile desktop list` should report the new version. Upgrades were

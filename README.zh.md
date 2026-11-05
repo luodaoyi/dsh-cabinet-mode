@@ -75,7 +75,7 @@
 ## 手动安装（3 行）
 
 ```sh
-dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.2.0/dsh-cabinet-mode-0.2.0.tgz
+dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.2.1/dsh-cabinet-mode-0.2.1.tgz
 # 完全退出并重启 DeepSeek Harness
 # 新建任务 -> 模式选择器 -> 内阁模式
 ```
@@ -96,7 +96,7 @@ dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/re
 >   `dsh.profile.bundles` 里保留了 `dsh-cabinet-mode`：
 >
 > ```sh
-> node "<DeepSeek Harness 安装目录>\resources\runtime\primary-runtime\dependencies\pnpm\bin\pnpm.mjs" --dir "%USERPROFILE%\.dsh\profiles\desktop" add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.2.0/dsh-cabinet-mode-0.2.0.tgz
+> node "<DeepSeek Harness 安装目录>\resources\runtime\primary-runtime\dependencies\pnpm\bin\pnpm.mjs" --dir "%USERPROFILE%\.dsh\profiles\desktop" add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.2.1/dsh-cabinet-mode-0.2.1.tgz
 > ```
 >
 > 操作前先备份该 profile 的 `package.json` / `pnpm-lock.yaml`。
@@ -108,6 +108,8 @@ dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/re
 ```text
 https://raw.githubusercontent.com/luodaoyi/dsh-cabinet-mode/market-index/marketplace.json
 ```
+
+请复制上面的 **raw JSON 地址**，不要复制 GitHub 的 `tree` 或 `blob` 网页地址。若提示 `$.format must be 1`，移除错误源，再添加上述 raw 地址。先在「插件 → 实验性插件」启用「自定义插件市场」，再打开「发现 → 索引源」。
 
 1. 在 DSH 打开**插件市场**，打开**索引源**列表，添加上面的 URL 并刷新。
 2. 在市场列表中安装 **内阁模式 / Cabinet Mode**（`dsh-cabinet-mode`）。DSH 会把 `dsh-cabinet-mode@<版本>` 从 `https://registry.npmjs.org` 安装到当前 profile。这与方式 A 是同一种 bundle 安装，二者只能选其一。
@@ -127,7 +129,7 @@ https://raw.githubusercontent.com/luodaoyi/dsh-cabinet-mode/market-index/marketp
 若通过插件市场安装：刷新市场，先在**已安装**页卸载旧版本，再从**插件市场**安装新版本，然后重启——没有 tgz URL 要换，也没有一键更新。否则用同一条安装命令换新版本 URL（或在插件页选新 `.tgz`），然后完全退出并重启 DeepSeek Harness：
 
 ```sh
-dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.2.0/dsh-cabinet-mode-0.2.0.tgz
+dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.2.1/dsh-cabinet-mode-0.2.1.tgz
 ```
 
 `dsh plugin --profile desktop list` 应显示新版本。升级已在 Windows 实测：
