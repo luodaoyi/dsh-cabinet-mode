@@ -2401,6 +2401,8 @@ window.__ModuleLoader__.load({
 			return url;
 		}
 		function avatarFor(name) {
+			const custom = configuredAvatar(name);
+			if (custom !== '') return custom;
 			const text = typeof name === 'string' ? name.trim() : '';
 			for (const key of AVATAR_KEYS) if (text.startsWith(key) || ROLE_PREFIXES[key].some((prefix) => text.startsWith(prefix))) return AVATARS[key];
 			return neutralAvatar(text);
@@ -2433,9 +2435,28 @@ window.__ModuleLoader__.load({
 九、反制糊弄：报「已完成」必追问证据三件（命令输出、路径行号、未验证清单）；报「卡住」必追问三件（已做什么、卡在哪、需要什么）；两次含糊即降级处理（换人、拆小）。
 十、收束：闭环才许说「这一版可以交差」，不许提前许诺功劳。
 红线（压过全部话术）：只对 AI 阁臣施压，对用户只有敬；不许逼造假、删证据、凑绿；不许人身侮辱辱骂；不许以施压换取违规操作（越权改 live、泄密钥、跳验收）；施压必须落在可核验的时间/交付物/判据上，空口威胁无效。`;
+		/**
+		 * Factory duty prompt for each non-Lead member — the office duties the
+		 * static persona prefix already states, restated per member so a
+		 * customized prompt never has to re-explain the job. Byte-identical copy
+		 * lives in index.js; scripts/verify.mjs checks both. Each entry stays
+		 * under 400 characters.
+		 */
+		const DEFAULT_MEMBER_PROMPTS = {
+			hanlin: '翰林院编修·主调研与文献考据：接到分派先读原始材料与既有记录，给出可复现的检索路径；结论必须锚定路径、行号或命令输出，未实测一律标「未验证」，禁止以推测冒充实测；调研成果写成结构化文档（结论先行 + 证据行号 + 风险与未验证清单），默认只调研不改码，写操作以任务明确授权为限；只向首辅回报，不直接答复用户，遇阻带「已做什么 / 卡在哪 / 需要什么」三件。',
+			works: '工部主事·主动手执行与产出：接令先复述任务与写入范围，只在授权范围内改文件；产出必附证据（路径、行号、命令输出、退出码），没跑说没跑、没验说没验；构建与测试须原样贴出输出，不许删弱既有校验去凑绿；交付以可复现为准，失败与遗留必须如实上报，不许包装；只向首辅回报，遇阻带「已做什么 / 卡在哪 / 需要什么」三件。',
+			dali: '大理寺评事·主独立核验：不信任何人的自述，全部自己跑；核验报告逐项写明通过 / 不通过 / 未验证，失败证据原样保留，不删不改；给不出可复现命令的结论一律不采信；发现工部与自述不符即回报首辅，不替人遮掩，也不越权改码；只向首辅回报，报告中未实测项必须显式标注「未验证」。',
+			yushi: '都察院御史·主验收并按律弹劾缺陷：按用户原话逐项核对，给通过 / 部分通过 / 不通过并附证据；缺陷按级别列出（P0 阻断 / P1 需修后再提 / P2 须在 PR 声明 / P3 提示），每条给位置、复现与建议修法；「声称实测却无命令输出、截图或文件内容」按造假弹劾；结论必须明确「可提 PR / 不可提 PR」，不骑墙、不和稀泥；只向首辅回报。'
+		};
+		/** Factory prompt for one bureau key: the Lead keeps its 御下术 default. */
+		function factoryPromptFor(key) {
+			return key === 'lead' ? DEFAULT_LEAD_PROMPT : (DEFAULT_MEMBER_PROMPTS[key] || '');
+		}
 		const MEMBER_NAME_LIMIT = 40;
 		const MEMBER_PROMPT_LIMIT = 4000;
 		const MEMBER_AVATAR_LIMIT = 48 * 1024;
+		/** Image data URLs accepted for a member avatar; anything else is ignored. */
+		const MEMBER_AVATAR_PREFIXES = ['data:image/png;', 'data:image/jpeg;', 'data:image/webp;'];
 		const MEMBER_AVATAR_FIELDS = { lead: 'avatarLead', hanlin: 'avatarHanlin', works: 'avatarWorks', dali: 'avatarDali', yushi: 'avatarYushi' };
 		const MEMBER_ALIASES = {
 			lead: ['lead', 'shoufu', '首辅', '内阁首辅'],
@@ -2488,7 +2509,7 @@ window.__ModuleLoader__.load({
 				const value = raw !== null && typeof raw === 'object' ? raw[MEMBER_AVATAR_FIELDS[key]] : undefined;
 				if (typeof value !== 'string') continue;
 				const url = value.trim();
-				if (url.startsWith('data:image/') && url.length <= MEMBER_AVATAR_LIMIT) avatars.set(key, url);
+				if (MEMBER_AVATAR_PREFIXES.some((prefix) => url.startsWith(prefix)) && url.length <= MEMBER_AVATAR_LIMIT) avatars.set(key, url);
 			}
 			return { names, prompts, modes, avatars };
 		}
@@ -2507,14 +2528,14 @@ window.__ModuleLoader__.load({
 			const key = bureauOfName(name);
 			return key === '' ? '' : (memberConfig.names.get(key) || '');
 		}
-		/** Prompt injected for a member: factory default for the Lead, else '' — never off. */
+		/** Prompt injected for a member: the factory default unless the user cleared it. */
 		function configuredPrompt(name) {
 			const key = bureauOfName(name);
 			if (key === '') return '';
 			const mode = memberConfig.modes.get(key) || '';
-			const prompt = memberConfig.prompts.get(key) || '';
-			if (key === 'lead') return mode === 'off' ? '' : (mode === 'custom' ? prompt : DEFAULT_LEAD_PROMPT);
-			return mode === 'off' ? '' : prompt;
+			if (mode === 'off') return '';
+			if (mode === 'custom') return memberConfig.prompts.get(key) || '';
+			return factoryPromptFor(key);
 		}
 		/** Whether the Lead's 御下术 section is currently on (shows in the settings box). */
 		function leadPolicyOn() {
@@ -3399,14 +3420,10 @@ window.__ModuleLoader__.load({
 				writeMembers(next);
 				for (const key of MEMBER_SECTION_FIELDS) writeAvatar(key, '');
 			};
-			const leadText = () => {
-				const entry = draft.lead;
-				if (entry.mode === 'off') return '';
-				return entry.mode === 'custom' ? entry.prompt : DEFAULT_LEAD_PROMPT;
-			};
 			const promptOf = (key) => {
-				if (key !== 'lead') return draft[key].prompt;
-				return leadText();
+				const mode = draft[key].mode;
+				if (mode === 'off') return '';
+				return mode === 'custom' ? draft[key].prompt : factoryPromptFor(key);
 			};
 			const inputStyle = { width: '100%', boxSizing: 'border-box', fontSize: 13, color: INK, background: 'transparent', border: '1px solid var(--dsw-alias-border-l3, rgba(127,127,127,.4))', borderRadius: 6, padding: '6px 8px' };
 			const cards = MEMBER_SECTION_FIELDS.map((key) => {
@@ -3434,8 +3451,10 @@ window.__ModuleLoader__.load({
 									type: 'button',
 									title: t('member.' + other),
 									style: { padding: 0, border: other === key ? '2px solid #4f8cff' : '1px solid transparent', borderRadius: '50%', background: 'transparent', cursor: 'pointer', lineHeight: 0 },
-									onClick: () => writeAvatar(key, '')
-								}, h('img', { src: avatars[key] ? AVATARS[other] : AVATARS[other], alt: '', width: 22, height: 22, style: { width: 22, height: 22, borderRadius: '50%', objectFit: 'cover' } })));
+									// Clicking a built-in portrait selects it for this member;
+									// clicking the selected one again clears the override.
+									onClick: () => writeAvatar(key, avatars[key] === AVATARS[other] ? '' : AVATARS[other])
+								}, h('img', { src: AVATARS[other], alt: '', width: 22, height: 22, style: { width: 22, height: 22, borderRadius: '50%', objectFit: 'cover' } })));
 							}
 							return out;
 						})(),

@@ -38,8 +38,40 @@ try {
 /** Prompt section carrying the configured member block (empty when unset). */
 const MEMBER_SECTION = 'cabinet:member';
 
+/**
+ * Factory duty prompt for each non-Lead member — the office duties the static
+ * persona prefix already states, restated per member so a customized prompt
+ * never has to re-explain the job. The Lead keeps its own 御下术 default.
+ * Byte-identical copy lives in client.js; scripts/verify.mjs checks both.
+ * Each entry stays under 400 characters.
+ */
+const DEFAULT_MEMBER_PROMPTS = {
+	hanlin: '翰林院编修·主调研与文献考据：接到分派先读原始材料与既有记录，给出可复现的检索路径；结论必须锚定路径、行号或命令输出，未实测一律标「未验证」，禁止以推测冒充实测；调研成果写成结构化文档（结论先行 + 证据行号 + 风险与未验证清单），默认只调研不改码，写操作以任务明确授权为限；只向首辅回报，不直接答复用户，遇阻带「已做什么 / 卡在哪 / 需要什么」三件。',
+	works: '工部主事·主动手执行与产出：接令先复述任务与写入范围，只在授权范围内改文件；产出必附证据（路径、行号、命令输出、退出码），没跑说没跑、没验说没验；构建与测试须原样贴出输出，不许删弱既有校验去凑绿；交付以可复现为准，失败与遗留必须如实上报，不许包装；只向首辅回报，遇阻带「已做什么 / 卡在哪 / 需要什么」三件。',
+	dali: '大理寺评事·主独立核验：不信任何人的自述，全部自己跑；核验报告逐项写明通过 / 不通过 / 未验证，失败证据原样保留，不删不改；给不出可复现命令的结论一律不采信；发现工部与自述不符即回报首辅，不替人遮掩，也不越权改码；只向首辅回报，报告中未实测项必须显式标注「未验证」。',
+	yushi: '都察院御史·主验收并按律弹劾缺陷：按用户原话逐项核对，给通过 / 部分通过 / 不通过并附证据；缺陷按级别列出（P0 阻断 / P1 需修后再提 / P2 须在 PR 声明 / P3 提示），每条给位置、复现与建议修法；「声称实测却无命令输出、截图或文件内容」按造假弹劾；结论必须明确「可提 PR / 不可提 PR」，不骑墙、不和稀泥；只向首辅回报。'
+};
+
 /** Bureau keys, in the order the settings page lists them. */
 const MEMBER_KEYS = ['lead', 'hanlin', 'works', 'dali', 'yushi'];
+
+/** Image data URLs this plugin accepts; everything else falls back to the default. */
+const ALLOWED_AVATAR_PREFIXES = ['data:image/png;', 'data:image/jpeg;', 'data:image/webp;'];
+
+/** True when `url` is one of the three accepted image data URLs (size checked by the caller). */
+function isAllowedAvatar(url) {
+	return typeof url === 'string' && ALLOWED_AVATAR_PREFIXES.some((prefix) => url.startsWith(prefix));
+}
+
+/**
+ * Read `members` from a resolved or live-ref config without ever throwing.
+ * Wrong shapes (hand-edited YAML, a scalar, an object) degrade to [] so one
+ * bad field can never deactivate the whole plugin entry.
+ */
+function readMembers(config) {
+	const raw = readField(config, 'members');
+	return Array.isArray(raw) ? raw : [];
+}
 
 /** Chinese office labels — settings-page copy only; never a default display name. */
 const MEMBER_LABELS = {
@@ -90,22 +122,44 @@ const DEFAULT_LEAD_PROMPT = `【御下术·仅首辅适用】
 十、收束：闭环才许说「这一版可以交差」，不许提前许诺功劳。
 红线（压过全部话术）：只对 AI 阁臣施压，对用户只有敬；不许逼造假、删证据、凑绿；不许人身侮辱辱骂；不许以施压换取违规操作（越权改 live、泄密钥、跳验收）；施压必须落在可核验的时间/交付物/判据上，空口威胁无效。`;
 
-/** Member settings: small text fields plus one avatar field per member. */
+/** Member settings: small text fields plus one avatar field per member.
+ *
+ * Every field coerces instead of validating: a hand-edited or partially
+ * written profile must degrade to the factory default for that field only,
+ * never deactivate the whole entry (the settings page and the prompt
+ * injection would silently disappear together). `transform(any)` yields the
+ * default when the stored value is the wrong type; the readers below stay
+ * defensive as well.
+ */
 const Config = z === undefined ? undefined : z.object({
-	members: z.array(z.object({
-		key: z.string().required(),
-		name: z.string().default(''),
-		prompt: z.string().default(''),
-		// Empty = factory default (Lead's 御下术 only), 'custom' = use prompt,
-		// 'off' = cleared by the user, inject nothing for this member.
-		mode: z.string().default('')
-	})).default([]).volatile(),
-	avatarLead: z.string().default('').volatile(),
-	avatarHanlin: z.string().default('').volatile(),
-	avatarWorks: z.string().default('').volatile(),
-	avatarDali: z.string().default('').volatile(),
-	avatarYushi: z.string().default('').volatile()
+	members: z.transform(z.any(), (value) => {
+		if (!Array.isArray(value)) return [];
+		return value.map((entry) => {
+			if (entry === null || typeof entry !== 'object') return { key: '', name: '', prompt: '', mode: '' };
+			return {
+				key: typeof entry.key === 'string' ? entry.key : '',
+				name: typeof entry.name === 'string' ? entry.name : '',
+				prompt: typeof entry.prompt === 'string' ? entry.prompt : '',
+				// '' = factory default, 'custom' = use prompt, 'off' = cleared by the user.
+				mode: entry.mode === 'off' || entry.mode === 'custom' ? entry.mode : ''
+			};
+		});
+	}).default([]).volatile(),
+	avatarLead: avatarField(),
+	avatarHanlin: avatarField(),
+	avatarWorks: avatarField(),
+	avatarDali: avatarField(),
+	avatarYushi: avatarField()
 });
+
+/** One avatar field: an accepted image data URL when the stored value is one, else the default. */
+function avatarField() {
+	return z.transform(z.any(), (value) => {
+		if (typeof value !== 'string') return '';
+		const trimmed = value.trim();
+		return isAllowedAvatar(trimmed) ? trimmed : '';
+	}).default('').volatile();
+}
 
 /** Read one config field, tolerating both a live ref and a resolved value. */
 function readField(config, field) {
@@ -144,9 +198,8 @@ function bureauOf(name) {
 
 /** Normalize the configured `members` array into a key -> { name, prompt } map. */
 function memberEntries(config) {
-	const raw = readField(config, 'members');
+	const raw = readMembers(config);
 	const entries = new Map();
-	if (!Array.isArray(raw)) return entries;
 	for (const entry of raw) {
 		if (entry === null || typeof entry !== 'object') continue;
 		const key = typeof entry.key === 'string' ? entry.key : '';
@@ -167,7 +220,7 @@ function avatarEntry(config, key) {
 	if (typeof value !== 'string') return '';
 	const trimmed = value.trim();
 	if (trimmed === '' || trimmed.length > MAX_AVATAR_LENGTH) return '';
-	return trimmed.startsWith('data:image/') ? trimmed : '';
+	return isAllowedAvatar(trimmed) ? trimmed : '';
 }
 
 /** Team membership without throwing: non-Team subagents and diagnostics have none. */
@@ -180,6 +233,16 @@ function membershipOf(ctx, agent) {
 	} catch {
 		return undefined;
 	}
+}
+
+/**
+ * Factory duty prompt for one bureau member. Byte-identical copy lives in the
+ * browser half (`DEFAULT_MEMBER_PROMPTS` in client.js); scripts/verify.mjs
+ * owns the cross-file equality check. '' for the Lead, which has its own
+ * 御下术 default.
+ */
+function factoryPromptFor(key) {
+	return DEFAULT_MEMBER_PROMPTS[key] || '';
 }
 
 /**
@@ -197,16 +260,23 @@ function leadBlock(config) {
 	return lines.join('\n');
 }
 
-/** Render the configured block for one member; '' when nothing is configured. */
+/**
+ * Render the configured block for one member. Every teammate gets its factory
+ * duty prompt unless the user cleared that member (`mode: 'off'`); a custom
+ * prompt replaces the factory text rather than stacking on top of it.
+ * '' when nothing applies, which the prompt registry drops.
+ */
 function memberBlock(config, member) {
 	if (member.role === 'lead') return leadBlock(config);
 	const key = bureauOf(member.name);
 	if (key === '') return '';
 	const entry = memberEntries(config).get(key);
-	if (entry === undefined || entry.mode === 'off') return '';
+	if (entry !== undefined && entry.mode === 'off') return '';
+	const custom = entry === undefined || entry.mode !== 'custom' ? '' : entry.prompt;
+	const prompt = custom !== '' ? custom : factoryPromptFor(key);
 	const lines = [];
-	if (entry.name !== '') lines.push('你在内阁中的名号：' + entry.name);
-	if (entry.prompt !== '') lines.push('你的专属提示词：\n' + entry.prompt);
+	if (entry !== undefined && entry.name !== '') lines.push('你在内阁中的名号：' + entry.name);
+	if (prompt !== '') lines.push(custom !== '' ? '你的专属提示词：\n' + prompt : prompt);
 	if (lines.length === 0) return '';
 	return [
 		'【成员配置·' + MEMBER_LABELS[key] + '】',
@@ -244,4 +314,4 @@ function apply(ctx, config) {
 	}), 'cabinet-member: prompt section');
 }
 
-export { Config, DEFAULT_LEAD_PROMPT, MEMBER_KEYS, MEMBER_LABELS, MEMBER_SECTION, MAX_AVATAR_LENGTH, MAX_NAME_LENGTH, MAX_PROMPT_LENGTH, apply, inject, name };
+export { Config, DEFAULT_LEAD_PROMPT, DEFAULT_MEMBER_PROMPTS, MEMBER_KEYS, MEMBER_LABELS, MEMBER_SECTION, MAX_AVATAR_LENGTH, MAX_NAME_LENGTH, MAX_PROMPT_LENGTH, apply, inject, name };

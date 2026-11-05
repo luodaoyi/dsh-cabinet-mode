@@ -213,6 +213,47 @@ if (pkg) {
   const patchForLead = existsSync(PATCH_PATH) ? readFileSync(PATCH_PATH, 'utf8') : '';
   if (patchForLead.includes('御下术')) bad('persona static prefix', 'contains 御下术; the Lead policy must only be injected at runtime');
   else ok('persona static prefix carries no 御下术 (runtime injection only)');
+
+  // The four non-Lead members need their own factory duty prompt, byte-identical
+  // in both halves, so a customized prompt never has to re-explain the job.
+  const extractMembers = (source) => {
+    const match = source.match(/const DEFAULT_MEMBER_PROMPTS = \{([\s\S]*?)\n\t*\};/);
+    if (match === null) return null;
+    const entries = {};
+    // Each entry is one `key: 'text',` line; the closing quote may carry the
+    // trailing comma (the last entry omits it).
+    for (const line of match[1].split('\n')) {
+      const item = line.match(/^\s+(\w+): '([\s\S]*?)',?\s*$/);
+      if (item !== null) entries[item[1]] = item[2];
+    }
+    return entries;
+  };
+  const labelsMatch = indexSrc.match(/const MEMBER_LABELS = \{([\s\S]*?)\n\t\};/);
+  const officeOf = (key) => {
+    if (labelsMatch === null) return '';
+    const item = labelsMatch[1].match(new RegExp(`${key}: '([^']+)'`));
+    return item === null ? '' : item[1];
+  };
+  const hostMembers = extractMembers(indexSrc);
+  const browserMembers = extractMembers(clientSrc);
+  const dutyKeys = ['hanlin', 'works', 'dali', 'yushi'];
+  if (hostMembers === null) bad('member duty prompts in index.js', 'DEFAULT_MEMBER_PROMPTS not found');
+  else if (browserMembers === null) bad('member duty prompts in client.js', 'DEFAULT_MEMBER_PROMPTS not found');
+  else if (JSON.stringify(hostMembers) !== JSON.stringify(browserMembers)) {
+    bad('member duty prompt parity', `host keys ${Object.keys(hostMembers).join(',')} vs browser keys ${Object.keys(browserMembers).join(',')}`);
+  } else {
+    const problems = [];
+    for (const key of dutyKeys) {
+      const text = hostMembers[key];
+      if (typeof text !== 'string' || text === '') problems.push(`${key} missing`);
+      else if ([...text].length > 400) problems.push(`${key} ${[...text].length} chars (max 400)`);
+      else if (officeOf(key) !== '' && !text.includes(officeOf(key))) problems.push(`${key} does not name its office (${officeOf(key)})`);
+    }
+    const extra = Object.keys(hostMembers).filter((key) => !dutyKeys.includes(key));
+    if (extra.length > 0) problems.push(`unexpected keys ${extra.join(',')}`);
+    if (problems.length > 0) bad('member duty prompts', problems.join('; '));
+    else ok('member duty prompts: identical in both halves, one per non-Lead member, each names its office');
+  }
 }
 
 if (existsSync(PATCH_PATH)) ok('cordis.patch.yml exists');
