@@ -2557,9 +2557,9 @@ window.__ModuleLoader__.load({
 		 */
 		function clampMemberModel(value) {
 			if (typeof value !== 'string') return '';
-			const trimmed = value.trim();
+			const trimmed = value;
 			if (trimmed === '' || trimmed.length > 200) return '';
-			if (!/^[A-Za-z0-9][A-Za-z0-9._:-]*(?:\/[A-Za-z0-9][A-Za-z0-9._:/-]*)$/.test(trimmed)) return '';
+			if (!/^[^/\s\x00-\x1f\x7f]+\/[^\x00-\x1f\x7f]+$/.test(trimmed)) return '';
 			return trimmed;
 		}
 		/**
@@ -2572,9 +2572,11 @@ window.__ModuleLoader__.load({
 			if (catalog === null || typeof catalog !== 'object' || !Array.isArray(catalog.groups)) return options;
 			for (const group of catalog.groups) {
 				if (group === null || typeof group !== 'object' || typeof group.id !== 'string' || !Array.isArray(group.models)) continue;
+				if (!/^[^/\s\x00-\x1f\x7f]+$/.test(group.id)) continue;
 				for (const model of group.models) {
 					if (model === null || typeof model !== 'object' || typeof model.id !== 'string') continue;
 					const value = group.id + '/' + model.id;
+					if (clampMemberModel(value) !== value || options.some(option => option.value === value)) continue;
 					const name = typeof model.name === 'string' && model.name !== '' && model.name !== model.id ? model.name : '';
 					options.push({ value, label: name === '' ? value : value + ' — ' + name });
 				}
@@ -3518,6 +3520,11 @@ window.__ModuleLoader__.load({
     cancel() { if (!active || state.busy) return; adopt(form?.getSnapshot()); state.status = ''; emit(); },
     async save() {
       if (!editable() || !state.dirty) return false;
+      for (const key of AVATAR_KEYS) {
+        if (state.draft[key].model && clampMemberModel(state.draft[key].model) !== state.draft[key].model) {
+          state.errors[key] = 'member.error.model'; emit(); return false;
+        }
+      }
       const current = form.getSnapshot();
       if (!ready(current) || current.revision !== state.revision) { state.conflict = true; state.status = 'member.status.conflict'; emit(); return false; }
       const ops = [{ op: 'set', path: ['members'], value: membersPayload(state.draft) }];
@@ -3548,17 +3555,19 @@ window.__ModuleLoader__.load({
             // still loading, null = unavailable — both degrade to a plain
             // provider/id text field; the option list is never hard-coded.
             const [modelCatalog, setModelCatalog] = React.useState(undefined);
+            const [catalogRevision, refreshCatalog] = React.useState(0);
             React.useEffect(() => {
               let alive = true;
+              setModelCatalog(undefined);
               (async () => {
                 try {
                   if (!memberRemote || typeof memberRemote.session?.modelCatalog !== 'function') throw new Error('modelCatalog remote unavailable');
                   const response = await memberRemote.session.modelCatalog();
-                  if (alive) setModelCatalog(response && response.ok && response.value ? response.value : null);
+                  if (alive) setModelCatalog(response?.ok && Array.isArray(response.value?.groups) ? response.value : null);
                 } catch { if (alive) setModelCatalog(null); }
               })();
               return () => { alive = false; };
-            }, []);
+            }, [catalogRevision]);
             const modelOptions = modelOptionsOf(modelCatalog !== undefined && modelCatalog !== null ? modelCatalog : null);
             const { draft, avatars, errors, ready, busy, dirty, conflict, status } = editor.state;
             const update = (key, patch) => editor.update(key, patch);
@@ -3628,10 +3637,10 @@ window.__ModuleLoader__.load({
 						onChange: (event) => update(key, { name: event?.target?.value ?? '' })
 					}),
 					h('label', { key: 'ml', style: { display: 'block', fontSize: 11, color: INK2, margin: '8px 0 2px' } }, t('member.model')),
-					modelOptions.length > 0 || (modelCatalog !== null && modelCatalog !== undefined && draft[key].model !== '')
+					modelCatalog !== undefined && modelCatalog !== null
 						? (function () {
 							const value = draft[key].model || '';
-							const opts = [h('option', { key: '', value: '' }, t('member.model.default'))];
+							const opts = [h('option', { key: '', value: '' }, t(key === 'lead' ? 'member.model.defaultLead' : 'member.model.default'))];
 							if (value !== '' && !modelOptions.some((option) => option.value === value)) opts.push(h('option', { key: 'current', value }, value));
 							for (const option of modelOptions) opts.push(h('option', { key: option.value, value: option.value }, option.label));
 							return h('select', {
@@ -3644,6 +3653,7 @@ window.__ModuleLoader__.load({
 						: h('input', {
 							key: 'mi',
 							type: 'text',
+							disabled: modelCatalog === undefined,
 							value: draft[key].model,
 							maxLength: 200,
 							placeholder: 'provider/id',
@@ -3679,7 +3689,9 @@ window.__ModuleLoader__.load({
 				!ready ? h('div', { key: 'unavailable', role: 'status' }, t('member.status.unavailable')) : null,
                 status ? h('div', { key: 'status', style: { fontSize: 11, color: INK2, marginBottom: 8 } }, t(status)) : null,
                 conflict ? h('div', { key: 'conflict', role: 'alert' }, t('member.status.conflict')) : null,
-                h('fieldset', { key: 'fields', disabled: !ready || busy, style: { border: 0, padding: 0, margin: 0 } }, cards),
+                h('button', { key: 'catalog', type: 'button', onClick: () => refreshCatalog(value => value + 1) }, t('member.model.refresh')),
+                  modelCatalog?.failures?.length ? h('div', { key: 'catalog-errors', role: 'status' }, t('member.model.partial')) : null,
+                  h('fieldset', { key: 'fields', disabled: !ready || busy, style: { border: 0, padding: 0, margin: 0 } }, cards),
                 h('button', { key: 'save', type: 'button', disabled: !ready || busy || !dirty || conflict, onClick: () => editor.save() }, t('member.save')),
                 h('button', { key: 'cancel', type: 'button', disabled: busy, onClick: () => editor.cancel() }, t('member.cancel'))
 			]);
@@ -3739,9 +3751,13 @@ window.__ModuleLoader__.load({
 			'member.status.unavailable': '设置通道不可用',
 			'member.lead.hint': '清空此框 = 关闭御下术（不注入该段）；「恢复默认」还原出厂定稿。',
 			'member.model': '模型（每成员独立）',
-			'member.model.default': '跟随首辅（默认）',
+			'member.model.default': '使用首辅配置；未配置时使用 DSH 默认模型',
+			'member.model.defaultLead': '使用 DSH 默认模型',
+			'member.model.refresh': '刷新模型目录',
+			'member.model.partial': '部分提供方加载失败；现有选择保留。可刷新重试。',
+			'member.error.model': '模型必须为 provider/id，最长 200 字符，不能含控制字符。',
 			'member.model.unavailable': '模型列表暂不可用：请手动输入 provider/id。',
-			'member.model.hint': '新成员在 spawn 期选定模型；修改配置对已存在成员不回溯，新建成员或重启后生效。',
+			'member.model.hint': '保存后在下一次提示词装配生效；正在进行的请求不变。仅内阁模式应用，清空后主动恢复默认模型。',
 			'member.error.type': '格式不支持：只接受 PNG / JPEG / WebP',
 			'member.error.size': '文件过大：源文件不超过 2MB',
 			'member.error.decode': '图片读取失败，请换一张',
@@ -3800,9 +3816,13 @@ window.__ModuleLoader__.load({
 			'member.status.unavailable': 'Settings channel unavailable',
 			'member.lead.hint': 'Clearing this box turns the Lead policy off (nothing injected); "Restore default" brings back the factory text.',
 			'member.model': 'Model (per member)',
-			'member.model.default': 'Follow Lead (default)',
+			'member.model.default': 'Use Lead configuration, otherwise DSH default',
+			'member.model.defaultLead': 'Use DSH default model',
+			'member.model.refresh': 'Refresh model catalog',
+			'member.model.partial': 'Some providers failed to load; saved choices are retained. Refresh to retry.',
+			'member.error.model': 'Use provider/id, at most 200 characters, without control characters.',
 			'member.model.unavailable': 'Model list unavailable: type provider/id manually.',
-			'member.model.hint': 'A member picks its model at spawn time; changing this setting does not re-route members that already exist — new members or a restart apply it.',
+			'member.model.hint': 'Applies at the next prompt assembly after Save; in-flight requests stay unchanged. Cabinet mode only. Clearing actively restores the default model.',
 			'member.error.type': 'Unsupported format: PNG / JPEG / WebP only',
 			'member.error.size': 'File too large: source must be at most 2MB',
 			'member.error.decode': 'Could not read the image, try another file',
@@ -3845,7 +3865,13 @@ window.__ModuleLoader__.load({
 			memberT = t;
 			// Model catalog remote for the settings picker; absent remotes
 			// degrade the picker to a provider/id text field at render time.
-			memberRemote = ctx.remote ?? null;
+			ctx.inject(['remote', 'remote.session'], scope => {
+				const remote = scope.remote;
+				scope.effect(() => {
+					memberRemote = remote;
+					return () => { if (memberRemote === remote) memberRemote = null; };
+				}, 'cabinet-ui: model catalog remote');
+			});
 			// Stage one: declare the page type. No patterns => a page type, opened by kind.
 			ctx.effect(() => ctx.sidebarRightTabs.register({
 				id: TAB_ID,

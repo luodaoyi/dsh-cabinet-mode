@@ -2,6 +2,27 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.4.0] - 2026-11-05
+
+### Added
+
+- Per-office model settings from the official live model catalog, with explicit
+  Save/Cancel, refresh, retained unavailable choices and opaque model IDs.
+- Cabinet-only route policy: member override, configured Lead fallback, then
+  the DSH deployment default. Clearing actively restores that default.
+- Scoped prompt/request snapshots keyed by AgentLoop turn signal, actual role
+  checks, live preset gating and native selection ordering/effort compatibility.
+- Regression coverage with official Cordis/SystemPrompt/model-selection and
+  catalog components, without external model calls. Isolated browser checks
+  cover catalog selection, Save, reload, Cancel and clear.
+
+### Fixed
+
+- Declare the optional browser Remote services before access, preventing the
+  plugin boot failure in the initial implementation.
+- Reject invalid model input before Save instead of silently deleting a choice.
+- Keep the published 0.3.0/0.3.1 changelog entries unchanged.
+
 ## [0.3.1] - 2026-11-05
 
 ### Changed
@@ -21,20 +42,6 @@ All notable changes to this project are documented in this file.
 ## [0.3.0] - 2026-11-05
 
 ### Added
-
-- **Per-member model selection.** Each office group in the 「内阁成员」 settings
-  section gets a **Model** picker: *Follow Lead (default)* or a `provider/id`
-  route enumerated from the runtime model catalog (`session.modelCatalog`
-  remote — never a hard-coded list; the picker degrades to a manual
-  `provider/id` text input when the catalog is unreachable). The host half
-  validates the field (`provider/id`, ≤ 200 chars, corrupt values fall back to
-  the Lead default) and applies it per member through the agent-scope
-  `system-prompt/assemble` / `agent/request` waterfalls. Caveat: a member's
-  route is snapshotted per prompt assembly — a teammate session is routed from
-  its spawn-time configuration onward, a saved change takes effect at that
-  member's next request, and members already live when the plugin mounts are
-  re-attached from the agent registry; recreating the member or restarting the
-  host remains the fallback boundary.
 
 - Profile-wide Cabinet member settings for display names, portraits and duty prompts.
 - Explicit atomic Save/Cancel with revision checks to prevent stale tabs overwriting settings.

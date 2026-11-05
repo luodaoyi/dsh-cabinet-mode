@@ -1,5 +1,6 @@
 /** Profile-wide settings; prompt rendering is restricted to live Cabinet agents. */
 import z from '@deepseek-ai/schemastery';
+import { randomUUID } from 'node:crypto';
 
 /** Prompt section carrying the configured member block (empty when unset). */
 const MEMBER_SECTION = 'cabinet:member';
@@ -98,9 +99,10 @@ const MAX_MODEL_LENGTH = 200;
  */
 function clampModel(value) {
 	if (typeof value !== 'string') return '';
-	const trimmed = value.trim();
+	const trimmed = value;
 	if (trimmed === '' || trimmed.length > MAX_MODEL_LENGTH) return '';
-	if (!/^[A-Za-z0-9][A-Za-z0-9._:-]*(?:\/[A-Za-z0-9][A-Za-z0-9._:/-]*)$/.test(trimmed)) return '';
+	// Model IDs are opaque (including +, @, spaces and additional slashes).
+	if (!/^[^/\s\x00-\x1f\x7f]+\/[^\x00-\x1f\x7f]+$/.test(trimmed)) return '';
 	return trimmed;
 }
 
@@ -108,8 +110,7 @@ function clampModel(value) {
  * Parse a configured `provider/id` route into the {provider, model} pair the
  * agent/request waterfall expects. Model ids may themselves contain slashes,
  * so only the first slash splits (provider before it, model id after it).
- * Undefined for an empty or corrupt value — the caller then applies no
- * override and the member inherits the Lead default.
+ * Undefined for an empty or corrupt value; the caller resolves the default.
  */
 function modelRoute(value) {
 	const route = clampModel(value);
@@ -272,66 +273,110 @@ function sectionText(ctx, config, agent) {
 	}
 }
 
-/**
- * The bureau key for one live agent, or undefined while the roster has not
- * registered it yet. '' means registered but not a Cabinet member, so no
- * waterfall is installed for that agent at all.
- */
+/** Resolve current composition and actual team role, never a cached name. */
 function memberKeyOf(ctx, agent) {
+	if (ctx.get('agentPresets')?.composedPreset(agent.ctx) !== 'cabinet') return undefined;
 	const member = membershipOf(ctx, agent);
 	if (member === undefined) return undefined;
-	return bureauOf(member.name).key;
+	if (member.role === 'lead') return 'lead';
+	if (member.role !== 'teammate') return undefined;
+	const key = bureauOf(member.name).key;
+	return key !== '' && key !== 'lead' ? key : undefined;
 }
 
-/**
- * Install the per-member model waterfall on one agent (idempotent per id).
- *
- * The assemble listener snapshots the configured route into the prompt
- * variables and the request listener applies the same snapshot to the request
- * config, mirroring the official installModelSelection contract
- * (@deepseek-ai/dsh-agent model-selection) so prompt variables and the routed
- * provider/model cannot disagree. The snapshot is re-read from live config on
- * every assembly: a saved setting takes effect on the member's next request,
- * and an empty value passes the request through untouched (no override).
- * Scope: the assemble/request events dispatch through the agent scope
- * (dsh-agent-loop: agent/request; dsh-system-prompt:398 system-prompt/assemble),
- * so listeners must be attached to agent.ctx, never to the root context.
- * @returns the disposer for both listeners, or undefined when skipped.
- */
-function attachMemberModel(ctx, config, agent, attached) {
-	if (agent === undefined || agent === null || typeof agent.ctx?.on !== 'function') return undefined;
+/** Couple one live Cabinet route to one AgentLoop turn signal. */
+function attachMemberModel(ctx, config, agent, attached, routeMemory = new Map()) {
+	if (!agent || typeof agent.ctx?.on !== 'function') return undefined;
 	if (agent.id !== undefined && attached.has(agent.id)) return undefined;
-	const initial = memberKeyOf(ctx, agent);
-	if (initial === '') return undefined;
-	let key = initial;
-	const keyFor = () => {
-		if (key === undefined) key = memberKeyOf(ctx, agent);
-		return key === '' ? undefined : key;
+	let active = true;
+	let controlledSignal;
+	const turns = new WeakMap();
+	let disposeNotice;
+	const sameRoute = (a, b) => !!a && !!b && a.provider === b.provider && a.model === b.model;
+	const keyFor = () => { try { return memberKeyOf(ctx, agent); } catch { return undefined; } };
+	const defaultRoute = () => {
+		const value = ctx.get('agentDefaultModel')?.currentSelection?.() ?? agent.options;
+		return value?.provider && value?.model ? { provider: value.provider, model: value.model, ...(value.reasoningEffort === undefined ? {} : { reasoningEffort: value.reasoningEffort }) } : undefined;
 	};
-	let snapshot;
-	const disposeAssembly = agent.ctx.on('system-prompt/assemble', async (_assembly, _context, next) => {
-		const memberKey = keyFor();
-		snapshot = memberKey === undefined ? undefined : memberModel(config, memberKey);
-		const assembled = await next();
-		if (snapshot === undefined) return assembled;
-		return {
-			...assembled,
-			variables: {
-				...assembled.variables,
-				provider: snapshot.provider,
-				model: snapshot.model
-			}
-		};
-	});
-	const disposeRequest = agent.ctx.on('agent/request', async (_payload, next) => {
+	const disposeAssembly = agent.ctx.on('system-prompt/assemble', async (_assembly, context, next) => {
+		// Native setup may register its own prepended notice before this assembly.
+		// Install our final-route notice last, after all selection setup has run.
+		disposeNotice?.();
+		disposeNotice = installNotice();
+		const key = keyFor();
+		const route = key === undefined ? undefined : memberModel(config, key) ?? (key === 'lead' ? undefined : memberModel(config, 'lead')) ?? defaultRoute();
+		const signal = context?.signal;
+		// AgentLoop serializes steps within one turn. Reject ambiguous concurrent
+		// assemblies on that signal instead of sending a mismatched model/prompt.
+		if (signal && turns.get(signal)?.pending) throw new Error('Cabinet: overlapping prompt assembly for one turn');
+		const state = { key, route, pending: true };
+		if (signal) turns.set(signal, state);
+		try {
+			const assembled = await next();
+			if (!active) return assembled;
+			if (keyFor() !== key || signal?.aborted) throw new Error('Cabinet: membership or mode changed during prompt assembly');
+			const previous = routeMemory.get(agent.id);
+			if (key === undefined && previous && sameRoute(assembled.variables, previous.override)) state.route = previous.baseline;
+			if (key !== undefined && !state.route) throw new Error('Cabinet: no default model available to clear the member override');
+			state.pending = false;
+			controlledSignal = state.route ? signal : undefined;
+			return state.route ? { ...assembled, variables: { ...assembled.variables, provider: state.route.provider, model: state.route.model } } : assembled;
+		} catch (error) { if (signal && turns.get(signal) === state) turns.delete(signal); throw error; }
+	}, { prepend: true });
+	const disposeRequest = agent.ctx.on('agent/request', async (payload, next) => {
+		const state = payload?.signal ? turns.get(payload.signal) : undefined;
 		const resolved = await next();
-		if (snapshot === undefined) return resolved;
-		const { reasoningEffort: _inheritedEffort, ...withoutInheritedEffort } = resolved;
-		return { ...withoutInheritedEffort, provider: snapshot.provider, model: snapshot.model };
-	});
+		if (!active) {
+			if (state?.route) throw new Error('Cabinet: model policy unloaded during request');
+			return resolved;
+		}
+		if (!state || state.pending) {
+			const key = keyFor();
+			if (key !== undefined && (memberModel(config, key) || memberModel(config, 'lead'))) throw new Error('Cabinet: model request has no matching prompt assembly');
+			return resolved;
+		}
+		if (state.key !== keyFor() || payload.signal.aborted) throw new Error('Cabinet: membership or mode changed before request');
+		if (!state.route) return resolved;
+		if (state.key !== undefined) {
+			const previous = routeMemory.get(agent.id);
+			const baseline = previous && sameRoute(resolved, previous.override) ? previous.baseline : {
+				provider: resolved.provider, model: resolved.model,
+				...(resolved.reasoningEffort === undefined ? {} : { reasoningEffort: resolved.reasoningEffort })
+			};
+			routeMemory.set(agent.id, { baseline, override: state.route });
+		} else routeMemory.delete(agent.id);
+		// Preserve native effort on the same route; a different model must use
+		// its own adapter default rather than another model's effort identifier.
+		if (sameRoute(state.route, resolved) && state.route.reasoningEffort === undefined) return { ...resolved, ...state.route };
+		const { reasoningEffort: _oldEffort, ...rest } = resolved;
+		return { ...rest, ...state.route };
+	}, { prepend: true });
+	const installNotice = () => agent.ctx.on('agent/pre-step', async (payload, next) => {
+		const decision = await next();
+		const state = payload.signal ? turns.get(payload.signal) : undefined;
+		if (!active || !state?.route || decision.kind === 'reject' || payload.signal.aborted) return decision;
+		if (state.key !== keyFor()) throw new Error('Cabinet: membership or mode changed before step');
+		// Replace the native selection's notice with the route actually assembled.
+		const messages = decision.messages.filter(message => message.source?.kind !== 'model-selection');
+		if (!messages.length && (payload.step === 1 || payload.messages.length)) return { ...decision, messages };
+		const previous = agent.session?.requestHeader?.()?.config;
+		if (!previous || sameRoute(previous, state.route)) return { ...decision, messages };
+		const from = previous.provider + '/' + previous.model;
+		const to = state.route.provider + '/' + state.route.model;
+		return { ...decision, messages: [...messages, {
+			id: randomUUID(), role: 'user',
+			content: [{ type: 'text', text: '[model changed: assistant turns above this point were generated by ' + from + '; the session continues with ' + to + ']' }],
+			source: { kind: 'model-selection', form: 'notice', summary: (from + ' → ' + to).slice(0, 200) }
+		}] };
+	}, { prepend: true });
 	const dispose = () => {
-		try { disposeAssembly(); } catch { /* Cordis disposal may already have run */ }
-		try { disposeRequest(); } catch { /* Cordis disposal may already have run */ }
+		active = false;
+		// Removing hooks between assembly and request must not send the already
+		// rendered prompt through a different route. Preserve queued user input.
+		if (controlledSignal && !controlledSignal.aborted) agent.cancel?.({ kind: 'hook', reason: 'Cabinet model policy unloaded' }, { keepInbox: true });
+		try { disposeAssembly(); } catch { /* already disposed */ }
+		try { disposeRequest(); } catch { /* already disposed */ }
+		try { disposeNotice?.(); } catch { /* already disposed */ }
 	};
 	if (agent.id !== undefined) attached.set(agent.id, dispose);
 	return dispose;
@@ -358,9 +403,11 @@ function apply(ctx, config) {
 	// this plugin mounts), dispose it with the agent. Agents created before
 	// roster registration are resolved lazily at their first assembly.
 	const attached = new Map();
+	// Keep the pre-Cabinet route across same-session Agent recreation on mode switches.
+	const routeMemory = new Map();
 	const attach = (agent) => {
 		try {
-			attachMemberModel(ctx, config, agent, attached);
+			attachMemberModel(ctx, config, agent, attached, routeMemory);
 		} catch (error) {
 			try { ctx.logger?.warn?.(`cabinet-ui: model selection attach failed: ${String(error)}`); } catch { /* logger unavailable */ }
 		}
@@ -374,13 +421,14 @@ function apply(ctx, config) {
 			dispose();
 		});
 		try {
-			for (const agent of ctx.agents?.list?.() ?? []) attach(agent);
+			for (const agent of ctx.get('agents')?.list?.() ?? []) attach(agent);
 		} catch { /* registry unavailable: announce listener still covers new agents */ }
 		return () => {
 			try { offCreated?.(); } catch { /* already disposed */ }
 			try { offDisposed?.(); } catch { /* already disposed */ }
 			for (const dispose of Array.from(attached.values())) dispose();
 			attached.clear();
+			routeMemory.clear();
 		};
 	}, 'cabinet-member: model selection');
 }

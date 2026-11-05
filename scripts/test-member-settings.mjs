@@ -93,28 +93,7 @@ assert.ok(MAX_MODEL_LENGTH>=200,'model bound exported');
 assert.equal(memberModel({members:[{key:'works',model:'prov/m'}]},'works').provider,'prov','configured member resolves');
 assert.equal(memberModel({members:[{key:'works',model:42}]},'works'),undefined,'corrupt stored value degrades to inherit');
 
-// Injection: configured member gets the override on both waterfall surfaces;
-// an empty model passes both through untouched (no override at all).
-const mw={};const mctx={
-  on:(name,fn)=>{mw[name]=fn;return()=>{delete mw[name];};},
-  effect:fn=>fn(),
-  get:key=>key==='agentTeams'?{tryMembership:agent=>agent.__membership}:undefined,
-  systemPrompt:{section:s=>s,getSectionOrder:()=>0},
-  agents:{list:()=>[]}
-};
-const mconfig={members:[{key:'hanlin',model:'prov/model-x'}]};
-const ah={};const magent={id:'s1',__membership:{id:'s1',name:'hanlin',role:'teammate'},ctx:{on:(n,fn)=>{ah[n]=fn;return()=>{delete ah[n];};}}};
-apply(mctx,mconfig);
-assert.equal(typeof mw['agent/created'],'function','host registers agent/created');
-mw['agent/created']({agent:magent});
-assert.ok(ah['system-prompt/assemble']&&ah['agent/request'],'listeners land on the agent scope, not the root');
-assert.deepEqual(await ah['system-prompt/assemble'](null,null,async()=>({variables:{keep:1}})),{variables:{keep:1,provider:'prov',model:'model-x'}},'assemble variables carry the override');
-assert.deepEqual(await ah['agent/request'](null,async()=>({provider:'p0',model:'m0',reasoningEffort:'high'})),{provider:'prov',model:'model-x'},'request config overridden, inherited effort dropped');
-mconfig.members=[{key:'hanlin',model:''}];
-assert.deepEqual(await ah['system-prompt/assemble'](null,null,async()=>({variables:{keep:1}})),{variables:{keep:1}},'empty model: assemble passes through');
-assert.deepEqual(await ah['agent/request'](null,async()=>({provider:'p0',model:'m0',reasoningEffort:'high'})),{provider:'p0',model:'m0',reasoningEffort:'high'},'empty model: request passes through untouched');
-mconfig.members=[{key:'hanlin',model:'prov/other'}];
-assert.equal((await ah['system-prompt/assemble'](null,null,async()=>({variables:{}}))).variables.model,'other','live config re-read at the next assembly, no restart');
+// Real waterfall ordering/signal correlation is covered by test-model-selection.cjs.
 
 // Settings half: adopt/save round trip and corrupt-value fallback.
 const mf=form({members:[{key:'works',name:'',prompt:'',mode:'',model:'prov/ok'}]});
@@ -132,4 +111,17 @@ const opts=JSON.parse(JSON.stringify(client.modelOptionsOf({groups:[{id:'prov-a'
 assert.deepEqual(opts,[{value:'prov-a/m1',label:'prov-a/m1 — Model One'}],'catalog flattens to provider/id options');
 assert.equal(client.modelOptionsOf(null).length,0,'no catalog yields no options (picker degrades to text)');
 assert.equal(client.modelOptionsOf({groups:'bad'}).length,0,'malformed catalog yields no options');
-console.log('PASS per-member model: schema clamp (4 samples), waterfall override/pass-through/live re-read, settings round trip, data-driven catalog');
+console.log('PASS per-member model: schema clamp (4 samples), settings round trip, data-driven catalog');
+
+for (const id of ['model+variant','@org/model','model normal','org/model',' trailing ']) {
+ const value='local/'+id;
+ assert.equal(clampModel(value),value);assert.equal(client.clampMemberModel(value),value);
+ assert.deepEqual(modelRoute(value),{provider:'local',model:id});
+ const options=client.modelOptionsOf({groups:[{id:'local',models:[{id}]}],failures:[{id:'broken'}]});
+ assert.equal(options[0].value,value);
+ me.update('works',{model:value});assert.equal(await me.save(),true);assert.equal(mf.getSnapshot().value.members.find(x=>x.key==='works').model,value);
+}
+me.update('works',{model:'not-a-route'});assert.equal(await me.save(),false);assert.equal(me.state.errors.works,'member.error.model');
+me.cancel();assert.notEqual(me.state.draft.works.model,'not-a-route');
+me.update('works',{model:''});assert.equal(await me.save(),true);assert.equal(mf.getSnapshot().value.members.find(x=>x.key==='works').model,'');
+console.log('PASS opaque IDs round-trip, failed providers isolated, invalid route rejects Save, cancel and clear persist');
