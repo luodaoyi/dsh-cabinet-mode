@@ -2,6 +2,8 @@
 
 [中文](README.zh.md) | English
 
+**Install:** [Use the plugin market (recommended)](#install-from-the-plugin-market-recommended).
+
 <p align="center">
   <img src="docs/images/cabinet-portrait.jpg" width="200" alt="Cabinet Mode — grand-secretary portrait, shipped as the bundle icon (icon.svg)"/>
 </p>
@@ -14,15 +16,11 @@ a research-team preset modeled on the Great Ming Research Bureau cabinet
 (大明科研司·内阁): a Lead (内阁首辅) directs members (阁臣) of four bureaus, defaults
 to research before touching code, and must never fabricate sources.
 
-The package ships a host half (`index.js`, which declares the 「内阁成员」
-settings schema and injects each member's prompt block at assembly time) and a
-browser half
-(`client.js`, the right-Sidebar **Cabinet** panel plus the DSH settings page's
-「内阁成员」 section) with the five member avatars
+The package ships a host half (`index.js`, the member schema and Cabinet-only prompt provider) and a browser half
+(`client.js`, the right-Sidebar **Cabinet** panel) with five role portraits and an unranked fallback portrait
 embedded as 128px data URLs (square sources in `docs/images/avatars/`,
 downscaled by `src/build_avatars.py`); it also keeps the optional Node.js
-fallback scripts (`scripts/*.mjs`). It has **no third-party runtime
-dependencies** — React and friends come from the DSH client module table, with no
+fallback scripts (`scripts/*.mjs`). It uses `@deepseek-ai/schemastery` for the host settings schema. React and friends come from the DSH client module table, with no
 bundled duplicate and no CDN.
 
 It declares **two rows** — `preset-cabinet` (one `@deepseek-ai/dsh-agent-preset`
@@ -39,15 +37,63 @@ This bundle declares **no hard DSH version gate**: no `engines.dsh`, no DSH
 **0.2.1-rc.3**; other DSH versions that provide the declarative preset mechanism
 may work, but are **not verified** (see [DSH-side constraints](#dsh-side-constraints)).
 
+## Cabinet member settings
+
+After a bundle install, open **Settings → Cabinet members (内阁成员)**. The five
+office groups have a display name (40 characters), portrait and prompt (4000
+characters). Names remain accompanied by the original member ID in Cabinet cards
+and Owner labels. Task ownership and native roster names never change.
+
+Edit, then click **Save**. **Cancel and reload** discards edits and reads the latest
+saved values; leaving the page discards unsaved edits. Save writes all five members
+atomically using the revision that was loaded. If another page changes settings,
+cancel/reload before editing again; a stale draft cannot overwrite it. Editing is
+disabled until settings have loaded. Changes apply to the next prompt assembly.
+
+Upload PNG/JPEG/WebP up to 2 MB; the browser crops it to a 96×96 PNG (at most
+48 KB data URL). Saved portraits apply to Cabinet cards and native team avatars.
+Restore default resets that office's name, portrait and factory prompt; Reset all
+resets all five in the draft. Both require Save. Clearing a prompt disables that
+office's added block; an empty custom prompt also stays empty. Factory mode restores
+the Lead's 御下术 and the four office duty prompts. These extra sections apply only
+to agents actually composed with the **cabinet** preset; other modes are unchanged.
+The existing static persona is unchanged in this release.
+
+Settings live in the **DSH_HOME/profile** configuration (the cabinet-ui namespace),
+not a browser account. Browsers connected to the same profile share settings and
+all Cabinet sessions in it use them; use separate profiles/DSH_HOME for isolation.
+Invalid fields fall back to defaults. The preset-only fallback installation does
+not install this settings UI or runtime prompt section; use the market bundle.
+
+
 ## The cabinet at a glance
 
 ![Cabinet team layout](docs/images/cabinet-team.svg)
 
 ### Screenshots
 
-Real runtime captures (mode picker, Agent-preset card, a cabinet session) are
-welcome — open a PR or send them to us and we will include them here. The image
-above is a layout diagram of the persona, not a screenshot.
+The following runtime screenshots were provided by the project owner. They show
+the Cabinet panel's Lead/member hierarchy, who is working, task ownership and
+progress, and dependency chips. The image above is a persona layout diagram;
+the images below are captures of actual sessions.
+
+#### Light theme
+
+![Cabinet panel in light theme: Lead and member dispatch tree, running and idle members, task progress and dependencies](docs/images/cabinet-runtime-light.png)
+
+The light-theme session shows multiple members and their assigned tasks, with
+green running indicators and separate in-progress/completed task markers.
+
+#### Dark theme
+
+![Cabinet panel in dark theme: Lead and member task columns, pending tasks in the unassigned group, and dependency chips](docs/images/cabinet-runtime-dark.png)
+
+The dark-theme session shows the same task hierarchy with pending, in-progress
+and completed states, including an unassigned task group and task dependencies.
+
+These captures document what was visible in those sessions. They do not verify
+compatibility across DSH versions, the mode picker/preset card, or teammate
+persona inheritance.
 
 ## Cabinet panel and member avatars
 
@@ -64,120 +110,24 @@ preset declaration:
 - **Task colours** — pending gray, in progress blue, completed green (legend at
   the bottom of the panel).
 - **Member look** — each row carries a circular avatar (22px, 24px for the Lead),
-  the name, a status label and the current model; avatars map by name prefix and
-  fall back to the Lead tint when unmatched.
+  the Chinese role and original member name, a status label and the current model.
+  Aliases share a bureau avatar, while original names keep members distinguishable
+  in cards, Owner tags and off-roster groups. Truncated labels have full tooltips;
+  unmatched names retain their original identity and use a light, unranked portrait.
+  [Supported names and naming convention](docs/images/avatars/aliases.md) cover
+  composite pinyin names, Chinese titles, separators and numeric suffixes.
 
-The five member avatars are tinted per bureau: Lead bright yellow, 翰林院编修
-(编辑) cyan, 工部主事 (执行) red, 大理寺评事 (核验) dark, 都察院御史 (验收)
-crimson — light-toned, Chinese-style 3D semi-realistic three-quarter profile
-busts (soft-focus guofeng backdrop inside the circle). They are
-embedded in `client.js` as 128px data URLs; the square source PNGs live in
-`docs/images/avatars/` and are downscaled by `src/build_avatars.py` (originals
-are kept at 512x512 and are never embedded directly).
+The five original chibi portraits use Ming-style black winged hats, round-collar robes and square rank badges. The Lead wears burgundy with a crane badge (an artistic setting of a grand secretary with an additional first-rank title); Hanlin editor wears a seventh-rank duck badge, the Minister of Works a second-rank golden pheasant, the Chief Minister of the Court of Judicial Review a third-rank peacock, and the Left Censor-in-Chief a second-rank censor’s xiezhi badge. Robe colours distinguish roles and are not presented as mandatory rank colours.
 
-Example (the other four are in the same directory: `hanlin.png` / `works.png` /
-`dali.png` / `yushi.png`):
+See [costume references, role settings and generation prompts](docs/images/avatars/README.md). The 1254px square sources are downscaled by `src/build_avatars.py` to 128px PNGs embedded in `client.js`. At the panel's 22–24px display size, role labels remain the primary identification.
 
-![Lead avatar example](docs/images/avatars/lead.png)
+| 内阁首辅 | 翰林院编修 | 工部尚书 | 大理寺卿 | 左都御史 |
+| --- | --- | --- | --- | --- |
+| ![Lead, crane badge](src/avatars/lead.png) | ![Hanlin editor, duck badge](src/avatars/hanlin.png) | ![Minister of Works, golden pheasant badge](src/avatars/works.png) | ![Dali chief minister, peacock badge](src/avatars/dali.png) | ![Left Censor-in-Chief, xiezhi badge](src/avatars/yushi.png) |
 
 The panel reads two existing data channels only — per-session running status
 (`api-session/status`) and the `agentTeam` session projection (roster and task
 board). It adds no service and no protocol.
-
-## Cabinet member settings
-
-Besides the Sidebar panel, this package adds a **Cabinet members** section to the
-**DSH settings page** (the official `settings.section` slot, section id
-`cabinet`). The five members' names, avatars and prompts are edited there; the
-values are written into this machine's DSH user settings and **take effect on the
-next model assembly — no restart**.
-
-**Where**: the **Settings** button at the bottom of the Sidebar → **Cabinet
-members** in the left-hand navigation.
-
-**What you can change**
-
-| Item | Limits | After clearing / resetting |
-|---|---|---|
-| Display name | ≤ 40 characters | falls back to the runtime name (`lead` / `hanlin` / `works` / `dali` / `yushi`), exactly the 0.2.0 rendering |
-| Avatar | source file PNG / JPEG / WebP, ≤ 2MB; centre-cropped in the browser and normalized to **96×96 PNG**; one data URL ≤ **48KB**; the five built-in avatars stay one click away | returns to that member's built-in bureau avatar |
-| Prompt | ≤ 4000 characters | empty = **nothing is injected** for that member (see the Lead below) |
-
-**Saving**: there is no Save button — edits are written automatically. Text
-edits land after a ~0.4 s debounce; avatar uploads and **Restore default / Reset
-all** are written immediately. The status line reports **Saved / Save failed, try
-again**.
-
-**Where it is stored**: through the official DSH settings channel (`configForms`
-namespace `cabinet-ui`, i.e. this package's profile-root Loader row), persisted in
-this machine's user settings file
-`$DSH_HOME/profiles/<profile>/cordis.patch.yml` (default `~/.dsh`). **One copy per
-machine and per user**; every authenticated browser on that machine shares the
-same copy — that is existing DSH settings semantics, not behaviour this plugin
-adds.
-
-**Clear / restore / reset**
-
-- Clearing a prompt box = **nothing injected** for that member.
-- **Use built-in** (or the built-in avatar strip) = drop the custom avatar and go
-  back to the built-in one.
-- **Restore default** on one card = clear that member's display name and avatar and
-  empty its prompt; on the Lead's card the prompt box goes back to the factory
-  御下术 text.
-- **Reset all** in the header = all five go back to factory: no display names, no
-  custom avatars, and the Lead's 御下术 back on.
-
-**The Lead's 御下术 (default prompt content, Lead only)**
-
-From 0.3.0 the Lead (`role === 'lead'`) also receives a ten-point **御下术**
-("art of command"): establish authority, paint the prize, apply deadlines, attack
-the work not the person, compare against the strongest sibling, alternate
-pressure and relief, pit reviewer against censor, pin defects to a name, counter
-hand-waving, and only claim closure when it is closed — followed by a **red line**
-that overrides every tactic (pressure only ever applies to AI ministers, never to
-the user; no fabricated evidence, no deleted evidence, no faked green runs; no
-personal abuse; no pressure traded for unauthorized actions; every threat must
-land on a checkable time, deliverable or criterion). It is injected into the
-Lead's system prompt only — **teammates never get it**.
-
-To turn it off: clear the Lead's prompt box (= off, nothing injected), or replace
-it with your own text (= your text replaces the factory draft). **Restore
-default** on the Lead's card brings the factory text back.
-
-> This is a **change to default prompt content**: a deployment upgraded from 0.2.0
-> gets this extra text in the Lead's system prompt even if nobody ever opens the
-> settings page. See [CHANGELOG](CHANGELOG.md).
-
-**Damaged or unexpected configuration**
-
-Stored values are read generously and ignored when unreadable: `members` not an
-array, an unknown member key, an over-long name or prompt (clamped to 40 / 4000),
-an avatar that is not a `data:image/` URL or exceeds 48KB — each is ignored and
-rendering falls back to factory output; a bad value cannot break the panel. When
-the browser half cannot reach the `configForms` service the settings page does not
-appear and the panel keeps its 0.2.0 behaviour; when the Host has no
-`cabinet-ui` entry (for example a Method B fallback install), the page still
-appears but no value reaches a Host entry and nothing is ever injected.
-
-**Known limitations**
-
-- **The native team roster only gets avatars, not names**: the roster's name text
-  stays the runtime name. A configured display name applies to the **Cabinet
-  panel** (member cards and task owner labels) only.
-- **Renaming does not change identity**: runtime phrases such as
-  `You are teammate "<name>".` are untouched; a display name is a presentation
-  layer.
-- **The upload limits are hard**: ≤ 2MB source, ≤ 48KB after normalization. A
-  busy image can still exceed the limit after compression and is rejected — pick a
-  smaller original.
-- **The settings entry ships only with Method A (bundle)**: the Method B fallback
-  install writes the preset insert only, so it has no `cabinet-ui` row, no
-  settings page and no runtime injection — behaviour identical to 0.2.0.
-- **Settings are host-level, not browser-level**: every authenticated browser on
-  the same machine sees the same member configuration.
-- The section depends on DSH's `settings.section` slot and `configForms` channel;
-  this repository checked the interface signatures against DSH 0.2.1-rc.5 only, so
-  other versions are **unverified**.
 
 ## How it takes effect
 
@@ -189,112 +139,56 @@ appears but no value reaches a Host entry and nothing is ever injected.
 - Opening the right-Sidebar **Cabinet** tab: the **+** on the tab strip, then the
   **Cabinet** entry on the guide page.
 - The panel renders in the **browser** (`client.js`): exercise it in a real
-  session after a restart; this repository ships no browser screenshot yet.
+  session after a restart. See the [runtime screenshots](#screenshots) for
+  examples of the panel in light and dark themes.
 
 ---
 
-## Install with an AI agent (copy this prompt)
+## Install from the plugin market (recommended)
 
-```text
-Install the "Cabinet Mode" (内阁模式) DSH bundle for me.
+**For users and AI assistants, prefer the DSH plugin market.** It installs the published npm bundle into the active profile; you do not need a checkout, a manually edited patch or a tarball URL.
 
-1. Run `dsh --version` and tell me the version. 0.2.1-rc.3 is the tested reference;
-   this bundle declares no hard DSH version gate, but other DSH versions are not verified.
-2. Install the bundle into my DSH profile:
-   dsh plugin --profile desktop add <absolute path to the dsh-cabinet-mode checkout or .tgz>
-   (You can also use the GitHub Release tarball URL instead of a local path.)
-   If the `dsh` CLI is unavailable, open DSH Settings -> Plugins -> Add plugin and
-   choose "local directory" with the absolute path of the dsh-cabinet-mode checkout.
-3. Run `dsh plugin --profile desktop list` and confirm `dsh-cabinet-mode` is installed.
-4. Do NOT also append cordis.patch.yml to my profile patch: the two installation
-   methods are mutually exclusive and duplicate preset ids fail to load.
-5. Tell me to fully quit and restart DSH, then create a new session and choose
-   "内阁模式" (preset id: cabinet) in the mode picker.
-
-If any step fails, show the exact error and stop. Do not retry more than once.
-```
-
-## Manual install (3 lines)
-
-```sh
-dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.3.0/dsh-cabinet-mode-0.3.0.tgz
-# fully quit and restart DeepSeek Harness
-# New session -> mode picker -> 内阁模式
-```
-
-For a local checkout, replace the tarball URL with the absolute path of this
-repository. On Windows the CLI is `dsh` (runs through `dsh.cmd`); the same
-commands work on Linux and macOS.
-
-> **DSH 0.2.1-rc.5 desktop notes (tested 2026-10-31):**
->
-> - The `dsh` CLI that ships with the desktop app runs `dsh plugin --profile
->   desktop list/add ...` fine (exit 0). On first use it may ask you to initialize
->   the profile ("Open DeepSeek Harness Desktop once … then fully quit it") and may
->   wait up to 120 s on a profile lock — so **fully quit DeepSeek Harness before
->   installing or upgrading**.
-> - What a desktop profile does reject is `dsh --profile desktop --dump-config`
->   ("managed exclusively by the Electron application"); run composition checks
->   against the `web` profile instead.
-> - Fallbacks: the plugin page (Settings → Plugins → Add plugin → local directory /
->   tarball URL), or the pnpm shipped inside DeepSeek Harness (keeps
->   `dsh-cabinet-mode` in `dsh.profile.bundles`):
->
-> ```sh
-> node "<DeepSeek Harness install>\resources\runtime\primary-runtime\dependencies\pnpm\bin\pnpm.mjs" --dir "%USERPROFILE%\.dsh\profiles\desktop" add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.3.0/dsh-cabinet-mode-0.3.0.tgz
-> ```
->
-> Back up the profile's `package.json` / `pnpm-lock.yaml` first.
-
-## Install from the plugin market
-
-The bundle is also listed in a DeepSeek Harness plugin market index that is
-generated from the npm registry, so DSH can install and update it without a tarball
-URL or a local checkout:
+Copy this **raw JSON index URL**:
 
 ```text
 https://raw.githubusercontent.com/luodaoyi/dsh-cabinet-mode/market-index/marketplace.json
 ```
 
-1. Open **Plugin market** (插件市场) in DSH, open **Index sources** (索引源), add the
-   URL above, and refresh it.
-2. Install **内阁模式 / Cabinet Mode** (`dsh-cabinet-mode`) from the market list that
-   appears. DSH installs `dsh-cabinet-mode@<version>` from
-   `https://registry.npmjs.org` into the current profile. This is the same bundle
-   install as Method A below — use one of them, never both.
-3. **Fully quit and restart DeepSeek Harness**, then create a new session and pick
-   **内阁模式** in the mode picker.
-4. To update later: on the **Installed** (已安装) page, uninstall the old version
-   first, then install the newer version from **Plugin market**, and restart again.
-   The market has **no in-place update** for third-party plugins — the "update
-   available" (有新版本) badge only opens the Installed page.
+1. Open **Plugins → Experimental plugins → More** if needed, then enable **Custom plugin market** (自定义插件市场).
+2. Return to **Plugins → Discover** (发现), open **Index sources** (索引源), paste the raw URL above and click **Add**.
+3. Wait for **Cabinet Mode / 内阁模式** to appear. Click **Install**, check the package `dsh-cabinet-mode@<version>` and registry `https://registry.npmjs.org/`, then confirm installation.
+4. Check that DSH reports **Installed** and displays the version. Click **Enable now** (立即启用), or turn on the plugin switch on **Installed**. Installation can leave a plugin disabled; restarting alone does not enable it. Then fully quit and restart DSH, create a new session, and select **内阁模式** (`cabinet`). Open the Cabinet tab with **+** in the right sidebar if needed.
 
-How "update available" is detected: DSH compares **SemVer versions only**, so a
-package rebuilt under the same version number is not flagged (npm versions are
-immutable, so this does not affect the npm source). There is **no periodic
-auto-check**: the index is fetched when the plugin market is opened or refreshed
-and cached for 10 minutes. These are code-level findings from the DSH 0.2.1-rc.5
-sources, recorded with line references in [docs/cross-platform.md](docs/cross-platform.md) (§7);
-the real update flow was not exercised end to end.
+Do **not** paste a GitHub `blob` or `tree` webpage URL. DSH does not convert those pages into an index: `$.format must be 1` was reproduced with a blob URL. Remove the invalid source and add the raw URL instead. This rule applies to Respire and other markets too.
 
-The index is regenerated from the npm registry after every tagged release and only
-lists published, non-deprecated stable versions; do not edit the `market-index`
-branch by hand.
+**Verification scope:** the raw source loaded and installed version 0.2.0 through the real DSH 0.2.1-rc.5 web client on Windows in an isolated profile (2026-11-05). Uninstalling the old version, refreshing the source and installing 0.2.2 were also exercised, including the separate enable step. Other DSH versions and Linux/macOS market UI flows are unverified. The index format is also tested with the official rc.5 parser. Live agent-team behavior is a separate test.
 
-> **Release status (2026-11-03):** `dsh-cabinet-mode@0.1.4`, `0.1.5` and `0.1.6` are
-> published on `registry.npmjs.org` by the tag-triggered OIDC workflow, each with a
-> provenance attestation on sigstore, and the `market-index` branch is refreshed
-> automatically after every publish. The whole tag → publish → GitHub Release → index
-> refresh chain has run green twice (v0.1.5: run 41657224370, v0.1.6: run
-> 41661809576), and the index now lists 0.1.6, 0.1.5 and 0.1.4. The registry also
-> carries a placeholder `0.0.0-stage` prerelease, which the index intentionally does
-> not list.
->
-> **Not verified:** the exact plugin-market UI labels and click path in your DSH
-> build, and a real install/update in that GUI. The
-> `dsh-cabinet-mode@<version>` install spec is what the format-1 reader
-> (`@deepseek-ai/dsh-plugin-market-index@0.2.1-rc.5`, `marketInstallTarget`) returns
-> for an npm source; that function was executed locally, the UI was not.
+## Install with an AI agent (copy this prompt)
+
+```text
+Install the Cabinet Mode (内阁模式) DSH bundle for me, preferably through its plugin market index:
+https://raw.githubusercontent.com/luodaoyi/dsh-cabinet-mode/market-index/marketplace.json
+
+1. Identify my DSH version and intended profile. Use the existing UI to enable Custom plugin market, then Plugins → Discover → Index sources.
+2. Add the exact raw JSON URL above. Do not use GitHub blob/tree URLs, edit the index, or invent a command to add a market source.
+3. Install Cabinet Mode from that source. Verify the confirmation shows dsh-cabinet-mode@<version> from https://registry.npmjs.org/, then verify the Installed result and version. Click Enable now or turn on the plugin switch on Installed, and verify it is enabled.
+4. If browser/UI control is unavailable, give me those short UI steps. Use the release tarball or local-directory fallback only when the market is unavailable or I choose it; explain the specific reason first.
+5. Do not also append cordis.patch.yml to my profile: installing both ways duplicates the preset. Preserve my existing profile and plugins.
+6. Tell me to fully quit and restart DSH, create a new session and choose 内阁模式 (preset id cabinet). Do not claim success until the installed version is verified; do not claim untested team behavior works.
+
+On failure, show the exact error. For $.format must be 1, replace the webpage source with the raw JSON URL. Do not repeatedly reinstall or silently switch methods.
+```
+
+## Fallback: release tarball or local checkout
+
+Use this only when the market is unavailable or for local development. Fully quit desktop DSH first to release the profile lock, then install the release bundle:
+
+```sh
+dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.3.0/dsh-cabinet-mode-0.3.0.tgz
+dsh plugin --profile desktop list
+```
+
+Check the installed version, restart DSH and select Cabinet Mode in a new session. For a local checkout, replace the URL with its absolute path. If the CLI is unavailable, use **Plugins → Add plugin** and select the tarball URL or local directory. Use the intended profile; `desktop` is the desktop app profile. Neither method should be combined with the manual preset patch. The optional installer scripts provide only the preset fallback, not the Cabinet UI.
 
 ## Upgrade
 
@@ -320,7 +214,7 @@ on DSH 0.2.1-rc.5.
 | | |
 |---|---|
 | Mode name | 内阁模式 (**Cabinet Mode**), preset id `cabinet`, order 5 |
-| Identity | One persona shared by the Lead and every teammate. The Lead (内阁首辅) reads the request, splits it, assigns work, adjudicates, summarizes and closes the loop; members (翰林院编修 / 工部主事 / 大理寺评事 / 都察院御史) execute bureau-scoped work and must never claim to be the Lead. |
+| Identity | One persona shared by the Lead and every teammate. The Lead (内阁首辅) reads the request, splits it, assigns work, adjudicates, summarizes and closes the loop; members (翰林院编修 / 工部尚书 / 大理寺卿 / 左都御史) execute bureau-scoped work and must never claim to be the Lead. |
 | Default posture | Research first, change code only when explicitly authorized; every conclusion must cite a path, line, command output or source; unverified items must be marked as such. |
 | Tools | Same 22 plugin rows as the tested DSH Standard Mode (shell, filesystem, jobs, schedule, skills, goals, plan mode, compaction, delegation/workflow, ask-user, todo, web, present). |
 | Platform | Cross-platform: `tool-bash` is enabled on Linux/macOS, `tool-pwsh` on Windows, exactly like Standard Mode. No absolute paths, no shell-specific install step, no build step. |
@@ -350,9 +244,9 @@ on DSH 0.2.1-rc.5.
 
 | Method | Windows | Linux | macOS | Notes |
 |---|---|---|---|---|
-| **A. DSH plugin manager** (recommended): plugin page "Add plugin -> local directory/package", or `dsh plugin --profile <profile> add <absolute path / .tgz / release URL>` | ✅ tested locally on 2026-10-29: local-directory install **and GitHub Release asset URL install**; `dsh plugin --profile desktop list` = 3 packages; composition check passed | ⚙️ code-level inference, **not tested on this machine** | ⚙️ code-level inference, **not tested on this machine** | Pure YAML bundle: no build, no dependencies, no OS-specific code. See [docs/cross-platform.md](docs/cross-platform.md). |
+| **Plugin market** (index source): see [Install from the plugin market](#install-from-the-plugin-market-recommended) | ✅ **Windows rc.5 web client install verified** (isolated profile, 2026-11-05) | ❌ **not tested** | ❌ **not tested** | Same npm bundle install through DSH's plugin market; the npm publish and the `market-index` branch now exist. |
+| **A. DSH plugin manager** (fallback): plugin page "Add plugin -> local directory/package", or `dsh plugin --profile <profile> add <absolute path / .tgz / release URL>` | ✅ tested locally on 2026-10-29: local-directory install **and GitHub Release asset URL install**; `dsh plugin --profile desktop list` = 3 packages; composition check passed | ⚙️ code-level inference, **not tested on this machine** | ⚙️ code-level inference, **not tested on this machine** | Declarative preset plus host/browser JavaScript: no build step. See [docs/cross-platform.md](docs/cross-platform.md). |
 | **B. Fallback node scripts** (no plugin manager): `node scripts/install.mjs --profile <profile>` then `--apply`; writes the profile `cordis.patch.yml` | ✅ scripts tested on Windows (dry-run + temp copies) | ⚙️ code-level inference, **not tested** | ⚙️ code-level inference, **not tested** | Same file layout on all platforms: `<DSH_HOME>/profiles/<profile>/cordis.patch.yml`. |
-| **Plugin market** (index source): see [Install from the plugin market](#install-from-the-plugin-market) | ❌ **GUI install not tested** (npm publish + index are live as of 2026-11-03) | ❌ **not tested** | ❌ **not tested** | Same npm bundle install through DSH's plugin market; the npm publish and the `market-index` branch now exist. |
 
 **Method A and Method B are mutually exclusive.** Both create the preset
 declaration `config.id: cabinet`. Installing both makes the preset id appear
@@ -360,7 +254,7 @@ twice, and the preset declaration then fails to load. Uninstall one method befor
 switching to the other. The plugin-market route installs the same bundle as
 Method A, so the same exclusivity applies to it.
 
-### A. Install as a DSH bundle (recommended, all platforms)
+### A. Fallback: install a bundle directly
 
 1. Install the bundle into the profile you use:
    - **Plugin page:** Settings → Plugins → Add plugin → local directory / package,
@@ -476,9 +370,9 @@ long-lived npm token — creates the GitHub Release, and then refreshes the
 `market-index` branch that the plugin market reads.
 
 ```sh
-# package.json version and the matching CHANGELOG section must both be 0.3.0
-git tag v0.3.0
-git push origin v0.3.0
+# package.json version and the matching CHANGELOG section must both be 0.2.0
+git tag v0.2.0
+git push origin v0.2.0
 ```
 
 One-time setup on npmjs.com (a maintainer action; it cannot be done from this
@@ -541,11 +435,7 @@ These were **not** tested on this machine and must not be presented as verified:
 - Whether `config.id` syntax rules reject unusual ids (this id is `cabinet`).
 - HMR behavior for preset declarations, and private-registry/proxied tarball
   installs.
-- **The plugin market in real use.** Parsing the published index, resolving the npm
-  install spec and installing `dsh-cabinet-mode@0.1.5` into a throwaway profile were
-  exercised locally, and the full tag → publish → automatic index refresh chain runs
-  in CI (v0.1.5, run 41657224370), but no install or update has been performed in
-  the DSH plugin-market GUI itself.
+- **Market updates and other clients.** Raw-source addition, installation of 0.2.0, and uninstalling/reinstalling through the market to 0.2.2 were verified in the Windows rc.5 web client. Other DSH versions/platforms remain unverified.
 
 ## Known limitations
 

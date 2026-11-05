@@ -2,6 +2,8 @@
 
 [English](README.md) | 中文
 
+**安装入口：** [优先从插件市场安装](#从插件市场安装索引源推荐)。
+
 <p align="center">
   <img src="docs/images/cabinet-portrait.jpg" width="200" alt="内阁模式图标来源：明代内阁首辅画像（已作为 bundle 图标 icon.svg 随包发布）"/>
 </p>
@@ -9,13 +11,37 @@
 
 一个 **DSH bundle**：给 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 增加 **内阁模式**（`config.id: cabinet`）。安装本 bundle、重启 DSH，新建会话时在模式选择器里选「内阁模式」即可。
 
-模式设定取自大明科研司·内阁：首辅（Lead）统摄，阁臣（成员）分曹——翰林院编修主调研、工部主事主执行、大理寺评事主核验、都察院御史主验收；默认只调研不改码，不编造数据来源。
+模式设定取自大明科研司·内阁：首辅（Lead）统摄，阁臣（成员）分曹——翰林院编修主调研、工部尚书主执行、大理寺卿主核验、左都御史主验收；默认只调研不改码，不编造数据来源。
 
-本包含 host 半部 `index.js`（声明「内阁成员」配置 schema，并在每次模型装配时按角色注入对应提示段）与浏览器半部 `client.js`（右栏「内阁」面板 + DSH 设置页「内阁成员」分区），面板内嵌五张成员头像（128px data URL；源图在 `docs/images/avatars/`，由 `src/build_avatars.py` 缩放生成）；另随包提供可选的 Node.js 回退脚本（`scripts/*.mjs`）。本包**无第三方运行时依赖**，React 等经 DSH 客户端模块表取用，不自带重复依赖或 CDN。
+本包含 host 半部 `index.js`（成员配置与内阁模式提示词）与浏览器半部 `client.js`（右栏「内阁」面板），面板内嵌五张官职头像与一张无官阶回退头像（128px data URL；源图在 `docs/images/avatars/`，由 `src/build_avatars.py` 缩放生成）；另随包提供可选的 Node.js 回退脚本（`scripts/*.mjs`）。本包使用 `@deepseek-ai/schemastery` 作为配置 schema 运行时依赖，React 等经 DSH 客户端模块表取用，不自带重复依赖或 CDN。
 
 它声明**两行**——`preset-cabinet`（一条 `@deepseek-ai/dsh-agent-preset` 声明）与 `cabinet-ui`（载入本包 JavaScript 的 Loader 行）——并复用 DSH **标准模式**（Standard Mode）出厂的 22 行插件清单，因此工具与标准模式一致；与出厂模式的差异是 persona，并另加右栏「内阁」面板。团队工具（`spawn_teammate`、`team_task_*` 等）由 profile 层的 `@deepseek-ai/dsh-experimental-agent-team-profile` 提供，**本 preset 未内置**。
 
 本包声明 **无 DSH 版本硬限制**：没有 `engines.dsh`、没有 DSH `peerDependencies`、安装时不做版本检查。本机在 DSH **0.2.1-rc.3** 实测；其他提供声明式 preset 机制的 DSH 版本可尝试安装，但**未经验证**（见 [DSH 侧限制与说明](#dsh-侧限制与说明)）。
+
+## 内阁成员配置
+
+通过商店安装 bundle 后，打开 **设置 → 内阁成员**。五个官职组分别支持显示名
+（40 字符）、头像和提示词（4000 字符）。内阁卡片与 Owner 标签保留原始成员 ID，
+不会改动任务归属或原生成员列表中的运行时名称。
+
+编辑后点击 **保存**；**取消并重新读取** 丢弃草稿并读取最新配置，离开页面也会
+丢弃未保存修改。保存按加载时的修订号原子写入五员配置；其他页面已修改时会提示
+冲突，须取消重读后再编辑，不会用旧草稿覆盖。配置尚未加载时禁止编辑。
+保存的提示词在下一次提示词装配时生效。
+
+可上传不超过 2 MB 的 PNG/JPEG/WebP；浏览器居中裁成 96×96 PNG，data URL 不超过
+48 KB。保存后头像同时用于内阁面板和原生团队列表。**恢复默认** 将该官职组的
+显示名、头像、提示词恢复出厂状态；**重置全部** 重置五员草稿，二者都须再点保存。
+清空提示词关闭该官职新增的整段；空 custom 文本也保持为空。默认模式启用首辅的
+御下术和四员职责提示。新增提示段只作用于实时绑定 **cabinet** preset 的 Agent，
+其他模式不受影响。本次发布不改变既有静态 persona。
+
+配置隔离边界是 **DSH_HOME/profile** 的 cabinet-ui 命名空间，并非浏览器登录账号。
+连接同一 profile 的浏览器共享设置，该 profile 下的内阁会话共用配置；需要隔离时
+使用独立 profile/DSH_HOME。坏字段按默认值处理。只安装 preset 的回退方法没有成员
+设置页和运行时提示段，请优先使用商店 bundle。
+
 
 ## 团队结构一览
 
@@ -23,7 +49,21 @@
 
 ### 运行截图
 
-真实运行截图（模式选择器、Agent 预设卡片、内阁会话实况）欢迎贡献——提 PR 或发给我们即可补进此处。上图是 persona 结构示意图，不是截图。
+以下为项目所有者提供的真实运行截图，展示内阁面板的首辅与阁臣层级、谁在干活、任务归属与进度，以及任务依赖标签。上图是 persona 结构示意图；下方两张图则来自实际会话。
+
+#### 浅色主题
+
+![浅色主题内阁面板：首辅与阁臣派活树、成员运行和空闲状态、任务进度及依赖关系](docs/images/cabinet-runtime-light.png)
+
+浅色会话展示多个成员及其分派任务，绿色运行标记与「进行中／已完成」任务状态分别呈现。
+
+#### 深色主题
+
+![深色主题内阁面板：首辅与阁臣任务列、未分派待办任务及依赖标签](docs/images/cabinet-runtime-dark.png)
+
+深色会话展示相同的任务层级，以及待办、进行中、已完成状态，还包括未分派任务分组和任务依赖关系。
+
+这些截图记录了对应会话中可见的运行状态，不代表跨 DSH 版本兼容性、模式选择器／预设卡片或阁臣 persona 继承行为已经验证。
 
 ## 内阁面板与成员形象
 
@@ -32,141 +72,72 @@
 - **派活树**：首辅行在顶，任务按 `ownerName` 缩进挂到对应阁臣名下，`blockedBy` 依赖以标签挂在任务下方——首辅给谁派了什么活、被哪条任务卡住，一眼可见。
 - **谁在干活**：成员 running 时整行浅绿高亮、状态点持续脉冲；空闲 / 启动中 / 失败分别用灰 / 琥珀 / 红点区分，首辅行同样参与高亮。
 - **任务三色**：待办灰、进行中蓝、已完成绿（面板底部附图例）。
-- **成员形象**：每行头像（圆形 22px，首辅 24px）＋姓名＋状态文字＋当前模型；头像按姓名前缀匹配，未匹配的成员回落首辅色。
+- **成员形象**：每行包含圆形头像、中文称谓与成员原名、状态文字和当前模型。别名共享衙门头像，成员卡片、Owner 标签和不在册分组保留原名以区分身份；截断文字提供完整提示，未匹配名称保留原始身份，使用浅色、无官阶补纹的人物头像，不再显示暗色字母占位。详见[支持的名称与命名约定](docs/images/avatars/aliases.md)，覆盖复合拼音、中文官名、分隔符和数字后缀。
 
-五张成员头像按衙门分色：首辅明黄、翰林院编修青、工部主事赤、大理寺评事玄、都察院御史绯——浅色系国风 3D 半写实 3/4 侧颜胸像（圈内浅景深国风背景）。头像以 128px data URL 内嵌进 `client.js`，源图为正方形 PNG 存于 `docs/images/avatars/`，由 `src/build_avatars.py` 缩放生成（源图 512×512，不直接内嵌）。
+五张原创 Q 版头像采用明代乌纱帽、圆领袍与方形胸补。首辅用酒红袍、鹤补（明确采用“加一品衔大学士”的艺术设定）；翰林院编修为正七品，用鸂鶒补；工部尚书为正二品，用锦鸡补；大理寺卿为正三品，用孔雀补；左都御史为正二品，使用风宪官獬豸补。袍色用于区分角色，不宣称是各品级常服的固定颜色。
 
-示例（其余四张同目录：`hanlin.png` / `works.png` / `dali.png` / `yushi.png`）：
+详见[衣冠依据、角色设定与生成提示词](docs/images/avatars/README.md)。1254px 正方形源图经 `src/build_avatars.py` 缩放为 128px PNG 并内嵌到 `client.js`；界面实际显示 22–24px，身份辨认仍以角色文字为准。
 
-![首辅头像示例](docs/images/avatars/lead.png)
+| 内阁首辅 | 翰林院编修 | 工部尚书 | 大理寺卿 | 左都御史 |
+| --- | --- | --- | --- | --- |
+| ![首辅：鹤补](src/avatars/lead.png) | ![编修：鸂鶒补](src/avatars/hanlin.png) | ![工部尚书：锦鸡补](src/avatars/works.png) | ![大理寺卿：孔雀补](src/avatars/dali.png) | ![左都御史：獬豸补](src/avatars/yushi.png) |
 
 面板只读取两条既有数据通道：成员运行状态（`api-session/status`）与会话投影 `agentTeam`（成员名册与任务板），不新增服务、不新增协议。
-
-## 内阁成员配置
-
-右栏面板之外，本包还在 **DSH 设置页**新增「内阁成员」分区（官方 `settings.section` 槽，分区 id `cabinet`）：五员的名字、头像与提示词都在这里改，改动写进本机 DSH 的用户设置，**下一次模型装配即生效，不需要重启**。
-
-**入口**：侧栏底部的**设置**按钮 → 左侧导航里的**内阁成员**。
-
-**可改三件东西**
-
-| 项 | 约束 | 留空 / 重置之后 |
-|---|---|---|
-| 显示名 | ≤ 40 字符 | 回落到运行时名字（`lead` / `hanlin` / `works` / `dali` / `yushi`），与 0.2.0 的渲染一致 |
-| 头像 | 源文件 PNG / JPEG / WebP，≤ 2MB；浏览器端居中裁切并归一为 **96×96 PNG**；单张 data URL ≤ **48KB**；另有内置五张可一键选回 | 回到该员的内置衙门头像 |
-| 提示词 | ≤ 4000 字符 | 空 = 该员这一段**不注入**（首辅见下节） |
-
-**保存**：没有「保存」按钮，改动自动写入——文本类改动约 0.4 秒防抖后落盘，头像上传与「恢复默认 / 重置全部」立即写。状态行会显示「已保存 / 保存失败，请重试」。
-
-**写到哪里**：走 DSH 官方 settings 通道（`configForms` 命名空间 `cabinet-ui`，即本包在 profile 根级的那条 Loader 行），最终落在你本机的用户设置文件 `$DSH_HOME/profiles/<profile>/cordis.patch.yml`（默认 `~/.dsh`）。**每台机器、每个用户各自一份**；同一台机器上的多个浏览器共用同一份——这是 DSH settings 的既有语义，不是本插件的行为。
-
-**清空 / 恢复 / 重置的语义**
-
-- 提示词框清空 = 该员这一段**不注入**。
-- 「恢复内置」（或点内置头像排）= 丢弃自定义头像，回到内置头像。
-- 每张卡上的**恢复默认** = 清掉该员的显示名与头像，并清空其提示词；首辅那张卡会把提示词框还原成出厂御下术文本。
-- 页头的**重置全部** = 五员全部回出厂：无显示名、无自定义头像、首辅御下术回到出厂并重新注入。
-
-**首辅「御下术」（默认提示内容，仅首辅注入）**
-
-0.3.0 起，首辅（`role === 'lead'`）默认额外注入一段 10 条的**御下术**——立威、画饼、施压、打压对事不对人、拉踩对比、情绪收放、牵制互查、责任到人、反制糊弄、收束，末尾附一条压过全部话术的**红线**（只对 AI 阁臣施压、对陛下只有敬；不许逼造假 / 删证据 / 凑绿；不许人身侮辱辱骂；不许以施压换取越权操作；施压必须落在可核验的时间、交付物与判据上）。这段只进首辅的系统提示，**阁臣不注入**。
-
-关闭有两种方式：把首辅提示词框**清空**（= 关闭，什么都不注入），或改成你自己的文本（= 用你的替换出厂稿）。想复原就点首辅那张卡的**恢复默认**。
-
-> 这是**默认提示内容的变更**：从 0.2.0 升级上来、一次都没打开过配置页的部署，首辅的系统提示同样会多出这段。详见 [CHANGELOG](CHANGELOG.md)。
-
-**损坏 / 异常配置的回退**
-
-设置值是「能读就读，读不懂就忽略」：`members` 不是数组、成员 key 不认识、名字或提示词超长（按 40 / 4000 截断）、头像不是 `data:image/` 开头或超 48KB——一律忽略该字段并回退出厂渲染，不会让面板渲染中断。客户端拿不到 `configForms` 服务时，配置页不出现、面板保持 0.2.0 行为；宿主没有 `cabinet-ui` 这个条目（例如只做了下面的方式 B 回退安装）时，页面仍会出现，但配置写不进任何条目、也不会有运行时注入。
-
-**已知限制**
-
-- **原生团队浮层（roster）只换头像，不换名字**：浮层里的名字文本仍是运行时名字；配置的显示名只作用于「内阁」面板（成员卡与任务 owner 标签）。
-- **改显示名不改身份**：运行时身份短语（`You are teammate "<name>".`）照旧，改名只作用于显示层。
-- **上传上限是硬的**：源文件 ≤ 2MB、归一后 ≤ 48KB。细节多的图可能压完仍超限而被拒收，请换更小的原图。
-- **配置入口只在方式 A（bundle）**：回退安装（方式 B，只往 profile patch 写 preset insert）不含 `cabinet-ui` 行，因此没有配置页、也没有运行时注入，行为与 0.2.0 一致。
-- **设置是主机级、不是浏览器级**：同一台机器上所有已认证浏览器看到同一份成员配置。
-- 设置页分区依赖 DSH 的 `settings.section` 槽与 `configForms` 通道；本仓库只按 DSH 0.2.1-rc.5 的接口签名核对过，其他版本**未验证**。
 
 ## 生效说明
 
 - **安装或更新后必须完全退出并重启 DSH**：preset 声明与 client 插件都只在启动时装配，重启前改动不生效。
 - 重启后**新建会话**，在模式选择器中选择**内阁模式**（`cabinet`）。
 - 打开右栏「内阁」页签：侧栏页签条右上角的「**+**」→ 指南页里的「**内阁**」入口。
-- 面板渲染在**浏览器端**（`client.js`）：须重启后在真实会话里实测；本仓库尚未提供浏览器截图验证。
+- 面板渲染在**浏览器端**（`client.js`）：须重启后在真实会话里实测；浅色与深色面板效果可参见上方[运行截图](#运行截图)。
 
 ---
 
-## 让 AI 帮你安装（复制下面这段提示词）
+## 从插件市场安装（索引源，推荐）
 
-```text
-请帮我安装 DeepSeek Harness 的「内阁模式」（Cabinet Mode）bundle。
+**用户和 AI 助手都优先通过 DSH 插件市场安装。** 商店会把已发布的 npm bundle 安装到当前 profile，无需克隆仓库、手改配置或寻找 tgz 下载地址。
 
-1. 先运行 `dsh --version` 并告诉我版本。0.2.1-rc.3 是已实测参照；本包不声明
-   DSH 版本硬限制，但其他版本未经验证。
-2. 把 bundle 装进我的 DSH profile：
-   dsh plugin --profile desktop add <dsh-cabinet-mode 仓库或 .tgz 的绝对路径>
-   （也可用 GitHub Release 的 tgz URL 代替本地路径。）
-   若 `dsh` CLI 不可用：打开 DSH 设置 → 插件 → 添加插件 → 选择「本地目录」，
-   指向 dsh-cabinet-mode 仓库的绝对路径。
-3. 运行 `dsh plugin --profile desktop list`，确认出现 dsh-cabinet-mode。
-4. 不要同时把 cordis.patch.yml 追加到我的 profile patch：两种安装方式互斥，
-   同时装会让 preset 重复而加载失败。
-5. 安装完成后提醒我完全退出并重启 DSH；然后在新建任务时选择「内阁模式」
-   （preset id: cabinet）。
-
-任何一步失败请贴原始错误并停止，不要连续重试超过一次。
-```
-
-## 手动安装（3 行）
-
-```sh
-dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.3.0/dsh-cabinet-mode-0.3.0.tgz
-# 完全退出并重启 DeepSeek Harness
-# 新建任务 -> 模式选择器 -> 内阁模式
-```
-
-本地目录安装：把上面的 tgz URL 换成仓库绝对路径即可。Windows 上 CLI 为 `dsh`（经 `dsh.cmd`），Linux/macOS 命令相同。
-
-> **DSH 0.2.1-rc.5 桌面端实测（2026-10-31）：**
->
-> - 桌面端自带的 `dsh` CLI 跑 `dsh plugin --profile desktop list/add ...` 正常
->   （exit 0）。首次使用可能要求先初始化 profile（提示「Open DeepSeek Harness
->   Desktop once … then fully quit it」），并可能等待 profile 锁最多 120 秒——
->   所以**安装/升级前先完全退出 DeepSeek Harness**。
-> - 桌面 profile 真正被拒的是 `dsh --profile desktop --dump-config`
->   （"managed exclusively by the Electron application"）；组合校验请用 `web`
->   profile。
-> - 备选：插件页（设置 → 插件 → 添加插件 → 本地目录 / tgz URL），或 DeepSeek
->   Harness 自带的 pnpm——装完确认 profile `package.json` 的
->   `dsh.profile.bundles` 里保留了 `dsh-cabinet-mode`：
->
-> ```sh
-> node "<DeepSeek Harness 安装目录>\resources\runtime\primary-runtime\dependencies\pnpm\bin\pnpm.mjs" --dir "%USERPROFILE%\.dsh\profiles\desktop" add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.3.0/dsh-cabinet-mode-0.3.0.tgz
-> ```
->
-> 操作前先备份该 profile 的 `package.json` / `pnpm-lock.yaml`。
-
-## 从插件市场安装（索引源）
-
-本 bundle 同时登记在一份由 npm registry 生成的 DeepSeek Harness 插件市场索引里，DSH 可直接安装与更新，无需 tgz URL 或本地目录：
+复制这个 **raw JSON 索引地址**：
 
 ```text
 https://raw.githubusercontent.com/luodaoyi/dsh-cabinet-mode/market-index/marketplace.json
 ```
 
-1. 在 DSH 打开**插件市场**，打开**索引源**列表，添加上面的 URL 并刷新。
-2. 在市场列表中安装 **内阁模式 / Cabinet Mode**（`dsh-cabinet-mode`）。DSH 会把 `dsh-cabinet-mode@<版本>` 从 `https://registry.npmjs.org` 安装到当前 profile。这与方式 A 是同一种 bundle 安装，二者只能选其一。
-3. **完全退出并重启 DeepSeek Harness**，然后新建任务，在模式选择器中选择**内阁模式**。
-4. 以后更新：先在**已安装**页卸载旧版本，再从**插件市场**安装新版本，然后再次重启。市场对第三方插件**没有原地升级**——「有新版本」徽标点下去只是打开「已安装」页。
+1. 打开「**插件 → 实验性插件**」，必要时点击「**更多**」，启用「**自定义插件市场**」。
+2. 返回「**插件 → 发现**」，打开「**索引源**」，粘贴上面的 raw 地址，点击「**添加**」。
+3. 等待出现「**内阁模式 / Cabinet Mode**」，点击「**安装**」。确认弹窗中的包名为 `dsh-cabinet-mode@<版本>`，注册表为 `https://registry.npmjs.org/`，再确认安装。
+4. 检查界面显示「**已安装**」及版本号。点击「**立即启用**」，或在「**已安装**」页打开插件开关；安装完成不等于已经启用，单纯重启不会打开关闭的插件。然后**完全退出并重启 DSH**，新建会话，在模式选择器中选「**内阁模式**」（`cabinet`）；需要时通过右侧栏「**+**」打开内阁页签。
 
-「可更新」如何判定：DSH 只比较 **SemVer 版本号**，同一版本号重新构建不会提示可更新（npm 版本不可变，npm 源不受影响）。**没有任何定时自动检查**：只有打开或刷新插件市场时才抓取索引，缓存 10 分钟。以上为 DSH 0.2.1-rc.5 源码级结论（行号见 [docs/cross-platform.md](docs/cross-platform.md) 第 7 节）；真实更新流程未做端到端实测。
+**不要填写 GitHub 的 `blob` 或 `tree` 网页地址。** DSH 不会把网页自动转换成索引；我们已用 blob 地址复现 `$.format must be 1`。遇到该错误，移除错误源，重新添加上述 raw 地址。Respire 等其他商店也适用同一规则。
 
-索引在每次 tag 发布后由 npm registry 重新生成，只列出已发布、未弃用的稳定版本；不要手工编辑 `market-index` 分支。
+**验证范围：** 2026-11-05 已在 Windows、DSH 0.2.1-rc.5 的隔离 web profile 中，通过真实客户端添加 raw 索引并安装 0.2.0；随后验证了从旧版卸载、刷新索引并安装 0.2.2，以及安装后需单独启用的流程。其他 DSH 版本和 Linux/macOS 的商店界面流程尚未验证；索引格式另由官方 rc.5 解析器回归测试。真实团队任务交互属于另一项验证。
 
-> **发布状态（2026-11-03）：** `dsh-cabinet-mode@0.1.4`、`0.1.5`、`0.1.6` 已由 tag 触发的 OIDC 流程发布到 `registry.npmjs.org`，均带 sigstore provenance；`market-index` 分支在每次发布后自动刷新。tag → 发布 → GitHub Release → 刷新索引全链路已两次跑绿（v0.1.5：run 41657224370；v0.1.6：run 41661809576），索引现列出 0.1.6、0.1.5 与 0.1.4。registry 上另有占位版本 `0.0.0-stage`（预发布，索引不列）。
->
-> **未验证：** 你所用 DSH 版本的插件市场界面文案与点击路径，以及该 GUI 里的真实安装/更新。上面的 `dsh-cabinet-mode@<版本>` 安装 spec 是格式 1 读取器（`@deepseek-ai/dsh-plugin-market-index@0.2.1-rc.5` 的 `marketInstallTarget`）对 npm 源返回的结果；该函数已在本机执行，界面未实测。
+## 让 AI 帮你安装（复制下面这段提示词）
+
+```text
+请帮我安装 DeepSeek Harness 的「内阁模式」bundle，优先使用插件市场索引：
+https://raw.githubusercontent.com/luodaoyi/dsh-cabinet-mode/market-index/marketplace.json
+
+1. 确认我的 DSH 版本和目标 profile。通过已有界面启用「自定义插件市场」，进入「插件 → 发现 → 索引源」。
+2. 添加上面的 raw JSON 地址。不要使用 GitHub blob/tree 网页，不要修改索引，也不要编造添加商店源的 CLI 命令。
+3. 从该源安装「内阁模式」，确认弹窗为 dsh-cabinet-mode@<版本>、注册表为 https://registry.npmjs.org/，然后核实「已安装」结果和版本号。点击「立即启用」或在「已安装」页打开插件开关，确认启用状态。
+4. 如果你无法操作界面，请给我简短的界面步骤；只有市场不可用或我选择备用方法时，才使用 Release tgz 或本地目录，并先解释具体原因。
+5. 不要再向 profile 追加 cordis.patch.yml，避免重复 preset。保留我的已有 profile 和其他插件。
+6. 提醒我完全退出并重启 DSH，新建会话并选择「内阁模式」（preset id cabinet）。未核实安装版本不要声称成功，未测试的团队交互不要声称已验证。
+
+失败时给出原始错误。遇到 $.format must be 1，先把网页源换成 raw JSON 地址；不要反复重装或悄悄换安装方法。
+```
+
+## 备用：Release 包或本地目录安装
+
+仅在商店不可用或本地开发时使用。先完全退出桌面 DSH，释放 profile 锁，再执行：
+
+```sh
+dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.3.0/dsh-cabinet-mode-0.3.0.tgz
+dsh plugin --profile desktop list
+```
+
+核实安装版本，重启 DSH 后新建会话并选择内阁模式。本地开发可把 URL 换成仓库绝对路径；CLI 不可用时，在「插件 → 添加插件」选择 tgz URL 或本地目录。确认目标 profile：`desktop` 是桌面应用 profile。上述方法均不可与手工 preset patch 叠加。可选安装脚本仅提供 persona preset 回退，不提供内阁界面。
 
 ## 升级
 
@@ -187,7 +158,7 @@ v0.1.2 → v0.1.3 走内嵌 pnpm（DSH 0.2.1-rc.5）。
 | | |
 |---|---|
 | 模式 | 内阁模式（**Cabinet Mode**），preset id `cabinet`，order 5 |
-| 身份 | 同一段 persona 由首辅与所有阁臣共享：首辅（Lead）审题、拟旨拆解、分派、裁断、汇总、闭环；阁臣（翰林院编修/工部主事/大理寺评事/都察院御史）按衙门办事，禁止自称首辅。 |
+| 身份 | 同一段 persona 由首辅与所有阁臣共享：首辅（Lead）审题、拟旨拆解、分派、裁断、汇总、闭环；阁臣（翰林院编修/工部尚书/大理寺卿/左都御史）按衙门办事，禁止自称首辅。 |
 | 默认姿态 | 默认只调研不改码；每条结论锚定路径、行号、命令输出或原文；不确定处标「未验证」；不编造数据来源。 |
 | 工具 | 与 0.2.1-rc.3 实测参照的标准模式相同的 22 行插件（shell、文件系统、后台任务、定时、技能、目标、计划模式、压缩、委派/工作流、ask-user、todo、web、present）。 |
 | 平台 | 跨平台：`tool-bash` 在 Linux/macOS 启用、`tool-pwsh` 在 Windows 启用，与标准模式一致；无绝对路径、无 shell 专用安装步骤、无构建步骤。 |
@@ -211,13 +182,13 @@ v0.1.2 → v0.1.3 走内嵌 pnpm（DSH 0.2.1-rc.5）。
 
 | 方式 | Windows | Linux | macOS | 说明 |
 |---|---|---|---|---|
-| **A. DSH 插件管理器**（推荐）：插件页「添加插件 → 本地目录/包」，或 `dsh plugin --profile <profile> add <绝对路径 / .tgz / release URL>` | ✅ 2026-10-29 本机实测：本地目录安装与 **GitHub Release 资产 URL 安装**均成功；`dsh plugin --profile desktop list` = 3 packages；合成校验通过 | ⚙️ 代码级推断，**未在本机实测** | ⚙️ 代码级推断，**未在本机实测** | 纯 YAML bundle：无构建、无依赖、无 OS 专用代码。见 [docs/cross-platform.md](docs/cross-platform.md)。 |
+| **插件市场**（索引源）：见 [从插件市场安装](#从插件市场安装索引源推荐) | ✅ **Windows rc.5 web 客户端安装已实测**（隔离 profile，2026-11-05） | ❌ **未实测** | ❌ **未实测** | 通过 DSH 插件市场安装同一个 npm bundle；npm 发布与 `market-index` 分支均已存在。 |
+| **A. DSH 插件管理器**（备用）：插件页「添加插件 → 本地目录/包」，或 `dsh plugin --profile <profile> add <绝对路径 / .tgz / release URL>` | ✅ 2026-10-29 本机实测：本地目录安装与 **GitHub Release 资产 URL 安装**均成功；`dsh plugin --profile desktop list` = 3 packages；合成校验通过 | ⚙️ 代码级推断，**未在本机实测** | ⚙️ 代码级推断，**未在本机实测** | 纯 YAML bundle：无构建、无依赖、无 OS 专用代码。见 [docs/cross-platform.md](docs/cross-platform.md)。 |
 | **B. 回退 node 脚本**（无插件管理器时）：`node scripts/install.mjs --profile <profile>` 演练后 `--apply`，写入 profile 的 `cordis.patch.yml` | ✅ 脚本已在 Windows 实测（演练 + 临时副本） | ⚙️ 代码级推断，**未实测** | ⚙️ 代码级推断，**未实测** | 三平台同一路径：`<DSH_HOME>/profiles/<profile>/cordis.patch.yml`。 |
-| **插件市场**（索引源）：见 [从插件市场安装](#从插件市场安装索引源) | ❌ **GUI 安装未实测**（npm 与索引已于 2026-11-03 上线） | ❌ **未实测** | ❌ **未实测** | 通过 DSH 插件市场安装同一个 npm bundle；npm 发布与 `market-index` 分支均已存在。 |
 
 **方式 A 与方式 B 二选一，不可叠加。** 两种方式都会声明 `config.id: cabinet`；同时装会让 preset id 重复，声明加载失败。切换前先卸载旧方式。插件市场安装的是与方式 A 相同的 bundle，同样受这条互斥约束。
 
-### A. 作为 DSH bundle 安装（推荐，全平台）
+### A. 备用：直接安装 DSH bundle
 
 1. 安装到你在用的 profile：
    - **插件页**：设置 → 插件 → 添加插件 → 本地目录/包，选择本仓库（或其 `.tgz`）。
@@ -278,9 +249,9 @@ node scripts/verify.mjs                             # 仓库校验 + dsh 合成�
 推送版本 tag 会触发 `.github/workflows/release.yml`：校验工作树 → 打包 tarball → 用 **Trusted Publishing（OIDC）** 发布到 npm（不使用长期 npm token）→ 创建 GitHub Release → 刷新插件市场读取的 `market-index` 分支。
 
 ```sh
-# package.json 版本与 CHANGELOG 对应章节都必须是 0.3.0
-git tag v0.3.0
-git push origin v0.3.0
+# package.json 版本与 CHANGELOG 对应章节都必须是 0.2.0
+git tag v0.2.0
+git push origin v0.2.0
 ```
 
 npmjs.com 侧的一次性配置（维护者在网页上完成，无法从本仓库完成）。为该包添加 GitHub Actions trusted publisher：
@@ -313,7 +284,7 @@ npmjs.com 侧的一次性配置（维护者在网页上完成，无法从本仓�
 - DSH 升级后已装 bundle 或回退 patch 是否保留。
 - `config.id` 语法校验规则（本 id 为 `cabinet`，仅小写字母）。
 - preset 声明的 HMR 热生效、私有源/代理下的 tgz 安装。
-- **插件市场的真实使用。** 索引解析、npm 安装 spec 解析、把 `dsh-cabinet-mode@0.1.5` 装进一次性 profile 都已在本机执行；tag → 发布 → 自动刷新索引全链路已在 CI 跑通（v0.1.5，run 41657224370）；但 DSH 插件市场 GUI 里的真实安装/更新仍未执行。
+- **市场更新与其他客户端。** 已在 Windows rc.5 web 客户端验证添加 raw 索引、安装 0.2.0，以及卸载后从市场安装 0.2.2；其他 DSH 版本与平台尚未验证。
 
 ## 已知限制
 

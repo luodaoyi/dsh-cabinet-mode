@@ -6,61 +6,92 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
-- **「内阁成员」settings section in the DSH settings page.** `client.js` now
-  registers a page through the official `settings.section` slot (section id
-  `cabinet`, label 「内阁成员」/ "Cabinet members"), mounted only while the
-  browser half can reach the `configForms` service:
-  - **Display name** per member, ≤ 40 characters; empty keeps the runtime name
-    (`lead` / `hanlin` / …), i.e. the 0.2.0 rendering.
-  - **Avatar** per member: source PNG / JPEG / WebP ≤ 2MB, centre-cropped in the
-    browser and normalized to a 96×96 PNG whose data URL must stay ≤ 48KB; the
-    five built-in bureau avatars stay one click away.
-  - **Prompt** per member, ≤ 4000 characters; clearing the box injects nothing
-    for that member.
-  - Per-member **Restore default**, page-level **Reset all**, and
-    autosave (text edits debounce ~0.4 s; avatar uploads and resets write
-    immediately) with a saved / failed status line.
-- **Host half `index.js` owns the configuration and the prompt injection.** The
-  profile-root `cabinet-ui` row declares a fully volatile `Config` (`members`
-  carries the small text fields, each avatar is its own top-level `avatar*`
-  field) and registers one prompt section `cabinet:member` whose text provider
-  runs on every assembly and resolves the current member through
-  `ctx.agentTeams.tryMembership(agent)` — so a saved setting applies on the next
-  turn without remounting the plugin. The section uses `interpolate: false` (user
-  text may contain `{{…}}`) and an unconfigured deployment renders an empty
-  section, which the prompt registry drops.
-- `@deepseek-ai/dsh-client-ui-settings` added to `dsh.client.inject`;
-  `@deepseek-ai/schemastery` declared in `devDependencies` and resolved by the
-  Host at runtime (a Host without it still loads the bundle: no settings page,
-  panel keeps v0.2.0 rendering).
-- **README (zh/en)** gained a full 「内阁成员配置」/ "Cabinet member settings"
-  section: entry path, editable fields and their limits, storage location,
-  clear / restore / reset semantics, the Lead's default 御下术 and how to turn it
-  off, damaged-configuration fallback, and the known limitations below.
-- **Lead directive: dispatch scale cap (anti-death-loop).** Each subtask must carry a single deliverable and one write scope, ≤15 tool calls, ≤2 retries on the same failure; task briefs must state the call budget and stop conditions (report "failed/unverified" at the limit), no unbounded polling or third retry.
+- Profile-wide Cabinet member settings for display names, portraits and duty prompts.
+- Explicit atomic Save/Cancel with revision checks to prevent stale tabs overwriting settings.
+- Cabinet-only runtime prompt sections. Standard and other presets remain unchanged.
+- Default Lead policy and four office duty prompts; clear disables a block and restore
+  restores its factory default. Runtime identities and task ownership remain unchanged.
+- Settings are shared by browsers connected to the same DSH_HOME/profile, not isolated
+  by browser account. Native roster names remain runtime identities.
+
+## [0.2.7] - 2026-11-05
+
+### Fixed
+
+- Cover composite and legacy official names including dalisi-pingshi and
+  jiancha-yushi, separator variants, full pinyin bureaus and numeric suffixes.
+  Preserve exact member/Owner identity and reject unrelated prefix lookalikes.
+- Refresh native roster avatars when a row is reused or its text node changes,
+  without observing injected attributes or repeatedly rewriting image sources.
+- Replace dark initial-letter fallback blocks with a light, unranked portrait
+  for unknown members. Add all-alias, panel and native DOM lifecycle regressions
+  plus documented canonical spawn names. Existing README screenshots remain.
+
+## [0.2.6] - 2026-11-05
 
 ### Changed
 
-- **Default prompt content changed: the Lead now receives 御下术 (Lead only).**
-  The Lead's system prompt gains a ten-point 御下术 plus one red line that
-  overrides every tactic; teammates never receive it. This applies even to a
-  deployment upgraded from 0.2.0 that never opens the settings page. Clearing the
-  Lead's prompt box turns it off (nothing injected); **Restore default** brings
-  the factory text back.
-- **Version `0.2.0` → `0.3.0`**, and the README release links now target
-  `v0.3.0` (`scripts/verify.mjs` pins README links to `package.json`'s version).
+- Use the requested senior offices: 工部尚书 (second rank), 大理寺卿
+  (third rank), and 左都御史 (second rank). Redraw Works with a golden-pheasant
+  badge and Dali with a peacock badge, preserving the approved portrait style.
+  The censor retains the appropriate xiezhi badge.
+- Align persona, Chinese labels, README galleries and costume notes; preserve
+  internal IDs, legacy lower-office aliases and distinct original member names.
 
-### Notes
+## [0.2.5] - 2026-11-05
 
-- The settings page, the stored values and the prompt injection all hang off the
-  profile-root `cabinet-ui` Loader row, which only a **bundle install (Method A)**
-  creates. The Method B fallback installer still writes the preset insert only,
-  so it has no settings page and no injection — behaviour identical to 0.2.0.
-- The native team roster still only receives **avatars**; a configured display
-  name applies to the Cabinet panel (member cards and task owner labels), while
-  the roster keeps the runtime name, and runtime identity phrases
-  (`You are teammate "<name>".`) are untouched.
-- README links target v0.3.0 and become available when that release is published.
+### Changed
+
+- Use Chinese official titles consistently: 内阁首辅, 翰林院编修, 工部主事,
+  大理寺评事 and 监察御史. Keep the existing rank-appropriate portraits,
+  English internal keys, original member identities and legacy censor aliases.
+- Align the persona and README galleries with these titles; the Lead tag remains
+  Chinese in both UI locales. Add title, alias and identity regression checks.
+
+## [0.2.4] - 2026-11-05
+
+### Changed
+
+- Replace all five Cabinet portraits with original Ming-style chibi officials,
+  using role-specific crane, duck, egret and xiezhi rank badges. Document the
+  chief secretary's additional-rank artistic setting and costume references.
+- Preserve role matching and member identity labels; regenerate the 128px PNGs
+  and embedded browser/module assets through the existing Pillow pipeline.
+- Add byte-parity regression checks for the five PNGs and both embedded modules,
+  and include exact illustration prompts and bilingual README galleries.
+
+## [0.2.3] - 2026-11-05
+
+### Documentation
+
+- Include the separately required Enable now / Installed-page toggle after market
+  installation; restarting alone does not activate a disabled bundle. Confirmed
+  with a real rc.5 market uninstall/reinstall to 0.2.2 in an isolated web profile.
+
+## [0.2.2] - 2026-11-05
+
+### Documentation
+
+- Make the plugin market the preferred installation path for users and AI
+  assistants in both READMEs, with tested UI steps, the exact raw index URL,
+  verification boundaries and explicit tarball/local-directory fallbacks.
+
+## [0.2.1] - 2026-11-05
+
+### Changed
+
+- Refresh the five member portraits with chibi artwork and recognize role aliases,
+  numeric suffixes and common separators (#3).
+- Preserve original member identities beside localized role labels, including
+  task owners and foreign-owner groups; add identity collision regressions (#4).
+- Explain the exact raw JSON market URL and recovery from GitHub webpage URLs
+  producing `$.format must be 1`, including on the generated index branch.
+- Describe the runtime sidebar and avatars correctly in the market listing.
+
+### Fixed
+
+- Publish icon and index README changes even when marketplace.json is unchanged.
+  Preserve registry propagation waiting and protection against version loss.
 
 ## [0.2.0] - 2026-11-05
 

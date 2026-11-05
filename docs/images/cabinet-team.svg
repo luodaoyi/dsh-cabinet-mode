@@ -17,15 +17,15 @@
     <text x="135" y="290" font-size="12" font-weight="normal">调研 · 撰稿</text>
 
     <rect x="270" y="240" width="190" height="64" rx="10" fill="#1e8449" stroke="#145a32" stroke-width="2"/>
-    <text x="365" y="268">工部主事</text>
+    <text x="365" y="268">工部尚书</text>
     <text x="365" y="290" font-size="12" font-weight="normal">执行 · 产出</text>
 
     <rect x="500" y="240" width="190" height="64" rx="10" fill="#6c3483" stroke="#4a235a" stroke-width="2"/>
-    <text x="595" y="268">大理寺评事</text>
+    <text x="595" y="268">大理寺卿</text>
     <text x="595" y="290" font-size="12" font-weight="normal">结论核验</text>
 
     <rect x="730" y="240" width="190" height="64" rx="10" fill="#b9770e" stroke="#8a5a08" stroke-width="2"/>
-    <text x="825" y="268">都察院御史</text>
+    <text x="825" y="268">左都御史</text>
     <text x="825" y="290" font-size="12" font-weight="normal">监督验收</text>
   </g>
 
