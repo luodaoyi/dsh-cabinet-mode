@@ -2479,12 +2479,24 @@ window.__ModuleLoader__.load({
 			return AVATARS.neutral;
 		}
 		function fallbackAvatar(img, name) {
-            const fallback = AVATARS[bureauOf(name).key] || AVATARS.neutral;
-            if (img && img.getAttribute('src') !== fallback) img.setAttribute('src', fallback);
-        }
-        function avatarFor(name) {
+			const fallback = AVATARS[bureauOf(name).key] || AVATARS.neutral;
+			if (img && img.getAttribute('src') !== fallback) img.setAttribute('src', fallback);
+		}
+		function avatarFor(name) {
+			const text = typeof name === 'string' ? name.trim() : '';
+			// A saved per-member portrait always wins (settings layer).
+			const key = bureauOfName(name);
+			if (key !== '') {
+				const custom = memberConfig.avatars.get(key) || '';
+				if (custom !== '') return custom;
+			}
+			// Native roster refresh: office aliases (longest-first, zh/en) pick the
+			// built-in portrait, so every alias keeps the same face and a lookalike
+			// ("hanlinx") never gets a bureau portrait.
 			const bureau = bureauOf(name);
 			if (bureau.matched && AVATARS[bureau.key]) return memberConfig.avatars.get(bureau.key) || AVATARS[bureau.key];
+			// A saved display name has no office prefix; keep its member's portrait.
+			if (key !== '' && text !== '') return AVATARS[key];
 			return neutralAvatar();
 		}
 		function isPlaceholder(name) {
