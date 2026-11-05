@@ -2,6 +2,23 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.2.1] - 2026-11-05
+
+### Changed
+
+- Refresh the five member portraits with chibi artwork and recognize role aliases,
+  numeric suffixes and common separators (#3).
+- Preserve original member identities beside localized role labels, including
+  task owners and foreign-owner groups; add identity collision regressions (#4).
+- Explain the exact raw JSON market URL and recovery from GitHub webpage URLs
+  producing `$.format must be 1`, including on the generated index branch.
+- Describe the runtime sidebar and avatars correctly in the market listing.
+
+### Fixed
+
+- Publish icon and index README changes even when marketplace.json is unchanged.
+  Preserve registry propagation waiting and protection against version loss.
+
 ## [0.2.0] - 2026-11-05
 
 ### Added
