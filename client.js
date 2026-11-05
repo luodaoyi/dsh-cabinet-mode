@@ -2173,17 +2173,26 @@ window.__ModuleLoader__.load({
 			{ key: 'yushi', aliases: ['yushi', 'censor', '都察院', '御史'], label: '都察院御史' }
 		];
 		const AVATAR_KEYS = BUREAUX.map((bureau) => bureau.key);
+		// Longest alias first, so a full office name ("翰林院编修") wins over its
+		// shorter prefix ("翰林院") and the remainder stays a qualifier.
+		const ALIAS_INDEX = BUREAUX.flatMap((bureau) => {
+			const aliases = Array.from(new Set([bureau.label, ...bureau.aliases]));
+			return aliases.map((alias) => ({ bureau, alias })).sort((a, b) => b.alias.length - a.alias.length);
+		});
 		function bureauOf(name) {
 			const text = typeof name === 'string' ? name.trim() : '';
 			const lower = text.toLowerCase();
-			for (const bureau of BUREAUX) {
-				for (const alias of bureau.aliases) {
+			for (const entry of ALIAS_INDEX) {
+				{
+					const bureau = entry.bureau;
+					const alias = entry.alias;
 					if (!lower.startsWith(alias.toLowerCase())) continue;
 					const rest = text.slice(alias.length);
 					// A pure number is an ordinal (gongbu2 -> 工部主事2); a separator
-					// qualifier names the same office with a role (works-ui,
-					// dali-reviewer). Anything else ("hanlinx") stays unmatched.
-					if (rest !== '' && !/^\d+$/.test(rest) && !/^[-_.][A-Za-z0-9]+$/.test(rest)) continue;
+					// qualifier names the same office with a role, in ASCII or CJK
+					// (works-ui, dali-reviewer, 首辅-一). Anything else ("hanlinx")
+					// stays unmatched so a stranger is never given a bureau face.
+					if (rest !== '' && !/^\d+$/.test(rest) && !/^[-_.].+$/.test(rest)) continue;
 					return { key: bureau.key, label: bureau.label, suffix: rest, matched: true };
 				}
 			}
