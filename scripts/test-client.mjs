@@ -21,32 +21,39 @@ runInNewContext(source.replace(exportPoint,
 });
 for (const [english, chinese] of [
   ['lead', '首辅'], ['lead', '内阁首辅'], ['hanlin', '翰林院编修'],
-  ['works', '工部主事'], ['dali', '大理寺评事'], ['yushi', '都察院御史'],
+  ['works', '工部尚书'], ['dali', '大理寺卿'], ['yushi', '都察院御史'],
 ]) assert.equal(client.avatarFor(english), client.avatarFor(' ' + chinese + '-一 '));
 assert.match(client.avatarFor('unknown'), /^data:image\/svg\+xml/);
 assert.match(client.avatarFor(null), /^data:image\/svg\+xml/);
 for (const [name, expected] of [
-  ['gongbu2', '工部主事2 · gongbu2'],
-  ['works-ui', '工部主事（ui） · works-ui'],
-  ['works_ui', '工部主事（ui） · works_ui'],
-  ['works.ui', '工部主事（ui） · works.ui'],
+  ['gongbu2', '工部尚书2 · gongbu2'],
+  ['works-ui', '工部尚书（ui） · works-ui'],
+  ['works_ui', '工部尚书（ui） · works_ui'],
+  ['works.ui', '工部尚书（ui） · works.ui'],
   ['翰林院编修-一', '翰林院编修（一） · 翰林院编修-一'],
-  ['工部主事', '工部主事'],
+  ['工部尚书', '工部尚书'],
   ['hanlinx', 'hanlinx'], ['works-', 'works-'], ['gongbu2x', 'gongbu2x'],
 ]) assert.equal(client.displayName(name), expected);
 for (const name of ['hanlinx', 'works-', 'gongbu2x']) assert.match(client.avatarFor(name), /^data:image\/svg\+xml/);
 assert.equal(client.avatarFor('gongbu2'), client.avatarFor('works'));
 // Display Chinese offices without changing the original runtime identity.
 for (const [key, title] of [
-  ['lead', '内阁首辅'], ['hanlin', '翰林院编修'], ['works', '工部主事'],
-  ['dali', '大理寺评事'], ['yushi', '监察御史'],
+  ['lead', '内阁首辅'], ['hanlin', '翰林院编修'], ['works', '工部尚书'],
+  ['dali', '大理寺卿'], ['yushi', '左都御史'],
 ]) {
   assert.equal(client.displayName(key), title + ' · ' + key);
   assert.equal(client.displayName(title), title);
   assert.equal(client.avatarFor(key), client.avatarFor(title));
 }
-assert.equal(client.displayName('都察院御史'), '监察御史 · 都察院御史');
-assert.equal(client.avatarFor('都察院御史-一'), client.avatarFor('监察御史-一'));
+assert.equal(client.displayName('都察院御史'), '左都御史 · 都察院御史');
+assert.equal(client.avatarFor('都察院御史-一'), client.avatarFor('左都御史-一'));
+for (const [oldTitle, newTitle] of [
+  ['工部主事', '工部尚书'], ['大理寺评事', '大理寺卿'], ['监察御史', '左都御史'],
+]) {
+  assert.equal(client.displayName(oldTitle), newTitle + ' · ' + oldTitle);
+  assert.equal(client.avatarFor(oldTitle + '-一'), client.avatarFor(newTitle + '-一'));
+  assert.notEqual(client.displayName(oldTitle), client.displayName(newTitle));
+}
 for (const language of [client.zh, client.en]) assert.equal(language['lead.tag'], '内阁首辅');
 
 const render = (team, language) => client.CabinetPanel({

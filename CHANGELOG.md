@@ -2,6 +2,17 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.2.6] - 2026-11-05
+
+### Changed
+
+- Use the requested senior offices: 工部尚书 (second rank), 大理寺卿
+  (third rank), and 左都御史 (second rank). Redraw Works with a golden-pheasant
+  badge and Dali with a peacock badge, preserving the approved portrait style.
+  The censor retains the appropriate xiezhi badge.
+- Align persona, Chinese labels, README galleries and costume notes; preserve
+  internal IDs, legacy lower-office aliases and distinct original member names.
+
 ## [0.2.5] - 2026-11-05
 
 ### Changed
