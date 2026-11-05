@@ -13,11 +13,35 @@
 
 模式设定取自大明科研司·内阁：首辅（Lead）统摄，阁臣（成员）分曹——翰林院编修主调研、工部尚书主执行、大理寺卿主核验、左都御史主验收；默认只调研不改码，不编造数据来源。
 
-本包含 host 半部 `index.js`（空 `apply`）与浏览器半部 `client.js`（右栏「内阁」面板），面板内嵌五张官职头像与一张无官阶回退头像（128px data URL；源图在 `docs/images/avatars/`，由 `src/build_avatars.py` 缩放生成）；另随包提供可选的 Node.js 回退脚本（`scripts/*.mjs`）。本包**无第三方运行时依赖**，React 等经 DSH 客户端模块表取用，不自带重复依赖或 CDN。
+本包含 host 半部 `index.js`（成员配置与内阁模式提示词）与浏览器半部 `client.js`（右栏「内阁」面板），面板内嵌五张官职头像与一张无官阶回退头像（128px data URL；源图在 `docs/images/avatars/`，由 `src/build_avatars.py` 缩放生成）；另随包提供可选的 Node.js 回退脚本（`scripts/*.mjs`）。本包使用 `@deepseek-ai/schemastery` 作为配置 schema 运行时依赖，React 等经 DSH 客户端模块表取用，不自带重复依赖或 CDN。
 
 它声明**两行**——`preset-cabinet`（一条 `@deepseek-ai/dsh-agent-preset` 声明）与 `cabinet-ui`（载入本包 JavaScript 的 Loader 行）——并复用 DSH **标准模式**（Standard Mode）出厂的 22 行插件清单，因此工具与标准模式一致；与出厂模式的差异是 persona，并另加右栏「内阁」面板。团队工具（`spawn_teammate`、`team_task_*` 等）由 profile 层的 `@deepseek-ai/dsh-experimental-agent-team-profile` 提供，**本 preset 未内置**。
 
 本包声明 **无 DSH 版本硬限制**：没有 `engines.dsh`、没有 DSH `peerDependencies`、安装时不做版本检查。本机在 DSH **0.2.1-rc.3** 实测；其他提供声明式 preset 机制的 DSH 版本可尝试安装，但**未经验证**（见 [DSH 侧限制与说明](#dsh-侧限制与说明)）。
+
+## 内阁成员配置
+
+通过商店安装 bundle 后，打开 **设置 → 内阁成员**。五个官职组分别支持显示名
+（40 字符）、头像和提示词（4000 字符）。内阁卡片与 Owner 标签保留原始成员 ID，
+不会改动任务归属或原生成员列表中的运行时名称。
+
+编辑后点击 **保存**；**取消并重新读取** 丢弃草稿并读取最新配置，离开页面也会
+丢弃未保存修改。保存按加载时的修订号原子写入五员配置；其他页面已修改时会提示
+冲突，须取消重读后再编辑，不会用旧草稿覆盖。配置尚未加载时禁止编辑。
+保存的提示词在下一次提示词装配时生效。
+
+可上传不超过 2 MB 的 PNG/JPEG/WebP；浏览器居中裁成 96×96 PNG，data URL 不超过
+48 KB。保存后头像同时用于内阁面板和原生团队列表。**恢复默认** 将该官职组的
+显示名、头像、提示词恢复出厂状态；**重置全部** 重置五员草稿，二者都须再点保存。
+清空提示词关闭该官职新增的整段；空 custom 文本也保持为空。默认模式启用首辅的
+御下术和四员职责提示。新增提示段只作用于实时绑定 **cabinet** preset 的 Agent，
+其他模式不受影响。本次发布不改变既有静态 persona。
+
+配置隔离边界是 **DSH_HOME/profile** 的 cabinet-ui 命名空间，并非浏览器登录账号。
+连接同一 profile 的浏览器共享设置，该 profile 下的内阁会话共用配置；需要隔离时
+使用独立 profile/DSH_HOME。坏字段按默认值处理。只安装 preset 的回退方法没有成员
+设置页和运行时提示段，请优先使用商店 bundle。
+
 
 ## 团队结构一览
 
@@ -109,7 +133,7 @@ https://raw.githubusercontent.com/luodaoyi/dsh-cabinet-mode/market-index/marketp
 仅在商店不可用或本地开发时使用。先完全退出桌面 DSH，释放 profile 锁，再执行：
 
 ```sh
-dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.2.7/dsh-cabinet-mode-0.2.7.tgz
+dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.3.0/dsh-cabinet-mode-0.3.0.tgz
 dsh plugin --profile desktop list
 ```
 
@@ -120,7 +144,7 @@ dsh plugin --profile desktop list
 若通过插件市场安装：刷新市场，先在**已安装**页卸载旧版本，再从**插件市场**安装新版本，然后重启——没有 tgz URL 要换，也没有一键更新。否则用同一条安装命令换新版本 URL（或在插件页选新 `.tgz`），然后完全退出并重启 DeepSeek Harness：
 
 ```sh
-dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.2.7/dsh-cabinet-mode-0.2.7.tgz
+dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.3.0/dsh-cabinet-mode-0.3.0.tgz
 ```
 
 `dsh plugin --profile desktop list` 应显示新版本。升级已在 Windows 实测：

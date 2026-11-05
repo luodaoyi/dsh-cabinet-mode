@@ -2,6 +2,18 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.3.0] - 2026-11-05
+
+### Added
+
+- Profile-wide Cabinet member settings for display names, portraits and duty prompts.
+- Explicit atomic Save/Cancel with revision checks to prevent stale tabs overwriting settings.
+- Cabinet-only runtime prompt sections. Standard and other presets remain unchanged.
+- Default Lead policy and four office duty prompts; clear disables a block and restore
+  restores its factory default. Runtime identities and task ownership remain unchanged.
+- Settings are shared by browsers connected to the same DSH_HOME/profile, not isolated
+  by browser account. Native roster names remain runtime identities.
+
 ## [0.2.7] - 2026-11-05
 
 ### Fixed

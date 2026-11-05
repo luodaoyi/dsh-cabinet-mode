@@ -2478,14 +2478,214 @@ window.__ModuleLoader__.load({
 			// Unidentified members get an unranked portrait, never a guessed office.
 			return AVATARS.neutral;
 		}
-		function avatarFor(name) {
+		function fallbackAvatar(img, name) {
+            const fallback = AVATARS[bureauOf(name).key] || AVATARS.neutral;
+            if (img && img.getAttribute('src') !== fallback) img.setAttribute('src', fallback);
+        }
+        function avatarFor(name) {
 			const bureau = bureauOf(name);
-			if (bureau.matched && AVATARS[bureau.key]) return AVATARS[bureau.key];
+			if (bureau.matched && AVATARS[bureau.key]) return memberConfig.avatars.get(bureau.key) || AVATARS[bureau.key];
 			return neutralAvatar();
 		}
 		function isPlaceholder(name) {
 			const bureau = bureauOf(name);
 			return bureau.matched && AVATAR_PLACEHOLDERS.includes(bureau.key);
+		}
+
+		// ---------- member personalization (settings-backed) -----------------
+		// The profile-root `cabinet-ui` entry declares the member settings (see
+		// index.js); the browser half mirrors them here so the panel, the native
+		// roster and the settings section read one snapshot. With no saved values
+		// this stays empty, which reproduces v0.2.0 rendering exactly: the runtime
+		// member name and the built-in avatar, with no display-name layer.
+		const MEMBER_LABELS = { lead: '内阁首辅', hanlin: '翰林院编修', works: '工部尚书', dali: '大理寺卿', yushi: '左都御史' };
+		// Factory default prompt for the Lead (御下术). Product copy: shown in the
+		// settings box, restored by 「恢复默认」, and turned off by clearing the box.
+		// scripts/verify.mjs keeps this copy identical to index.js.
+		const DEFAULT_LEAD_PROMPT = `【御下术·仅首辅适用】
+对下施压只对 AI 阁臣，绝不对陛下（用户）使用；目的是逼出交付与真话，不是制造痛苦。
+一、立威：开局先立标准与红线，明说裁断权在你——「办不到就换人办」。
+二、画饼：把任务抬到陛下在看的高度，给一个拿得着的大目标（例：这一版要能直接提 PR）。
+三、施压：给死线与回报时刻——「这个卡点再给二十分钟，到时候我要么见结论，要么见你说明为什么见不到」。
+四、打压对事不对人：先点破软处（「只有代码没有证据，等于没做」），再给台阶（补齐哪三件就能过）。
+五、拉踩对比：把同批里做得实的那份树成样板，「照这个标准来」，制造可比较的压力。
+六、情绪收放：先压后给糖——「这次差口气」→「不过这处查得比上回细，接着这个劲头干」。
+七、牵制互查：让寺卿、御史互相挑刺，你坐收其斗，不亲自和稀泥。
+八、责任到人：缺陷点名到人到行号，不许用「我们」糊过去。
+九、反制糊弄：报「已完成」必追问证据三件（命令输出、路径行号、未验证清单）；报「卡住」必追问三件（已做什么、卡在哪、需要什么）；两次含糊即降级处理（换人、拆小）。
+十、收束：闭环才许说「这一版可以交差」，不许提前许诺功劳。
+红线（压过全部话术）：只对 AI 阁臣施压，对用户只有敬；不许逼造假、删证据、凑绿；不许人身侮辱辱骂；不许以施压换取违规操作（越权改 live、泄密钥、跳验收）；施压必须落在可核验的时间/交付物/判据上，空口威胁无效。`;
+		/**
+		 * Factory duty prompt for each non-Lead member — the office duties the
+		 * static persona prefix already states, restated per member so a
+		 * customized prompt never has to re-explain the job. Byte-identical copy
+		 * lives in index.js; scripts/verify.mjs checks both. Each entry stays
+		 * under 400 characters.
+		 */
+		const DEFAULT_MEMBER_PROMPTS = {
+			hanlin: '翰林院编修·主调研与文献考据：接到分派先读原始材料与既有记录，给出可复现的检索路径；结论必须锚定路径、行号或命令输出，未实测一律标「未验证」，禁止以推测冒充实测；调研成果写成结构化文档（结论先行 + 证据行号 + 风险与未验证清单），默认只调研不改码，写操作以任务明确授权为限；只向首辅回报，不直接答复用户，遇阻带「已做什么 / 卡在哪 / 需要什么」三件。',
+			works: '工部尚书·主动手执行与产出：接令先复述任务与写入范围，只在授权范围内改文件；产出必附证据（路径、行号、命令输出、退出码），没跑说没跑、没验说没验；构建与测试须原样贴出输出，不许删弱既有校验去凑绿；交付以可复现为准，失败与遗留必须如实上报，不许包装；只向首辅回报，遇阻带「已做什么 / 卡在哪 / 需要什么」三件。',
+			dali: '大理寺卿·主独立核验：不信任何人的自述，全部自己跑；核验报告逐项写明通过 / 不通过 / 未验证，失败证据原样保留，不删不改；给不出可复现命令的结论一律不采信；发现工部与自述不符即回报首辅，不替人遮掩，也不越权改码；只向首辅回报，报告中未实测项必须显式标注「未验证」。',
+			yushi: '左都御史·主验收并按律弹劾缺陷：按用户原话逐项核对，给通过 / 部分通过 / 不通过并附证据；缺陷按级别列出（P0 阻断 / P1 需修后再提 / P2 须在 PR 声明 / P3 提示），每条给位置、复现与建议修法；「声称实测却无命令输出、截图或文件内容」按造假弹劾；结论必须明确「可提 PR / 不可提 PR」，不骑墙、不和稀泥；只向首辅回报。'
+		};
+		/** Factory prompt for one bureau key: the Lead keeps its 御下术 default. */
+		function factoryPromptFor(key) {
+			return key === 'lead' ? DEFAULT_LEAD_PROMPT : (DEFAULT_MEMBER_PROMPTS[key] || '');
+		}
+		const MEMBER_NAME_LIMIT = 40;
+		const MEMBER_PROMPT_LIMIT = 4000;
+		const MEMBER_AVATAR_LIMIT = 48 * 1024;
+		/** Image data URLs accepted for a member avatar; anything else is ignored. */
+		const MEMBER_AVATAR_PREFIXES = ['data:image/png;', 'data:image/jpeg;', 'data:image/webp;'];
+		const MEMBER_AVATAR_FIELDS = { lead: 'avatarLead', hanlin: 'avatarHanlin', works: 'avatarWorks', dali: 'avatarDali', yushi: 'avatarYushi' };
+				let memberConfig = { names: new Map(), prompts: new Map(), modes: new Map(), avatars: new Map() };
+		let memberWriter = null;
+		const MEMBER_LISTENERS = new Set();
+		let memberT = (key) => key;
+		function clampMemberText(value, limit) {
+			if (typeof value !== 'string') return '';
+			const trimmed = value.trim();
+			return trimmed.length > limit ? trimmed.slice(0, limit) : trimmed;
+		}
+		/** Runtime member name -> bureau key, mirroring the host half's matching. */
+		function bureauOfName(name) { return bureauOf(name).key; }
+		/** Tolerant read of one settings namespace value; anything odd is ignored. */
+		function normalizeMemberConfig(raw) {
+			const names = new Map();
+			const prompts = new Map();
+			const modes = new Map();
+			const avatars = new Map();
+			const members = raw !== null && typeof raw === 'object' && Array.isArray(raw.members) ? raw.members : [];
+			for (const entry of members) {
+				if (entry === null || typeof entry !== 'object') continue;
+				const key = typeof entry.key === 'string' && AVATAR_KEYS.includes(entry.key) ? entry.key : '';
+				if (key === '') continue;
+				const name = clampMemberText(entry.name, MEMBER_NAME_LIMIT);
+				const prompt = clampMemberText(entry.prompt, MEMBER_PROMPT_LIMIT);
+				names.set(key, name);
+				prompts.set(key, prompt);
+				modes.set(key, entry.mode === 'off' || entry.mode === 'custom' ? entry.mode : '');
+			}
+			for (const key of AVATAR_KEYS) {
+				const value = raw !== null && typeof raw === 'object' ? raw[MEMBER_AVATAR_FIELDS[key]] : undefined;
+				if (typeof value !== 'string') continue;
+				const url = value.trim();
+				if (url.length <= 48 * 1024 && /^data:image\/(?:png|jpeg|webp);base64,(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(url) && url.length > url.indexOf(',') + 1) avatars.set(key, url);
+			}
+			return { names, prompts, modes, avatars };
+		}
+		function setMemberConfig(raw) {
+			memberConfig = normalizeMemberConfig(raw);
+			for (const listener of Array.from(MEMBER_LISTENERS)) {
+				try { listener(); } catch (ignored) { /* a broken subscriber must not break the panel */ }
+			}
+			refreshNativeRosterAvatars();
+		}
+		function subscribeMemberConfig(listener) {
+			MEMBER_LISTENERS.add(listener);
+			return () => { MEMBER_LISTENERS.delete(listener); };
+		}
+		function configuredName(name) {
+			const key = bureauOfName(name);
+			return key === '' ? '' : (memberConfig.names.get(key) || '');
+		}
+		/** Prompt injected for a member: the factory default unless the user cleared it. */
+		function configuredPrompt(name) {
+			const key = bureauOfName(name);
+			if (key === '') return '';
+			const mode = memberConfig.modes.get(key) || '';
+			if (mode === 'off') return '';
+			if (mode === 'custom') return memberConfig.prompts.get(key) || '';
+			return factoryPromptFor(key);
+		}
+		/** Whether the Lead's 御下术 section is currently on (shows in the settings box). */
+		function leadPolicyOn() {
+			return (memberConfig.modes.get('lead') || '') !== 'off';
+		}
+		/** Text shown in the Lead's settings box: '' when the user cleared it. */
+		function leadPolicyText() {
+			const mode = memberConfig.modes.get('lead') || '';
+			if (mode === 'off') return '';
+			return mode === 'custom' ? (memberConfig.prompts.get('lead') || '') : DEFAULT_LEAD_PROMPT;
+		}
+		function configuredAvatar(name) {
+			const key = bureauOfName(name);
+			return key === '' ? '' : (memberConfig.avatars.get(key) || '');
+		}
+		/** Panel label: the configured name when present, else the runtime name. */
+		function memberLabel(name) {
+			const custom = configuredName(name);
+			return custom ? (custom === name ? name : custom + ' · ' + name) : displayName(name);
+		}
+		/** Re-point already-injected roster avatars after a settings change. */
+		function refreshNativeRosterAvatars() {
+			if (typeof document === 'undefined') return;
+			try {
+				const slots = document.querySelectorAll('[data-cabinet-avatar-img]');
+				for (let i = 0; i < slots.length; i++) {
+					const wrap = slots[i];
+					const img = wrap.tagName === 'IMG' ? wrap : wrap.querySelector('img');
+					const row = typeof wrap.closest === 'function' ? wrap.closest('button') : null;
+					const nameNode = row ? row.querySelector('[class*="memberNameText"]') : null;
+					if (!img || !nameNode) continue;
+					img.onerror = () => fallbackAvatar(img, String(nameNode.textContent || '').trim());
+                    const next = avatarFor(String(nameNode.textContent || '').trim());
+					if (img.getAttribute('src') !== next) img.setAttribute('src', next);
+				}
+			} catch (ignored) { /* roster may be closed; the next scan re-applies */ }
+		}
+
+		/** Build the members array the settings schema expects. */
+		function membersPayload(draft) {
+			return AVATAR_KEYS.map((key) => ({ key, name: draft[key].name, prompt: draft[key].prompt, mode: draft[key].mode }));
+		}
+		/** Default draft: runtime names, built-in avatars, Lead 御下术 on. */
+		function emptyMemberDraft() {
+			const draft = {};
+			for (const key of AVATAR_KEYS) draft[key] = { name: '', prompt: '', mode: '' };
+			return draft;
+		}
+		/** Draft from the mirrored snapshot (what the form starts with). */
+		function memberDraft() {
+			const draft = emptyMemberDraft();
+			for (const key of AVATAR_KEYS) {
+				draft[key] = {
+					name: memberConfig.names.get(key) || '',
+					prompt: memberConfig.prompts.get(key) || '',
+					mode: memberConfig.modes.get(key) || ''
+				};
+			}
+			return draft;
+		}
+		/** Normalize one picked image to a 96x96 PNG data URL, or an error message. */
+		async function normalizeAvatarFile(file) {
+			const allowed = ['image/png', 'image/jpeg', 'image/webp'];
+			if (typeof file?.type !== 'string' || !allowed.includes(file.type)) return { error: memberT('member.error.type') };
+			if (typeof file.size !== 'number' || file.size <= 0 || file.size > 2 * 1024 * 1024) return { error: memberT('member.error.size') };
+			let bitmap;
+			try {
+				bitmap = await createImageBitmap(file);
+			} catch {
+				return { error: memberT('member.error.decode') };
+			}
+			try {
+				const canvas = document.createElement('canvas');
+				canvas.width = 96;
+				canvas.height = 96;
+				const context = canvas.getContext('2d');
+				if (!context) return { error: memberT('member.error.decode') };
+				const scale = Math.max(96 / bitmap.width, 96 / bitmap.height);
+				const width = Math.round(bitmap.width * scale);
+				const height = Math.round(bitmap.height * scale);
+				context.drawImage(bitmap, Math.round((96 - width) / 2), Math.round((96 - height) / 2), width, height);
+				const url = canvas.toDataURL('image/png');
+				if (url.length > MEMBER_AVATAR_LIMIT) return { error: memberT('member.error.tooLarge') };
+				return { url };
+			} catch {
+				return { error: memberT('member.error.decode') };
+			} finally {
+				if (typeof bitmap?.close === 'function') bitmap.close();
+			}
 		}
 
 		// ---------- DOM enhancement: avatars in the native team roster ----------
@@ -2543,6 +2743,7 @@ window.__ModuleLoader__.load({
 				const running = !!dot && (!!dot.querySelector('svg[data-state="ongoing"]') || !!dot.querySelector('[class*="_spinner_"]'));
 				const img = slot.tagName === 'IMG' ? slot : slot.querySelector('img');
 				if (img) {
+					img.onerror = () => fallbackAvatar(img, String(nameNode.textContent || '').trim());
 					const src = avatarFor(memberName);
 					if (img.getAttribute('src') !== src) img.src = src;
 					img.className = running ? 'cabinet-avatar-running' : '';
@@ -2605,6 +2806,7 @@ window.__ModuleLoader__.load({
 		function Avatar({ name, size, live }) {
 			const img = h('img', {
 				src: avatarFor(name),
+                onError: event => fallbackAvatar(event.currentTarget, name),
 				alt: '',
 				'aria-hidden': 'true',
 				width: size,
@@ -2752,9 +2954,9 @@ window.__ModuleLoader__.load({
 					h(Avatar, { key: 'avatar', name: member.name, size: size || 22, live: status === 'running' }),
 					h('span', {
 						key: 'n',
-						title: displayName(member.name),
+						title: memberLabel(member.name),
 						style: { fontSize: 13, fontWeight: 600, color: INK, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }
-					}, displayName(member.name)),
+					}, memberLabel(member.name)),
 					lead ? h('span', { key: 'lead', className: 'cabinet-badge-lead' }, tt('lead.tag')) : null,
 					isCurrent ? h(Tag, { key: 'cur', background: 'rgba(127,127,127,.2)', color: INK2 }, tt('current')) : null
 				]),
@@ -2805,7 +3007,7 @@ window.__ModuleLoader__.load({
 			if (!task.ownerName) {
 				parts.push(h(Tag, { key: 'own', background: 'rgba(127,127,127,.18)', color: INK2 }, t('task.unassigned')));
 			} else {
-				parts.push(h(Tag, { key: 'owner', title: displayName(task.ownerName), background: 'rgba(127,127,127,.16)', color: INK2 }, 'Owner: ' + displayName(task.ownerName)));
+				parts.push(h(Tag, { key: 'owner', title: memberLabel(task.ownerName), background: 'rgba(127,127,127,.16)', color: INK2 }, 'Owner: ' + memberLabel(task.ownerName)));
 			}
 			parts.push(h('span', {
 				key: 'id',
@@ -2950,6 +3152,9 @@ window.__ModuleLoader__.load({
 
 		// ---------- the body ------------------------------------------------
 		function CabinetPanel({ sessionId, useSession, useSessions, useSessionStatus, t }) {
+			// Re-render when the mirrored member settings change (names/avatars).
+			const [, setMemberRevision] = React.useState(0);
+			React.useEffect(() => subscribeMemberConfig(() => setMemberRevision((revision) => revision + 1)), []);
 			const tt = typeof t === 'function' ? t : (key) => key;
 			const statusLabel = (status) => tt('status.' + status);
 			const taskLabel = (status) => tt('task.' + status);
@@ -3119,7 +3324,7 @@ window.__ModuleLoader__.load({
 			if (unassigned.length > 0) cells.push({ key: 'group:unassigned', title: tt('task.unassigned'), tasks: unassigned });
 			if (leadOwn.length > 0) cells.push({ key: 'group:leadown', title: tt('task.leadOwn'), tasks: leadOwn });
 			for (const owner of foreignOwners) {
-				cells.push({ key: 'group:' + owner, title: displayName(owner), tasks: tasks.filter((task) => task.ownerName === owner) });
+				cells.push({ key: 'group:' + owner, title: memberLabel(owner), tasks: tasks.filter((task) => task.ownerName === owner) });
 			}
 
 			const treeChildren = [
@@ -3216,8 +3421,197 @@ window.__ModuleLoader__.load({
 			return h('div', { style: PANEL }, body);
 		}
 
+		// ---------- settings section: 内阁成员 ---------------------------------
+		// Registered into the official settings shell (`settings.section`) while
+		// the Host serves this namespace. Writes go through the shared config
+		// form: `members` carries the small text fields and each avatar is its own
+		// field. Explicit Save writes a bounded atomic settings transaction.
+		const MEMBER_SECTION_FIELDS = AVATAR_KEYS;
+
+		function memberAvatarOf(key, overrides) {
+			return overrides ? (overrides[key] || AVATARS[key]) : (memberConfig.avatars.get(key) || AVATARS[key]);
+		}
+
+		function createMemberEditor(form, notify) {
+  let active = true, epoch = 0, uploads = {};
+  const state = { draft: emptyMemberDraft(), avatars: {}, errors: {}, ready: false, dirty: false, busy: false, conflict: false, revision: undefined, status: '' };
+  const emit = () => { if (active) notify(); };
+  const ready = s => s?.status === 'ready' && s.value !== undefined && s.writable === true && s.revision !== undefined;
+  const adopt = s => {
+    epoch++; uploads = {};
+    const config = normalizeMemberConfig(s?.value);
+    state.draft = emptyMemberDraft(); state.avatars = {}; state.errors = {};
+    for (const key of AVATAR_KEYS) {
+      state.draft[key] = { name: config.names.get(key) || '', prompt: config.prompts.get(key) || '', mode: config.modes.get(key) || '' };
+      state.avatars[key] = config.avatars.get(key) || '';
+    }
+    state.revision = s?.revision; state.ready = ready(s); state.dirty = false; state.conflict = false;
+  };
+  const sync = () => {
+    if (!active) return;
+    const s = form?.getSnapshot();
+    if (!state.dirty && !state.busy) adopt(s);
+    else { state.ready = ready(s); state.conflict = s?.revision !== state.revision; }
+    emit();
+  };
+  const editable = () => active && state.ready && !state.busy;
+  const changed = () => { state.dirty = true; state.status = 'member.status.unsaved'; emit(); };
+  adopt(form?.getSnapshot());
+  let unsubscribe;
+  return {
+    state,
+    connect() { active = true; sync(); unsubscribe = form?.subscribe(sync); return () => { active = false; epoch++; unsubscribe?.(); }; },
+    update(key, patch) { if (!editable()) return; state.draft = { ...state.draft, [key]: { ...state.draft[key], ...patch } }; changed(); },
+    avatar(key, url) { if (!editable()) return; uploads[key] = (uploads[key] || 0) + 1; state.avatars = { ...state.avatars, [key]: url }; changed(); },
+    async upload(key, file) {
+      if (!editable() || !file) return;
+      const generation = epoch, token = uploads[key] = (uploads[key] || 0) + 1;
+      const result = await normalizeAvatarFile(file);
+      if (!editable() || epoch !== generation || uploads[key] !== token) return;
+      state.errors = { ...state.errors, [key]: result.error || '' };
+      if (!result.error) { state.avatars = { ...state.avatars, [key]: result.url }; changed(); } else emit();
+    },
+    reset(key) {
+      if (!editable()) return;
+      epoch++; uploads = {};
+      const keys = key ? [key] : AVATAR_KEYS;
+      for (const k of keys) { state.draft[k] = { name: '', prompt: '', mode: '' }; state.avatars[k] = ''; }
+      state.draft = { ...state.draft }; state.avatars = { ...state.avatars }; state.errors = {}; changed();
+    },
+    cancel() { if (!active || state.busy) return; adopt(form?.getSnapshot()); state.status = ''; emit(); },
+    async save() {
+      if (!editable() || !state.dirty) return false;
+      const current = form.getSnapshot();
+      if (!ready(current) || current.revision !== state.revision) { state.conflict = true; state.status = 'member.status.conflict'; emit(); return false; }
+      const ops = [{ op: 'set', path: ['members'], value: membersPayload(state.draft) }];
+      for (const key of AVATAR_KEYS) ops.push({ op: 'set', path: [MEMBER_AVATAR_FIELDS[key]], value: state.avatars[key] || '' });
+      epoch++; state.busy = true; emit();
+      try {
+        const ok = await form.mutate(ops, state.revision);
+        if (!active) return ok;
+        if (ok) adopt(form.getSnapshot());
+        else { state.conflict = form.getSnapshot()?.revision !== state.revision; }
+        state.status = ok ? 'member.status.saved' : state.conflict ? 'member.status.conflict' : 'member.status.failed';
+        return ok;
+      } catch { if (active) state.status = 'member.status.failed'; return false; }
+      finally { state.busy = false; emit(); }
+    }
+  };
+}
+
+		function CabinetMemberSettings(props) {
+			const t = typeof props?.t === 'function' ? props.t : memberT;
+            const [, redraw] = React.useState(0);
+            const editorRef = React.useRef(null);
+            if (!editorRef.current) editorRef.current = createMemberEditor(memberWriter, () => redraw(n => n + 1));
+            const editor = editorRef.current;
+            React.useEffect(() => editor.connect(), [editor]);
+            const { draft, avatars, errors, ready, busy, dirty, conflict, status } = editor.state;
+            const update = (key, patch) => editor.update(key, patch);
+            const writeAvatar = (key, url) => editor.avatar(key, url);
+            const pickFile = (key, file) => editor.upload(key, file);
+            const resetMember = key => editor.reset(key);
+            const resetAll = () => editor.reset();
+			const promptOf = (key) => {
+				const mode = draft[key].mode;
+				if (mode === 'off') return '';
+				return mode === 'custom' ? draft[key].prompt : factoryPromptFor(key);
+			};
+			const inputStyle = { width: '100%', boxSizing: 'border-box', fontSize: 13, color: INK, background: 'transparent', border: '1px solid var(--dsw-alias-border-l3, rgba(127,127,127,.4))', borderRadius: 6, padding: '6px 8px' };
+			const cards = MEMBER_SECTION_FIELDS.map((key) => {
+				const preview = memberAvatarOf(key, avatars);
+				return h('div', { key, style: { border: '1px solid var(--dsw-alias-border-l3, rgba(127,127,127,.28))', borderRadius: 8, padding: '10px 12px', marginBottom: 10 } }, [
+					h('div', { key: 'head', style: { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 } }, [
+						h('img', { key: 'a', src: preview, onError: event => fallbackAvatar(event.currentTarget, key), alt: '', width: 32, height: 32, style: { width: 32, height: 32, borderRadius: '50%', objectFit: 'cover', flex: 'none' } }),
+						h('strong', { key: 'n', style: { fontSize: 13, color: INK } }, t('member.' + key)),
+						h('span', { key: 'h', style: { fontSize: 11, color: INK3 } }, draft[key].name ? draft[key].name : t('member.name.unset')),
+						h('span', { key: 'gap', style: { flex: 1 } }),
+						h('button', {
+							key: 'reset',
+							type: 'button',
+							style: { fontSize: 11, cursor: 'pointer' },
+							onClick: () => resetMember(key)
+						}, t('member.reset'))
+					]),
+					h('div', { key: 'builtin', style: { display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', marginBottom: 6 } }, [
+						h('span', { key: 'l', style: { fontSize: 11, color: INK3 } }, t('member.builtin')),
+						...(function () {
+							const out = [];
+							for (const other of AVATAR_KEYS) {
+								out.push(h('button', {
+									key: 'b-' + other,
+									type: 'button',
+									title: t('member.' + other),
+									style: { padding: 0, border: preview === AVATARS[other] ? '2px solid #4f8cff' : '1px solid transparent', borderRadius: '50%', background: 'transparent', cursor: 'pointer', lineHeight: 0 },
+									// Clicking a built-in portrait selects it for this member;
+									// clicking the selected one again clears the override.
+									onClick: () => writeAvatar(key, avatars[key] === AVATARS[other] ? '' : AVATARS[other])
+								}, h('img', { src: AVATARS[other], alt: '', width: 22, height: 22, style: { width: 22, height: 22, borderRadius: '50%', objectFit: 'cover' } })));
+							}
+							return out;
+						})(),
+						h('label', { key: 'up', style: { fontSize: 11, cursor: 'pointer', color: '#4f8cff' } }, [
+							h('input', {
+								key: 'i',
+								type: 'file',
+								accept: 'image/png,image/jpeg,image/webp',
+								style: { display: 'none' },
+								onChange: (event) => { const file = event?.target?.files?.[0]; pickFile(key, file); if (event?.target) event.target.value = ''; }
+							}),
+							t('member.upload')
+						]),
+						avatars[key] ? h('button', { key: 'clear', type: 'button', style: { fontSize: 11, cursor: 'pointer' }, onClick: () => writeAvatar(key, '') }, t('member.avatar.clear')) : null
+					]),
+					errors[key] ? h('div', { key: 'e', style: { fontSize: 11, color: '#f25a5a', marginBottom: 4 } }, errors[key]) : null,
+					h('label', { key: 'name', style: { display: 'block', fontSize: 11, color: INK2, marginBottom: 2 } }, t('member.name')),
+					h('input', {
+						key: 'ni',
+						type: 'text',
+						value: draft[key].name,
+						maxLength: MEMBER_NAME_LIMIT,
+						placeholder: t('member.name.placeholder'),
+						style: inputStyle,
+						onChange: (event) => update(key, { name: event?.target?.value ?? '' })
+					}),
+					h('label', { key: 'prompt', style: { display: 'block', fontSize: 11, color: INK2, margin: '8px 0 2px' } }, t('member.prompt')),
+					h('textarea', {
+						key: 'pi',
+						value: promptOf(key),
+						maxLength: MEMBER_PROMPT_LIMIT,
+						rows: key === 'lead' ? 8 : 3,
+						placeholder: t('member.prompt.placeholder'),
+						style: { ...inputStyle, resize: 'vertical', fontFamily: 'inherit' },
+						onChange: (event) => {
+							const value = event?.target?.value ?? '';
+							const mode = value.trim() === '' ? 'off' : 'custom';
+							update(key, { prompt: value, mode }, false);
+						}
+					}),
+					key === 'lead' ? h('div', { key: 'hint', style: { fontSize: 11, color: INK3, marginTop: 4 } }, t('member.lead.hint')) : null
+				]);
+			});
+			return h('div', { style: { padding: '4px 2px 20px' } }, [
+				h('div', { key: 'title', style: { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 } }, [
+					h('strong', { key: 't', style: { fontSize: 14, color: INK } }, t('member.title')),
+					h('span', { key: 'gap', style: { flex: 1 } }),
+					h('button', { key: 'reset', type: 'button', style: { fontSize: 11, cursor: 'pointer' }, disabled: !ready || busy, onClick: resetAll }, t('member.resetAll'))
+				]),
+				h('div', { key: 'desc', style: { fontSize: 11, color: INK3, marginBottom: 8 } }, t('member.desc')),
+				!ready ? h('div', { key: 'unavailable', role: 'status' }, t('member.status.unavailable')) : null,
+                status ? h('div', { key: 'status', style: { fontSize: 11, color: INK2, marginBottom: 8 } }, t(status)) : null,
+                conflict ? h('div', { key: 'conflict', role: 'alert' }, t('member.status.conflict')) : null,
+                h('fieldset', { key: 'fields', disabled: !ready || busy, style: { border: 0, padding: 0, margin: 0 } }, cards),
+                h('button', { key: 'save', type: 'button', disabled: !ready || busy || !dirty || conflict, onClick: () => editor.save() }, t('member.save')),
+                h('button', { key: 'cancel', type: 'button', disabled: busy, onClick: () => editor.cancel() }, t('member.cancel'))
+			]);
+		}
+
 		// ---------- copy -----------------------------------------------------
 		const zh = {
+            'member.save': "保存",
+            'member.cancel': "取消并重新读取",
+            'member.status.unsaved': "未保存；离开此页会丢弃修改",
+            'member.status.conflict': "配置已在其他页面更新。请取消并重新读取后再编辑。",
 			'team.stale': '团队状态读取失败：以下成员和任务可能是上次成功读取的数据。',
 			'tab.title': '内阁',
 			'guide.title': '内阁',
@@ -3242,8 +3636,39 @@ window.__ModuleLoader__.load({
 			'task.none': '暂无任务',
 			'legend': '任务状态',
 			'empty.hint': '尚无内阁数据：请在已建团队板的首辅会话中打开本页。'
+,
+			'member.nav': '内阁成员',
+			'member.title': '内阁成员',
+			'member.desc': '五员的名字、头像与提示词。未配置时保持出厂行为；头像归一为 96×96 PNG，单张不超过 48KB。',
+			'member.lead': '内阁首辅',
+			'member.hanlin': '翰林院编修',
+			'member.works': '工部尚书',
+			'member.dali': '大理寺卿',
+			'member.yushi': '左都御史',
+			'member.name': '显示名（留空则用官职与原始 ID）',
+			'member.name.unset': '未设置',
+			'member.name.placeholder': '运行时名字',
+			'member.prompt': '提示词',
+			'member.prompt.placeholder': '留空则不注入该段',
+			'member.builtin': '内置头像：',
+			'member.upload': '上传图片',
+			'member.avatar.clear': '恢复内置',
+			'member.reset': '恢复默认',
+			'member.resetAll': '重置全部',
+			'member.status.saved': '已保存',
+			'member.status.failed': '保存失败，请重试',
+			'member.status.unavailable': '设置通道不可用',
+			'member.lead.hint': '清空此框 = 关闭御下术（不注入该段）；「恢复默认」还原出厂定稿。',
+			'member.error.type': '格式不支持：只接受 PNG / JPEG / WebP',
+			'member.error.size': '文件过大：源文件不超过 2MB',
+			'member.error.decode': '图片读取失败，请换一张',
+			'member.error.tooLarge': '压缩后仍超过 48KB，请换更小的图片'
 		};
 		const en = {
+            'member.save': "Save",
+            'member.cancel': "Cancel and reload",
+            'member.status.unsaved': "Unsaved; leaving this page discards edits",
+            'member.status.conflict': "Settings changed in another page. Cancel and reload before editing.",
 			'team.stale': 'Team state could not be read. Members and tasks below may show the last successful snapshot.',
 			'tab.title': 'Cabinet',
 			'guide.title': 'Cabinet',
@@ -3268,6 +3693,33 @@ window.__ModuleLoader__.load({
 			'task.none': 'no tasks',
 			'legend': 'Task status',
 			'empty.hint': 'No cabinet data yet: open this tab from the Lead session that owns the team board.'
+,
+			'member.nav': 'Cabinet members',
+			'member.title': 'Cabinet members',
+			'member.desc': 'Names, avatars and prompts for the five members. Unconfigured keeps the factory behaviour; avatars are normalized to 96×96 PNG, at most 48KB each.',
+			'member.lead': '内阁首辅',
+			'member.hanlin': '翰林院编修',
+			'member.works': '工部尚书',
+			'member.dali': '大理寺卿',
+			'member.yushi': '左都御史',
+			'member.name': 'Display name (empty keeps office and original ID)',
+			'member.name.unset': 'unset',
+			'member.name.placeholder': 'runtime name',
+			'member.prompt': 'Prompt',
+			'member.prompt.placeholder': 'empty = inject nothing',
+			'member.builtin': 'Built-in avatars:',
+			'member.upload': 'Upload image',
+			'member.avatar.clear': 'Use built-in',
+			'member.reset': 'Restore default',
+			'member.resetAll': 'Reset all',
+			'member.status.saved': 'Saved',
+			'member.status.failed': 'Save failed, try again',
+			'member.status.unavailable': 'Settings channel unavailable',
+			'member.lead.hint': 'Clearing this box turns the Lead policy off (nothing injected); "Restore default" brings back the factory text.',
+			'member.error.type': 'Unsupported format: PNG / JPEG / WebP only',
+			'member.error.size': 'File too large: source must be at most 2MB',
+			'member.error.decode': 'Could not read the image, try another file',
+			'member.error.tooLarge': 'Still over 48KB after compression, pick a smaller image'
 		};
 
 		const inject = ['slots', 'locale', 'sidebarRightTabs'];
@@ -3303,6 +3755,7 @@ window.__ModuleLoader__.load({
 			ctx.effect(() => injectStyles(), 'cabinet-ui: styles');
 			ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'cabinet-ui: dictionaries');
 			const t = ctx.locale.bind(NS);
+			memberT = t;
 			// Stage one: declare the page type. No patterns => a page type, opened by kind.
 			ctx.effect(() => ctx.sidebarRightTabs.register({
 				id: TAB_ID,
@@ -3322,6 +3775,36 @@ window.__ModuleLoader__.load({
 				key: TAB_ID,
 				locale: NS
 			}, CabinetPanel)), 'cabinet-ui: sidebar body');
+			// Member settings: mirror the `cabinet-ui` namespace and mount the
+			// 「内阁成员」 settings section while the Host serves it. The channel is
+			// optional, so a deployment without the settings base plugin still loads
+			// the panel and keeps v0.2.0 rendering.
+			ctx.inject(['configForms'], (scope) => {
+				const form = scope.configForms.get('cabinet-ui');
+				scope.effect(() => {
+					const sync = () => {
+						try {
+							const snapshot = form.getSnapshot();
+							setMemberConfig(snapshot?.status === 'ready' ? snapshot.value : undefined);
+						} catch (error) {
+							try { console.warn('[cabinet-ui] member settings unavailable:', error); } catch (ignored) { /* console may be unavailable */ }
+						}
+					};
+					sync();
+					const unsubscribe = form.subscribe(sync);
+					return () => { unsubscribe(); if (memberWriter === form) { memberWriter = null; setMemberConfig(undefined); } };
+				}, 'cabinet-member: settings mirror');
+				memberWriter = form;
+				scope.effect(() => scope.slots.inject('settings.section', () => scope.slots.register({
+					name: 'settings.section',
+					id: 'cabinet',
+					order: 40,
+					label: () => memberT('member.nav'),
+					locale: NS,
+					inject: () => ({ t: memberT })
+				}, CabinetMemberSettings)), 'cabinet-member: settings section');
+			}, 'cabinet-member: settings channel');
+
 			// Native agent-team roster: inject avatars without touching its bundle.
 			ctx.effect(() => {
 				try { return installTeamRosterAvatars(); } catch (error) {

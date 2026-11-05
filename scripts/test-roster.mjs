@@ -37,7 +37,7 @@ const timers=new Map(); let serial=0;
 const flush=()=>{const callbacks=[...timers.values()];timers.clear();callbacks.forEach(f=>f());};
 let client;
 const source=readFileSync(new URL('../client.js',import.meta.url),'utf8');
-runInNewContext(source.replace('return { inject, apply };','return { installTeamRosterAvatars, avatarFor, BUREAUX, AVATARS };'),{
+runInNewContext(source.replace('return { inject, apply };','return { installTeamRosterAvatars, setMemberConfig, avatarFor, BUREAUX, AVATARS };'),{
   window:{__ModuleLoader__:{load:({factory})=>{client=factory(()=>({createElement(){}}));}}},
   document:doc,MutationObserver:Observer,console,
   setTimeout:fn=>{timers.set(++serial,fn);return serial;},clearTimeout:id=>timers.delete(id),
@@ -57,6 +57,11 @@ assert.ok(!observer.options.attributes,'injected attributes must not create obse
 for(const [i,r] of rows.entries()) {
   assert.equal(r.button.querySelector('img').src,client.avatarFor(names[i]),names[i]);
   assert.equal(r.label.textContent,names[i],'native identity must stay unchanged');
+}
+for (const bureau of client.BUREAUX) {
+  client.setMemberConfig({['avatar'+bureau.key[0].toUpperCase()+bureau.key.slice(1)]:client.avatarFor('works')});
+  for (const [i,r] of rows.entries()) assert.equal(r.button.querySelector('img').src,client.avatarFor(names[i]));
+  client.setMemberConfig({});
 }
 const reused=rows[0],originalSlot=reused.button.querySelector('[data-cabinet-avatar-img]');
 for(const [name,type] of [['dalisi-pingshi','characterData'],['jiancha-yushi','childList'],['unknown-person','characterData']]) {

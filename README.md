@@ -16,12 +16,11 @@ a research-team preset modeled on the Great Ming Research Bureau cabinet
 (大明科研司·内阁): a Lead (内阁首辅) directs members (阁臣) of four bureaus, defaults
 to research before touching code, and must never fabricate sources.
 
-The package ships a host half (`index.js`, an empty `apply`) and a browser half
+The package ships a host half (`index.js`, the member schema and Cabinet-only prompt provider) and a browser half
 (`client.js`, the right-Sidebar **Cabinet** panel) with five role portraits and an unranked fallback portrait
 embedded as 128px data URLs (square sources in `docs/images/avatars/`,
 downscaled by `src/build_avatars.py`); it also keeps the optional Node.js
-fallback scripts (`scripts/*.mjs`). It has **no third-party runtime
-dependencies** — React and friends come from the DSH client module table, with no
+fallback scripts (`scripts/*.mjs`). It uses `@deepseek-ai/schemastery` for the host settings schema. React and friends come from the DSH client module table, with no
 bundled duplicate and no CDN.
 
 It declares **two rows** — `preset-cabinet` (one `@deepseek-ai/dsh-agent-preset`
@@ -37,6 +36,35 @@ This bundle declares **no hard DSH version gate**: no `engines.dsh`, no DSH
 `peerDependencies`, no install-time version check. It was tested on DSH
 **0.2.1-rc.3**; other DSH versions that provide the declarative preset mechanism
 may work, but are **not verified** (see [DSH-side constraints](#dsh-side-constraints)).
+
+## Cabinet member settings
+
+After a bundle install, open **Settings → Cabinet members (内阁成员)**. The five
+office groups have a display name (40 characters), portrait and prompt (4000
+characters). Names remain accompanied by the original member ID in Cabinet cards
+and Owner labels. Task ownership and native roster names never change.
+
+Edit, then click **Save**. **Cancel and reload** discards edits and reads the latest
+saved values; leaving the page discards unsaved edits. Save writes all five members
+atomically using the revision that was loaded. If another page changes settings,
+cancel/reload before editing again; a stale draft cannot overwrite it. Editing is
+disabled until settings have loaded. Changes apply to the next prompt assembly.
+
+Upload PNG/JPEG/WebP up to 2 MB; the browser crops it to a 96×96 PNG (at most
+48 KB data URL). Saved portraits apply to Cabinet cards and native team avatars.
+Restore default resets that office's name, portrait and factory prompt; Reset all
+resets all five in the draft. Both require Save. Clearing a prompt disables that
+office's added block; an empty custom prompt also stays empty. Factory mode restores
+the Lead's 御下术 and the four office duty prompts. These extra sections apply only
+to agents actually composed with the **cabinet** preset; other modes are unchanged.
+The existing static persona is unchanged in this release.
+
+Settings live in the **DSH_HOME/profile** configuration (the cabinet-ui namespace),
+not a browser account. Browsers connected to the same profile share settings and
+all Cabinet sessions in it use them; use separate profiles/DSH_HOME for isolation.
+Invalid fields fall back to defaults. The preset-only fallback installation does
+not install this settings UI or runtime prompt section; use the market bundle.
+
 
 ## The cabinet at a glance
 
@@ -156,7 +184,7 @@ On failure, show the exact error. For $.format must be 1, replace the webpage so
 Use this only when the market is unavailable or for local development. Fully quit desktop DSH first to release the profile lock, then install the release bundle:
 
 ```sh
-dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.2.7/dsh-cabinet-mode-0.2.7.tgz
+dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.3.0/dsh-cabinet-mode-0.3.0.tgz
 dsh plugin --profile desktop list
 ```
 
@@ -171,7 +199,7 @@ the same install command with the new version URL (or pick the new `.tgz` in the
 plugin page), then fully quit and restart DeepSeek Harness:
 
 ```sh
-dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.2.7/dsh-cabinet-mode-0.2.7.tgz
+dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.3.0/dsh-cabinet-mode-0.3.0.tgz
 ```
 
 `dsh plugin --profile desktop list` should report the new version. Upgrades were
@@ -217,7 +245,7 @@ on DSH 0.2.1-rc.5.
 | Method | Windows | Linux | macOS | Notes |
 |---|---|---|---|---|
 | **Plugin market** (index source): see [Install from the plugin market](#install-from-the-plugin-market-recommended) | ✅ **Windows rc.5 web client install verified** (isolated profile, 2026-11-05) | ❌ **not tested** | ❌ **not tested** | Same npm bundle install through DSH's plugin market; the npm publish and the `market-index` branch now exist. |
-| **A. DSH plugin manager** (fallback): plugin page "Add plugin -> local directory/package", or `dsh plugin --profile <profile> add <absolute path / .tgz / release URL>` | ✅ tested locally on 2026-10-29: local-directory install **and GitHub Release asset URL install**; `dsh plugin --profile desktop list` = 3 packages; composition check passed | ⚙️ code-level inference, **not tested on this machine** | ⚙️ code-level inference, **not tested on this machine** | Pure YAML bundle: no build, no dependencies, no OS-specific code. See [docs/cross-platform.md](docs/cross-platform.md). |
+| **A. DSH plugin manager** (fallback): plugin page "Add plugin -> local directory/package", or `dsh plugin --profile <profile> add <absolute path / .tgz / release URL>` | ✅ tested locally on 2026-10-29: local-directory install **and GitHub Release asset URL install**; `dsh plugin --profile desktop list` = 3 packages; composition check passed | ⚙️ code-level inference, **not tested on this machine** | ⚙️ code-level inference, **not tested on this machine** | Declarative preset plus host/browser JavaScript: no build step. See [docs/cross-platform.md](docs/cross-platform.md). |
 | **B. Fallback node scripts** (no plugin manager): `node scripts/install.mjs --profile <profile>` then `--apply`; writes the profile `cordis.patch.yml` | ✅ scripts tested on Windows (dry-run + temp copies) | ⚙️ code-level inference, **not tested** | ⚙️ code-level inference, **not tested** | Same file layout on all platforms: `<DSH_HOME>/profiles/<profile>/cordis.patch.yml`. |
 
 **Method A and Method B are mutually exclusive.** Both create the preset

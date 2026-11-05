@@ -29,7 +29,7 @@
 
 import { existsSync, readFileSync, readdirSync, mkdtempSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
@@ -102,9 +102,9 @@ if (pkg) {
   if (Array.isArray(pkg.files) && !pkg.files.includes('icon.svg')) problems.push('files does not include icon.svg');
   if (!/>=?\s*20/.test(String(pkg.engines?.node ?? ''))) problems.push('engines.node is not >=20');
   if (pkg.dsh?.bundle?.patch !== './cordis.patch.yml') problems.push('dsh.bundle.patch is not ./cordis.patch.yml');
-  if (Object.keys(pkg.dependencies ?? {}).length > 0) problems.push('runtime dependencies are not empty');
+  if (!pkg.dependencies?.['@deepseek-ai/schemastery']) problems.push('missing runtime schema dependency');
   if (pkg.main || pkg.types) problems.push('main/types entry present; the browser half must ship through exports."./client" + dsh.client, not a main/types entry');
-  if (problems.length === 0) ok('package.json fields (npm + DSH bundle, no runtime deps, no main/types entry; exports + dsh.client allowed)');
+  if (problems.length === 0) ok('package.json fields (npm + DSH bundle, declared schema dependency, no main/types entry; exports + dsh.client allowed)');
   else bad('package.json fields', problems.join('; '));
 
   // No DSH version gate: docs claim the bundle declares no DSH version dependency.
@@ -167,6 +167,127 @@ if (pkg) {
   else bad('src/avatars/ six 128x128 PNGs', resizedProblems.join('; '));
   if (sourceProblems.length === 0) ok('docs/images/avatars/ has six source PNGs');
   else bad('docs/images/avatars/ six source PNGs', sourceProblems.join('; '));
+}
+
+// ---------- member settings + runtime prompt injection (0.3.0, additive) ----------
+{
+  const indexSrc = existsSync(join(ROOT, 'index.js')) ? readFileSync(join(ROOT, 'index.js'), 'utf8') : '';
+  const clientSrc = existsSync(join(ROOT, 'client.js')) ? readFileSync(join(ROOT, 'client.js'), 'utf8') : '';
+  const problems = [];
+  if (!/export\s*\{[^}]*\bConfig\b/.test(indexSrc)) problems.push('index.js does not export Config');
+  if (!/systemPrompt\.section\s*\(/.test(indexSrc)) problems.push('index.js does not register a systemPrompt section');
+  if (!/GET x/.test(indexSrc) && !/tryMembership/.test(indexSrc)) problems.push('index.js does not use tryMembership for team membership');
+  if (!/interpolate:\s*false/.test(indexSrc)) problems.push('index.js member section does not disable interpolation');
+  if (!/cabinet:member/.test(indexSrc)) problems.push('index.js is missing the cabinet:member section name');
+  if (/DSH_HOME/.test(indexSrc)) problems.push('index.js hardcodes a DSH_HOME-relative import fallback');
+  if (problems.length === 0) ok('index.js: Config + cabinet:member section (per-assembly text, no interpolation, tryMembership, no DSH_HOME path fallback)');
+  else bad('index.js member injection', problems.join('; '));
+
+  const injectUi = Array.isArray(pkg?.dsh?.client?.inject) && pkg.dsh.client.inject.includes('@deepseek-ai/dsh-client-ui-settings');
+  if (injectUi) ok('package.json dsh.client.inject includes @deepseek-ai/dsh-client-ui-settings');
+  else bad('package.json dsh.client.inject', 'missing @deepseek-ai/dsh-client-ui-settings');
+
+  if (pkg.dependencies?.['@deepseek-ai/schemastery'] && pkg.devDependencies?.['@deepseek-ai/dsh-plugin-market-index']) ok('schema runtime dependency and official market test dependency declared');
+  else bad('dependencies', 'schema or market parser missing');
+
+  // G1: the Lead's factory prompt is product copy and must exist byte-identically
+  // in both halves; scripts/verify.mjs owns the cross-file equality check.
+  const extract = (source) => {
+    const match = source.match(/const DEFAULT_LEAD_PROMPT = `([\s\S]*?)`;/);
+    return match === null ? null : match[1];
+  };
+  const hostDefault = extract(indexSrc);
+  const browserDefault = extract(clientSrc);
+  if (hostDefault === null) bad('Lead default prompt in index.js', 'DEFAULT_LEAD_PROMPT not found');
+  else if (browserDefault === null) bad('Lead default prompt in client.js', 'DEFAULT_LEAD_PROMPT not found');
+  else if (hostDefault !== browserDefault) bad('Lead default prompt parity (index.js vs client.js)', `host ${hostDefault.length} chars, browser ${browserDefault.length} chars`);
+  else {
+    const missing = ['【御下术·仅首辅适用】', '立威', '画饼', '施压', '打压', '拉踩', '情绪收放', '牵制互查', '责任到人', '反制糊弄', '收束', '红线', '绝不对陛下（用户）使用'];
+    const absent = missing.filter((needle) => !hostDefault.includes(needle));
+    if (absent.length > 0) bad('Lead default prompt copy', `missing: ${absent.join(', ')}`);
+    else if (hostDefault.length > 2000) bad('Lead default prompt length', `${hostDefault.length} chars (max 2000)`);
+    else ok(`Lead default prompt: identical in both halves, ${hostDefault.length} chars, carries 御下术 copy and red lines`);
+  }
+
+  // The Lead default must not be smuggled into the static persona in the patch.
+  const patchForLead = existsSync(PATCH_PATH) ? readFileSync(PATCH_PATH, 'utf8') : '';
+  if (patchForLead.includes('御下术')) bad('persona static prefix', 'contains 御下术; the Lead policy must only be injected at runtime');
+  else ok('persona static prefix carries no 御下术 (runtime injection only)');
+
+  // The four non-Lead members need their own factory duty prompt, byte-identical
+  // in both halves, so a customized prompt never has to re-explain the job.
+  const extractMembers = (source) => {
+    const match = source.match(/const DEFAULT_MEMBER_PROMPTS = \{([\s\S]*?)\n\t*\};/);
+    if (match === null) return null;
+    const entries = {};
+    // Each entry is one `key: 'text',` line; the closing quote may carry the
+    // trailing comma (the last entry omits it).
+    for (const line of match[1].split('\n')) {
+      const item = line.match(/^\s+(\w+): '([\s\S]*?)',?\s*$/);
+      if (item !== null) entries[item[1]] = item[2];
+    }
+    return entries;
+  };
+  const labelsMatch = indexSrc.match(/const MEMBER_LABELS = \{([\s\S]*?)\n\t\};/);
+  const officeOf = (key) => {
+    if (labelsMatch === null) return '';
+    const item = labelsMatch[1].match(new RegExp(`${key}: '([^']+)'`));
+    return item === null ? '' : item[1];
+  };
+  const hostMembers = extractMembers(indexSrc);
+  const browserMembers = extractMembers(clientSrc);
+  const dutyKeys = ['hanlin', 'works', 'dali', 'yushi'];
+  if (hostMembers === null) bad('member duty prompts in index.js', 'DEFAULT_MEMBER_PROMPTS not found');
+  else if (browserMembers === null) bad('member duty prompts in client.js', 'DEFAULT_MEMBER_PROMPTS not found');
+  else if (JSON.stringify(hostMembers) !== JSON.stringify(browserMembers)) {
+    bad('member duty prompt parity', `host keys ${Object.keys(hostMembers).join(',')} vs browser keys ${Object.keys(browserMembers).join(',')}`);
+  } else {
+    const problems = [];
+    for (const key of dutyKeys) {
+      const text = hostMembers[key];
+      if (typeof text !== 'string' || text === '') problems.push(`${key} missing`);
+      else if ([...text].length > 400) problems.push(`${key} ${[...text].length} chars (max 400)`);
+      else if (officeOf(key) !== '' && !text.includes(officeOf(key))) problems.push(`${key} does not name its office (${officeOf(key)})`);
+    }
+    const extra = Object.keys(hostMembers).filter((key) => !dutyKeys.includes(key));
+    if (extra.length > 0) problems.push(`unexpected keys ${extra.join(',')}`);
+    if (problems.length > 0) bad('member duty prompts', problems.join('; '));
+    else ok('member duty prompts: identical in both halves, one per non-Lead member, each names its office');
+  }
+
+  // P0 guard: the settings page decodes its value by rehydrating the WIRE copy of
+  // this schema (`settings.describe` carries `schema.toJSON()`; the shell rebuilds
+  // it with `new Function("return " + cb)()` for every transform callback, in a
+  // scope with no access to this module). A callback closing over a module binding
+  // (the old `isAllowedAvatar`) threw `isAllowedAvatar is not defined`, the shell
+  // caught it and returned `undefined`, and every member showed as unset after a
+  // refresh. Assert the round trip end to end.
+  try {
+    const { Config } = await import(pathToFileURL(join(ROOT, 'index.js')).href);
+    if (Config === undefined) {
+      bad('settings wire round trip', 'Config is undefined (schemastery not resolvable)');
+    } else {
+      const wire = JSON.parse(JSON.stringify(Config));
+      const rehydrated = new (await import('@deepseek-ai/schemastery')).default(JSON.parse(JSON.stringify(wire)));
+      const samples = [
+        ['saved values', { members: [{ key: 'hanlin', name: 'VISIBLE_WRITE_OK', prompt: '', mode: '' }], avatarLead: 'data:image/png;base64,AAA' }],
+        ['empty object', {}],
+        ['corrupt members', { members: 'oops-not-an-array' }],
+        ['wrong avatar type', { avatarLead: 12345 }],
+        ['non-whitelisted image', { avatarLead: 'data:image/svg+xml;base64,X' }],
+      ];
+      const failed = [];
+      for (const [label, value] of samples) {
+        try { rehydrated(value); } catch (error) { failed.push(`${label}: ${error.message}`); }
+      }
+      // The gate must also PASS with the saved values (decode() returns view.value
+      // only when validate() does not throw).
+      if (failed.length > 0) bad('settings wire round trip', failed.join('; '));
+      else ok('settings wire round trip: schema.toJSON() -> rehydrate -> validate survives all samples (no module-closure refs)');
+    }
+  } catch (error) {
+    bad('settings wire round trip', error?.message ?? String(error));
+  }
 }
 
 if (existsSync(PATCH_PATH)) ok('cordis.patch.yml exists');
@@ -243,7 +364,7 @@ if (existsSync(PATCH_PATH)) {
 }
 
 // ---------- fallback scripts ----------
-for (const test of ['test-install.mjs', 'test-client.mjs', 'test-avatars.mjs', 'test-roster.mjs']) {
+for (const test of ['test-member-settings.mjs', 'test-install.mjs', 'test-client.mjs', 'test-avatars.mjs', 'test-roster.mjs']) {
   const result = spawnSync(process.execPath, [join(ROOT, 'scripts', test)], {
     encoding: 'utf8', timeout: 30000, windowsHide: true,
   });

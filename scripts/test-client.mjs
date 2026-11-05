@@ -14,7 +14,7 @@ const React = {
   useLayoutEffect: () => {}, useEffect: () => {},
 };
 runInNewContext(source.replace(exportPoint,
-  'return { inject, apply, avatarFor, displayName, CabinetPanel, MemberCard, TaskLine, zh, en, BUREAUX, AVATARS };'), {
+  'return { inject, apply, avatarFor, displayName, CabinetPanel, MemberCard, TaskLine, zh, en, BUREAUX, AVATARS, setMemberConfig, memberLabel, configuredAvatar, configuredPrompt, factoryPromptFor, DEFAULT_MEMBER_PROMPTS, DEFAULT_LEAD_PROMPT };'), {
   window: { __ModuleLoader__: { load: ({ factory }) => {
     client = factory((name) => { assert.equal(name, 'react'); return React; });
   } } },
@@ -69,6 +69,38 @@ for (const [oldTitle, newTitle] of [
   assert.notEqual(client.displayName(oldTitle), client.displayName(newTitle));
 }
 for (const language of [client.zh, client.en]) assert.equal(language['lead.tag'], '内阁首辅');
+
+// --- a saved avatar must win over the built-in portrait on the render path ---
+const CUSTOM_AVATAR = 'data:image/png;base64,aGVsbG8=';
+assert.match(client.avatarFor('lead'), /^data:image\/png;base64,/);
+client.setMemberConfig({ members: [], avatarLead: CUSTOM_AVATAR });
+assert.equal(client.avatarFor('lead'), CUSTOM_AVATAR, 'configured avatar must reach the panel/roster path');
+assert.equal(client.avatarFor('首辅'), CUSTOM_AVATAR, 'alias-mapped names resolve to the configured avatar');
+assert.notEqual(client.avatarFor('hanlin'), CUSTOM_AVATAR, 'unconfigured members keep the built-in avatar');
+client.setMemberConfig({ members: [], avatarLead: 'data:image/svg+xml;base64,NOT_ALLOWED' });
+assert.notEqual(client.avatarFor('lead'), 'data:image/svg+xml;base64,NOT_ALLOWED', 'non-whitelisted image types are ignored');
+client.setMemberConfig({ members: [] });
+
+// --- factory prompts: every member keeps a duty prompt unless the user clears it ---
+assert.equal(client.factoryPromptFor('lead'), client.DEFAULT_LEAD_PROMPT);
+for (const key of ['hanlin', 'works', 'dali', 'yushi']) {
+  assert.ok(client.factoryPromptFor(key).length > 0, `${key} must have a factory duty prompt`);
+  assert.ok(client.factoryPromptFor(key).length <= 400, `${key} factory prompt must stay under 400 chars`);
+}
+assert.ok(client.DEFAULT_LEAD_PROMPT.includes('御下术'));
+client.setMemberConfig({ members: [{ key: 'hanlin', name: '张翰林', prompt: '', mode: '' }] });
+assert.equal(client.memberLabel('hanlin'), '张翰林 · hanlin');
+assert.equal(client.configuredPrompt('hanlin'), client.factoryPromptFor('hanlin'), 'unconfigured mode keeps the factory prompt');
+assert.equal(client.configuredPrompt('lead'), client.DEFAULT_LEAD_PROMPT, 'the Lead keeps 御下术 by default');
+client.setMemberConfig({ members: [{ key: 'hanlin', name: '', prompt: '只写这一句', mode: 'custom' }] });
+assert.equal(client.configuredPrompt('hanlin'), '只写这一句', 'custom prompt replaces the factory text');
+client.setMemberConfig({ members: [{ key: 'hanlin', name: '', prompt: 'x', mode: 'off' }] });
+assert.equal(client.configuredPrompt('hanlin'), '', 'a cleared member injects nothing');
+client.setMemberConfig({ members: [{ key: 'hanlin', name: 123, prompt: null, mode: 7 }] });
+assert.equal(client.memberLabel('hanlin'), '翰林院编修 · hanlin', 'wrong-typed fields fall back to defaults, never throw');
+client.setMemberConfig({ members: 'oops-not-an-array' });
+assert.equal(client.configuredPrompt('lead'), client.DEFAULT_LEAD_PROMPT, 'a corrupt members value degrades to defaults, not to silence');
+client.setMemberConfig({ members: [] });
 
 const render = (team, language) => client.CabinetPanel({
   sessionId: 'lead-session',
