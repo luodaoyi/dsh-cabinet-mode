@@ -2,6 +2,57 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.2.0] - 2026-11-05
+
+### Added
+
+- **Host half `index.js` + browser half `client.js`.** The package is no longer
+  YAML-only. `client.js` registers the right-Sidebar **「内阁」 / Cabinet** tab:
+  the Lead → minister dispatch tree (each task hangs under its `ownerName`, with
+  `blockedBy` dependencies shown as chips), running members highlighted with a
+  pulsing status dot, task colours (pending gray / in progress blue / completed
+  green), and a per-member row with avatar, name, status label and current model.
+- **Five member avatars** embedded as 128px data URLs (square sources in
+  `docs/images/avatars/`, downscaled by `src/build_avatars.py`; originals are
+  1MB+ and are never embedded directly): 首辅 bright yellow, 翰林院编修 cyan,
+  工部主事 red, 大理寺评事 dark, 都察院御史 crimson.
+- **README (zh/en) sections** 「内阁面板与成员形象」/ "Cabinet panel and member
+  avatars" and 「生效说明」/ "How it takes effect". The former "no runtime
+  JavaScript" / "one preset row" wording now describes `index.js` + `client.js`
+  and the two inserted rows.
+
+### Changed
+
+- **`package.json`**: `0.1.6` → `0.2.0`, plus `exports` (`.`, `./client`) and
+  `dsh.client` (`platform: web`, `immediately`, `inject`). Both are hard
+  requirements of the DSH client-plugin loader: it throws when a `dsh.client`
+  declaration has no `exports."./client"` (`dsh-client-modules`).
+- **`cordis.patch.yml`**: appends the Loader row `cabinet-ui` →
+  `dsh-cabinet-mode` so the host scans the package as a client plugin. The
+  `preset-cabinet` declaration, and the 22-row plugin list are retained; persona rules change as described below.
+- **persona**: the Lead's rules are enforced — mandatory decomposition and
+  delegation (`spawn_teammate` plus a `team_task_*` board) before any hands-on
+  work, the single-user-facing interface (only the Lead talks to the user;
+  members answer through the Lead), and a member task-status line.
+- **`scripts/verify.mjs`**: the package-fields check now allows `exports` and
+  `dsh.client` while still rejecting `main` / `types` entries.
+
+### Fixed
+
+- The fallback installer writes only the persona preset, without referring to an
+  uninstalled UI package. Regression tests cover dry runs, backups, install and
+  uninstall, duplicate prevention and existing bundle guards.
+- Composition verification installs the current checkout into a temporary
+  DSH_HOME, avoiding stale installed versions and changes to the user profile.
+- Chinese bureau and role names resolve to the matching member avatars.
+- Team read failures warn that retained members/tasks may be stale.
+
+### Notes
+
+- The full panel requires a bundle install and a DSH restart; the fallback path
+  installs only the persona preset.
+- README links target v0.2.0 and become available when that release is published.
+
 ## [0.1.6] - 2026-11-03
 
 ### Fixed

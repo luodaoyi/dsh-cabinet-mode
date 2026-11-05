@@ -1,6 +1,6 @@
 {
   "name": "dsh-cabinet-mode",
-  "version": "0.1.6",
+  "version": "0.2.0",
   "description": "Cabinet Mode (内阁模式) for DeepSeek Harness: a declarative DSH bundle that adds a dual-identity Lead/teammate agent preset for the Great Ming Research Bureau cabinet team.",
   "license": "MIT",
   "icon": "./icon.svg",
@@ -33,20 +33,37 @@
     "agent-team",
     "research-team"
   ],
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js"
+  },
   "files": [
     "icon.svg",
     "cordis.patch.yml",
+    "index.js",
+    "client.js",
     "README.md",
     "README.zh.md",
     "LICENSE",
     "CHANGELOG.md",
     "docs/cross-platform.md",
     "docs/images",
-    "scripts"
+    "scripts",
+    "src"
   ],
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-api-session-controller",
+        "@deepseek-ai/dsh-client-ui-session",
+        "@deepseek-ai/dsh-client-ui-sidebar-right"
+      ]
     }
   },
   "scripts": {
