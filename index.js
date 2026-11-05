@@ -87,6 +87,48 @@ const MAX_NAME_LENGTH = 40;
 const MAX_PROMPT_LENGTH = 4000;
 /** One avatar data URL must stay a small field (96x96 PNG, browser-normalized). */
 const MAX_AVATAR_LENGTH = 48 * 1024;
+/** One model route bound; a longer value is treated as corrupt and reset. */
+const MAX_MODEL_LENGTH = 200;
+
+/**
+ * Coerce a stored per-member model route to `provider/id` or ''.
+ * Wrong shapes (a number, an object), a missing slash, control characters or
+ * an over-long value all degrade to '' — the member then follows the Lead
+ * default, matching the field-level tolerance used for name/prompt/mode.
+ */
+function clampModel(value) {
+	if (typeof value !== 'string') return '';
+	const trimmed = value.trim();
+	if (trimmed === '' || trimmed.length > MAX_MODEL_LENGTH) return '';
+	if (!/^[A-Za-z0-9][A-Za-z0-9._:-]*(?:\/[A-Za-z0-9][A-Za-z0-9._:/-]*)$/.test(trimmed)) return '';
+	return trimmed;
+}
+
+/**
+ * Parse a configured `provider/id` route into the {provider, model} pair the
+ * agent/request waterfall expects. Model ids may themselves contain slashes,
+ * so only the first slash splits (provider before it, model id after it).
+ * Undefined for an empty or corrupt value — the caller then applies no
+ * override and the member inherits the Lead default.
+ */
+function modelRoute(value) {
+	const route = clampModel(value);
+	if (route === '') return undefined;
+	const cut = route.indexOf('/');
+	const provider = route.slice(0, cut);
+	const model = route.slice(cut + 1);
+	if (provider === '' || model === '') return undefined;
+	return { provider, model };
+}
+
+/**
+ * The configured model route for one bureau key, read fresh on every call so a
+ * saved setting applies at the next request boundary of an already-running
+ * member instead of only after a restart.
+ */
+function memberModel(config, key) {
+	return modelRoute(memberEntries(config).get(key)?.model);
+}
 
 /**
  * Factory default prompt for the Lead (御下术). This text is product copy: the
@@ -149,7 +191,8 @@ function memberEntries(config) {
 		entries.set(key, {
 			name: clampText(entry.name, MAX_NAME_LENGTH),
 			prompt: clampText(entry.prompt, MAX_PROMPT_LENGTH),
-			mode: entry.mode === 'off' || entry.mode === 'custom' ? entry.mode : ''
+			mode: entry.mode === 'off' || entry.mode === 'custom' ? entry.mode : '',
+			model: clampModel(entry.model)
 		});
 	}
 	return entries;
@@ -229,6 +272,71 @@ function sectionText(ctx, config, agent) {
 	}
 }
 
+/**
+ * The bureau key for one live agent, or undefined while the roster has not
+ * registered it yet. '' means registered but not a Cabinet member, so no
+ * waterfall is installed for that agent at all.
+ */
+function memberKeyOf(ctx, agent) {
+	const member = membershipOf(ctx, agent);
+	if (member === undefined) return undefined;
+	return bureauOf(member.name).key;
+}
+
+/**
+ * Install the per-member model waterfall on one agent (idempotent per id).
+ *
+ * The assemble listener snapshots the configured route into the prompt
+ * variables and the request listener applies the same snapshot to the request
+ * config, mirroring the official installModelSelection contract
+ * (@deepseek-ai/dsh-agent model-selection) so prompt variables and the routed
+ * provider/model cannot disagree. The snapshot is re-read from live config on
+ * every assembly: a saved setting takes effect on the member's next request,
+ * and an empty value passes the request through untouched (no override).
+ * Scope: the assemble/request events dispatch through the agent scope
+ * (dsh-agent-loop: agent/request; dsh-system-prompt:398 system-prompt/assemble),
+ * so listeners must be attached to agent.ctx, never to the root context.
+ * @returns the disposer for both listeners, or undefined when skipped.
+ */
+function attachMemberModel(ctx, config, agent, attached) {
+	if (agent === undefined || agent === null || typeof agent.ctx?.on !== 'function') return undefined;
+	if (agent.id !== undefined && attached.has(agent.id)) return undefined;
+	const initial = memberKeyOf(ctx, agent);
+	if (initial === '') return undefined;
+	let key = initial;
+	const keyFor = () => {
+		if (key === undefined) key = memberKeyOf(ctx, agent);
+		return key === '' ? undefined : key;
+	};
+	let snapshot;
+	const disposeAssembly = agent.ctx.on('system-prompt/assemble', async (_assembly, _context, next) => {
+		const memberKey = keyFor();
+		snapshot = memberKey === undefined ? undefined : memberModel(config, memberKey);
+		const assembled = await next();
+		if (snapshot === undefined) return assembled;
+		return {
+			...assembled,
+			variables: {
+				...assembled.variables,
+				provider: snapshot.provider,
+				model: snapshot.model
+			}
+		};
+	});
+	const disposeRequest = agent.ctx.on('agent/request', async (_payload, next) => {
+		const resolved = await next();
+		if (snapshot === undefined) return resolved;
+		const { reasoningEffort: _inheritedEffort, ...withoutInheritedEffort } = resolved;
+		return { ...withoutInheritedEffort, provider: snapshot.provider, model: snapshot.model };
+	});
+	const dispose = () => {
+		try { disposeAssembly(); } catch { /* Cordis disposal may already have run */ }
+		try { disposeRequest(); } catch { /* Cordis disposal may already have run */ }
+	};
+	if (agent.id !== undefined) attached.set(agent.id, dispose);
+	return dispose;
+}
+
 /** Host plugin entry. */
 const name = 'cabinet-ui';
 /** Services read by this entry; `agentTeams` is resolved lazily in apply(). */
@@ -245,6 +353,36 @@ function apply(ctx, config) {
 		// User prompts are free text; never treat `{{...}}` in them as variables.
 		interpolate: false
 	}), 'cabinet-member: prompt section');
+	// Per-member model selection: attach the assemble/request waterfall to each
+	// Cabinet member agent as it is announced (and to agents already live when
+	// this plugin mounts), dispose it with the agent. Agents created before
+	// roster registration are resolved lazily at their first assembly.
+	const attached = new Map();
+	const attach = (agent) => {
+		try {
+			attachMemberModel(ctx, config, agent, attached);
+		} catch (error) {
+			try { ctx.logger?.warn?.(`cabinet-ui: model selection attach failed: ${String(error)}`); } catch { /* logger unavailable */ }
+		}
+	};
+	ctx.effect(() => {
+		const offCreated = ctx.on('agent/created', ({ agent }) => attach(agent));
+		const offDisposed = ctx.on('agent/disposed', ({ agent }) => {
+			const dispose = agent === undefined || agent === null ? undefined : attached.get(agent.id);
+			if (dispose === undefined) return;
+			attached.delete(agent.id);
+			dispose();
+		});
+		try {
+			for (const agent of ctx.agents?.list?.() ?? []) attach(agent);
+		} catch { /* registry unavailable: announce listener still covers new agents */ }
+		return () => {
+			try { offCreated?.(); } catch { /* already disposed */ }
+			try { offDisposed?.(); } catch { /* already disposed */ }
+			for (const dispose of Array.from(attached.values())) dispose();
+			attached.clear();
+		};
+	}, 'cabinet-member: model selection');
 }
 
-export { bureauOf, sectionText, memberBlock, Config, DEFAULT_LEAD_PROMPT, DEFAULT_MEMBER_PROMPTS, MEMBER_KEYS, MEMBER_LABELS, MEMBER_SECTION, MAX_AVATAR_LENGTH, MAX_NAME_LENGTH, MAX_PROMPT_LENGTH, apply, inject, name };
+export { bureauOf, sectionText, memberBlock, memberModel, modelRoute, clampModel, attachMemberModel, Config, DEFAULT_LEAD_PROMPT, DEFAULT_MEMBER_PROMPTS, MEMBER_KEYS, MEMBER_LABELS, MEMBER_SECTION, MAX_AVATAR_LENGTH, MAX_MODEL_LENGTH, MAX_NAME_LENGTH, MAX_PROMPT_LENGTH, apply, inject, name };

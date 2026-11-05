@@ -53,6 +53,19 @@ atomically using the revision that was loaded. If another page changes settings,
 cancel/reload before editing again; a stale draft cannot overwrite it. Editing is
 disabled until settings have loaded. Changes apply to the next prompt assembly.
 
+Each office group also has a **Model** picker: *Follow Lead (default)*, or a
+`provider/id` route taken from the runtime model catalog (the official
+`session.modelCatalog` remote, so the option list is never hard-coded; if that
+list is unreachable the field degrades to a manual `provider/id` text input).
+Saved values ride the agent-scope `system-prompt/assemble` and `agent/request`
+waterfalls, so the routed provider/model and the prompt variables always agree.
+**Effective boundary:** the route is snapshotted once per prompt assembly — a
+saved change applies at that member's next request, members spawned after the
+change use it from their first request, and members already live when the
+plugin mounts are re-attached from the agent registry at mount. Recreating the
+member or restarting the host is only the fallback when the registry is
+unreachable; a corrupt or over-long value falls back to the Lead default.
+
 Upload PNG/JPEG/WebP up to 2 MB; the browser crops it to a 96×96 PNG (at most
 48 KB data URL). Saved portraits apply to Cabinet cards and native team avatars.
 Restore default resets that office's name, portrait and factory prompt; Reset all

@@ -6,6 +6,20 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- **Per-member model selection.** Each office group in the 「内阁成员」 settings
+  section gets a **Model** picker: *Follow Lead (default)* or a `provider/id`
+  route enumerated from the runtime model catalog (`session.modelCatalog`
+  remote — never a hard-coded list; the picker degrades to a manual
+  `provider/id` text input when the catalog is unreachable). The host half
+  validates the field (`provider/id`, ≤ 200 chars, corrupt values fall back to
+  the Lead default) and applies it per member through the agent-scope
+  `system-prompt/assemble` / `agent/request` waterfalls. Caveat: a member's
+  route is snapshotted per prompt assembly — a teammate session is routed from
+  its spawn-time configuration onward, a saved change takes effect at that
+  member's next request, and members already live when the plugin mounts are
+  re-attached from the agent registry; recreating the member or restarting the
+  host remains the fallback boundary.
+
 - **「内阁成员」settings section in the DSH settings page.** `client.js` now
   registers a page through the official `settings.section` slot (section id
   `cabinet`, label 「内阁成员」/ "Cabinet members"), mounted only while the
