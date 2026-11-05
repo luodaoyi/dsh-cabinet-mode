@@ -14,7 +14,7 @@ const React = {
   useLayoutEffect: () => {}, useEffect: () => {},
 };
 runInNewContext(source.replace(exportPoint,
-  'return { inject, apply, avatarFor, CabinetPanel, zh, en };'), {
+  'return { inject, apply, avatarFor, displayName, CabinetPanel, MemberCard, TaskLine, zh, en };'), {
   window: { __ModuleLoader__: { load: ({ factory }) => {
     client = factory((name) => { assert.equal(name, 'react'); return React; });
   } } },
@@ -25,6 +25,17 @@ for (const [english, chinese] of [
 ]) assert.equal(client.avatarFor(english), client.avatarFor(' ' + chinese + '-一 '));
 assert.match(client.avatarFor('unknown'), /^data:image\/svg\+xml/);
 assert.match(client.avatarFor(null), /^data:image\/svg\+xml/);
+for (const [name, expected] of [
+  ['gongbu2', '工部主事2 · gongbu2'],
+  ['works-ui', '工部主事（ui） · works-ui'],
+  ['works_ui', '工部主事（ui） · works_ui'],
+  ['works.ui', '工部主事（ui） · works.ui'],
+  ['翰林院编修-一', '翰林院编修（一） · 翰林院编修-一'],
+  ['工部主事', '工部主事'],
+  ['hanlinx', 'hanlinx'], ['works-', 'works-'], ['gongbu2x', 'gongbu2x'],
+]) assert.equal(client.displayName(name), expected);
+for (const name of ['hanlinx', 'works-', 'gongbu2x']) assert.match(client.avatarFor(name), /^data:image\/svg\+xml/);
+assert.equal(client.avatarFor('gongbu2'), client.avatarFor('works'));
 
 const render = (team, language) => client.CabinetPanel({
   sessionId: 'lead-session',
@@ -43,4 +54,37 @@ for (const language of [client.zh, client.en]) {
   assert.ok(!JSON.stringify(render({ members: [], tasks: [] }, language)).includes(language['team.stale']));
   assert.ok(!JSON.stringify(render(undefined, language)).includes(language['team.stale']));
 }
-console.log('PASS: avatar role aliases and stale-team warning rendering (zh/en); mocked React, not browser E2E');
+// Inspect rendered host elements, including the member and owner leaf components.
+function elements(tree) {
+  if (Array.isArray(tree)) return tree.flatMap(elements);
+  if (!tree || typeof tree !== 'object') return [];
+  if (typeof tree.type === 'function') {
+    const props = { ...tree.props };
+    if (tree.children.length) props.children = tree.children.flat();
+    return elements(tree.type(props));
+  }
+  return [tree, ...tree.children.flatMap(elements)];
+}
+const names = ['works', 'gongbu', 'zhushi', 'works-ui', 'works_ui', 'works.ui'];
+const labels = [];
+const tasks = names.map((name, i) => ({ id: String(i), subject: 'Task ' + i, ownerName: name, status: 'pending' }));
+for (const name of names) {
+  const card = client.MemberCard({ member: { name, phase: 'active' }, statusLabel: (status) => status });
+  const label = elements(card).find((node) => node.props?.key === 'n');
+  assert.ok(label.children[0].includes(name), 'member label must retain raw name: ' + name);
+  assert.equal(label.props.title, label.children[0], 'truncated member label needs full tooltip');
+  labels.push(label.children[0]);
+  const task = tasks.find((task) => task.ownerName === name);
+  const line = client.TaskLine({ task, t: (key) => key, taskLabel: (status) => status });
+  const owner = elements(line).find((node) => node.type === 'span' && node.children.flat().some((text) => typeof text === 'string' && text.startsWith('Owner: ')));
+  assert.ok(owner.children.flat().includes('Owner: ' + label.children[0]));
+  assert.equal(owner.props.title, label.children[0]);
+}
+assert.equal(new Set(labels).size, names.length, 'aliases and separators must remain distinguishable');
+const groups = elements(render({ members: [], tasks }, client.zh)).filter((node) => node.props?.key === 'title');
+assert.equal(groups.length, names.length);
+for (const [i, group] of groups.entries()) {
+  assert.equal(group.children[0], labels[i]);
+  assert.equal(group.props.title, labels[i]);
+}
+console.log('PASS: avatars, stale-team warnings, and distinct member/owner/group identities; mocked React, not browser E2E');

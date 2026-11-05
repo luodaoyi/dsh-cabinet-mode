@@ -61,13 +61,15 @@ preset declaration:
 - **Task colours** — pending gray, in progress blue, completed green (legend at
   the bottom of the panel).
 - **Member look** — each row carries a circular avatar (22px, 24px for the Lead),
-  the name, a status label and the current model; avatars map by name prefix and
-  fall back to the Lead tint when unmatched.
+  the Chinese role and original member name, a status label and the current model.
+  Aliases share a bureau avatar, while original names keep members distinguishable
+  in cards, Owner tags and off-roster groups. Truncated labels have full tooltips;
+  unmatched names use a neutral avatar.
 
 The five member avatars are tinted per bureau: Lead bright yellow, 翰林院编修
 (编辑) cyan, 工部主事 (执行) red, 大理寺评事 (核验) dark, 都察院御史 (验收)
-crimson — light-toned, Chinese-style 3D semi-realistic three-quarter profile
-busts (soft-focus guofeng backdrop inside the circle). They are
+crimson — light-toned chibi portraits in Ming-style court dress
+(soft-focus guofeng backdrop inside the circle). They are
 embedded in `client.js` as 128px data URLs; the square source PNGs live in
 `docs/images/avatars/` and are downscaled by `src/build_avatars.py` (originals
 are kept at 512x512 and are never embedded directly).
