@@ -44,9 +44,28 @@ may work, but are **not verified** (see [DSH-side constraints](#dsh-side-constra
 
 ### Screenshots
 
-Real runtime captures (mode picker, Agent-preset card, a cabinet session) are
-welcome — open a PR or send them to us and we will include them here. The image
-above is a layout diagram of the persona, not a screenshot.
+The following runtime screenshots were provided by the project owner. They show
+the Cabinet panel's Lead/member hierarchy, who is working, task ownership and
+progress, and dependency chips. The image above is a persona layout diagram;
+the images below are captures of actual sessions.
+
+#### Light theme
+
+![Cabinet panel in light theme: Lead and member dispatch tree, running and idle members, task progress and dependencies](docs/images/cabinet-runtime-light.png)
+
+The light-theme session shows multiple members and their assigned tasks, with
+green running indicators and separate in-progress/completed task markers.
+
+#### Dark theme
+
+![Cabinet panel in dark theme: Lead and member task columns, pending tasks in the unassigned group, and dependency chips](docs/images/cabinet-runtime-dark.png)
+
+The dark-theme session shows the same task hierarchy with pending, in-progress
+and completed states, including an unassigned task group and task dependencies.
+
+These captures document what was visible in those sessions. They do not verify
+compatibility across DSH versions, the mode picker/preset card, or teammate
+persona inheritance.
 
 ## Cabinet panel and member avatars
 
@@ -95,7 +114,8 @@ board). It adds no service and no protocol.
 - Opening the right-Sidebar **Cabinet** tab: the **+** on the tab strip, then the
   **Cabinet** entry on the guide page.
 - The panel renders in the **browser** (`client.js`): exercise it in a real
-  session after a restart; this repository ships no browser screenshot yet.
+  session after a restart. See the [runtime screenshots](#screenshots) for
+  examples of the panel in light and dark themes.
 
 ---
 
