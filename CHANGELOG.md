@@ -62,6 +62,85 @@ All notable changes to this project are documented in this file.
   (`You are teammate "<name>".`) are untouched.
 - README links target v0.3.0 and become available when that release is published.
 
+## [0.2.7] - 2026-11-05
+
+### Fixed
+
+- Cover composite and legacy official names including dalisi-pingshi and
+  jiancha-yushi, separator variants, full pinyin bureaus and numeric suffixes.
+  Preserve exact member/Owner identity and reject unrelated prefix lookalikes.
+- Refresh native roster avatars when a row is reused or its text node changes,
+  without observing injected attributes or repeatedly rewriting image sources.
+- Replace dark initial-letter fallback blocks with a light, unranked portrait
+  for unknown members. Add all-alias, panel and native DOM lifecycle regressions
+  plus documented canonical spawn names. Existing README screenshots remain.
+
+## [0.2.6] - 2026-11-05
+
+### Changed
+
+- Use the requested senior offices: 工部尚书 (second rank), 大理寺卿
+  (third rank), and 左都御史 (second rank). Redraw Works with a golden-pheasant
+  badge and Dali with a peacock badge, preserving the approved portrait style.
+  The censor retains the appropriate xiezhi badge.
+- Align persona, Chinese labels, README galleries and costume notes; preserve
+  internal IDs, legacy lower-office aliases and distinct original member names.
+
+## [0.2.5] - 2026-11-05
+
+### Changed
+
+- Use Chinese official titles consistently: 内阁首辅, 翰林院编修, 工部主事,
+  大理寺评事 and 监察御史. Keep the existing rank-appropriate portraits,
+  English internal keys, original member identities and legacy censor aliases.
+- Align the persona and README galleries with these titles; the Lead tag remains
+  Chinese in both UI locales. Add title, alias and identity regression checks.
+
+## [0.2.4] - 2026-11-05
+
+### Changed
+
+- Replace all five Cabinet portraits with original Ming-style chibi officials,
+  using role-specific crane, duck, egret and xiezhi rank badges. Document the
+  chief secretary's additional-rank artistic setting and costume references.
+- Preserve role matching and member identity labels; regenerate the 128px PNGs
+  and embedded browser/module assets through the existing Pillow pipeline.
+- Add byte-parity regression checks for the five PNGs and both embedded modules,
+  and include exact illustration prompts and bilingual README galleries.
+
+## [0.2.3] - 2026-11-05
+
+### Documentation
+
+- Include the separately required Enable now / Installed-page toggle after market
+  installation; restarting alone does not activate a disabled bundle. Confirmed
+  with a real rc.5 market uninstall/reinstall to 0.2.2 in an isolated web profile.
+
+## [0.2.2] - 2026-11-05
+
+### Documentation
+
+- Make the plugin market the preferred installation path for users and AI
+  assistants in both READMEs, with tested UI steps, the exact raw index URL,
+  verification boundaries and explicit tarball/local-directory fallbacks.
+
+## [0.2.1] - 2026-11-05
+
+### Changed
+
+- Refresh the five member portraits with chibi artwork and recognize role aliases,
+  numeric suffixes and common separators (#3).
+- Preserve original member identities beside localized role labels, including
+  task owners and foreign-owner groups; add identity collision regressions (#4).
+- Explain the exact raw JSON market URL and recovery from GitHub webpage URLs
+  producing `$.format must be 1`, including on the generated index branch.
+- Describe the runtime sidebar and avatars correctly in the market listing.
+
+### Fixed
+
+- Publish icon and index README changes even when marketplace.json is unchanged.
+  Preserve registry propagation waiting and protection against version loss.
+
 ## [0.2.0] - 2026-11-05
 
 ### Added

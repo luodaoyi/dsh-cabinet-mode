@@ -119,9 +119,9 @@ if (pkg) {
   else ok('no lib/ build output in repository');
 }
 
-// Browser half + avatars: the client plugin must ship, parse, and carry five avatars.
+// Browser half + avatars: the client plugin must ship, parse, and carry six avatars.
 {
-  const AVATAR_KEYS = ['lead', 'hanlin', 'works', 'dali', 'yushi'];
+  const AVATAR_KEYS = ['lead', 'hanlin', 'works', 'dali', 'yushi', 'neutral'];
   const clientJsPath = join(ROOT, 'client.js');
   const avatarsJsPath = join(ROOT, 'src', 'avatars.js');
 
@@ -163,10 +163,10 @@ if (pkg) {
     else if (dimension[0] !== 128 || dimension[1] !== 128) resizedProblems.push(`${key}.png is ${dimension[0]}x${dimension[1]}`);
     if (!existsSync(sourcePath) || readFileSync(sourcePath).length === 0) sourceProblems.push(`${key}.png missing or empty`);
   }
-  if (resizedProblems.length === 0) ok('src/avatars/ has five 128x128 PNGs');
-  else bad('src/avatars/ five 128x128 PNGs', resizedProblems.join('; '));
-  if (sourceProblems.length === 0) ok('docs/images/avatars/ has five source PNGs');
-  else bad('docs/images/avatars/ five source PNGs', sourceProblems.join('; '));
+  if (resizedProblems.length === 0) ok('src/avatars/ has six 128x128 PNGs');
+  else bad('src/avatars/ six 128x128 PNGs', resizedProblems.join('; '));
+  if (sourceProblems.length === 0) ok('docs/images/avatars/ has six source PNGs');
+  else bad('docs/images/avatars/ six source PNGs', sourceProblems.join('; '));
 }
 
 // ---------- member settings + runtime prompt injection (0.3.0, additive) ----------
@@ -364,7 +364,7 @@ if (existsSync(PATCH_PATH)) {
 }
 
 // ---------- fallback scripts ----------
-for (const test of ['test-install.mjs', 'test-client.mjs']) {
+for (const test of ['test-install.mjs', 'test-client.mjs', 'test-avatars.mjs', 'test-roster.mjs']) {
   const result = spawnSync(process.execPath, [join(ROOT, 'scripts', test)], {
     encoding: 'utf8', timeout: 30000, windowsHide: true,
   });

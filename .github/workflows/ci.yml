@@ -41,6 +41,15 @@ jobs:
           node --check scripts/market-index.mjs
           bash -n scripts/publish-market-index.sh
 
+      - name: Market contract regressions
+        run: |
+          npm ci --ignore-scripts
+          node scripts/test-market-index.mjs
+
+      - name: Market publisher regressions
+        shell: bash
+        run: bash scripts/test-market-publish.sh
+
       - name: Check the publish tarball without credentials
         shell: bash
         run: |
