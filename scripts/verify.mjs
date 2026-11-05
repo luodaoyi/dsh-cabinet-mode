@@ -369,7 +369,7 @@ if (existsSync(PATCH_PATH)) {
 }
 
 // ---------- fallback scripts ----------
-for (const test of ['test-member-settings.mjs', 'test-install.mjs', 'test-client.mjs', 'test-avatars.mjs', 'test-roster.mjs']) {
+for (const test of ['test-member-settings.mjs', 'test-model-routing.mjs', 'test-model-picker.mjs', 'test-install.mjs', 'test-client.mjs', 'test-avatars.mjs', 'test-roster.mjs']) {
   const result = spawnSync(process.execPath, [join(ROOT, 'scripts', test)], {
     encoding: 'utf8', timeout: 30000, windowsHide: true,
   });

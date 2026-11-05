@@ -1,13 +1,13 @@
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import vm from 'node:vm';
-import {sectionText, bureauOf, Config, DEFAULT_MEMBER_PROMPTS} from '../index.js';
+import {sectionText, bureauOf, Config, DEFAULT_MEMBER_PROMPTS, memberModel, modelRoute, clampModel, MAX_MODEL_LENGTH, apply} from '../index.js';
 let client;
 const source=readFileSync(new URL('../client.js',import.meta.url),'utf8');
 const sandbox = {
   window:{__ModuleLoader__:{load:({factory})=>{client=factory(()=>({createElement(){}}));}}},
 };
-vm.runInNewContext(source.replace('return { inject, apply };','return { createMemberEditor, setMemberConfig, configuredPrompt, memberLabel, avatarFor, memberAvatarOf, BUREAUX, AVATARS };'),sandbox);
+vm.runInNewContext(source.replace('return { inject, apply };','return { createMemberEditor, setMemberConfig, configuredPrompt, memberLabel, avatarFor, memberAvatarOf, clampMemberModel, modelOptionsOf, BUREAUX, AVATARS };'),sandbox);
 function form(value, revision='1') {
   let s={value,revision,writable:value!==undefined,status:value===undefined?'loading':'ready'}; const listeners=new Set();
   const f={writes:[],getSnapshot:()=>s,subscribe:fn=>{listeners.add(fn);return()=>listeners.delete(fn);},
@@ -76,3 +76,52 @@ for(const action of ['cancel','reset','close','newer']) {
   assert.equal(f.writes.length,0);
 }
 console.log('PASS async upload lifecycle: cancel, reset, unmount and newer choice reject stale decode results');
+
+// ---- per-member model selection: schema clamp, waterfall injection, catalog ----
+// Schema validation, four samples: valid route, missing slash, wrong type, over-long.
+const modelSamples = [
+  {input:'prov-a/model-one', route:{provider:'prov-a',model:'model-one'}},
+  {input:'no-slash-here', route:undefined},
+  {input:12345, route:undefined},
+  {input:'p/'+'x'.repeat(300), route:undefined}
+];
+for (const sample of modelSamples) {
+  assert.equal(clampModel(sample.input), sample.route===undefined?'':sample.input, 'clamp '+JSON.stringify(sample.input));
+  assert.deepEqual(modelRoute(sample.input), sample.route, 'route '+JSON.stringify(sample.input));
+}
+assert.ok(MAX_MODEL_LENGTH>=200,'model bound exported');
+assert.equal(memberModel({members:[{key:'works',model:'prov/m'}]},'works').provider,'prov','configured member resolves');
+assert.equal(memberModel({members:[{key:'works',model:42}]},'works'),undefined,'corrupt stored value degrades to inherit');
+
+// Real waterfall ordering/signal correlation is covered by test-model-selection.cjs.
+
+// Settings half: adopt/save round trip and corrupt-value fallback.
+const mf=form({members:[{key:'works',name:'',prompt:'',mode:'',model:'prov/ok'}]});
+const me=client.createMemberEditor(mf,()=>{});me.connect();
+assert.equal(me.state.draft.works.model,'prov/ok','adopt reads the stored model');
+me.update('works',{model:'prov/other'});
+assert.equal(await me.save(),true);
+assert.equal(mf.getSnapshot().value.members.find(x=>x.key==='works').model,'prov/other','save persists the model');
+assert.equal(client.clampMemberModel('bad value!'),'','browser clamp rejects corrupt input');
+assert.equal(client.clampMemberModel('prov/m'),'prov/m','browser clamp keeps a valid route');
+
+// Enumeration is data-driven: catalog -> options, and no hard-coded model ids.
+assert.ok(!/(deepseek-v4|opencode-go|gpt-4o|claude-3-5)/.test(source),'client.js carries no hard-coded model id');
+const opts=JSON.parse(JSON.stringify(client.modelOptionsOf({groups:[{id:'prov-a',models:[{id:'m1',name:'Model One'}]}]})));
+assert.deepEqual(opts,[{value:'prov-a/m1',label:'prov-a/m1 — Model One'}],'catalog flattens to provider/id options');
+assert.equal(client.modelOptionsOf(null).length,0,'no catalog yields no options (picker degrades to text)');
+assert.equal(client.modelOptionsOf({groups:'bad'}).length,0,'malformed catalog yields no options');
+console.log('PASS per-member model: schema clamp (4 samples), settings round trip, data-driven catalog');
+
+for (const id of ['model+variant','@org/model','model normal','org/model',' trailing ']) {
+ const value='local/'+id;
+ assert.equal(clampModel(value),value);assert.equal(client.clampMemberModel(value),value);
+ assert.deepEqual(modelRoute(value),{provider:'local',model:id});
+ const options=client.modelOptionsOf({groups:[{id:'local',models:[{id}]}],failures:[{id:'broken'}]});
+ assert.equal(options[0].value,value);
+ me.update('works',{model:value});assert.equal(await me.save(),true);assert.equal(mf.getSnapshot().value.members.find(x=>x.key==='works').model,value);
+}
+me.update('works',{model:'not-a-route'});assert.equal(await me.save(),false);assert.equal(me.state.errors.works,'member.error.model');
+me.cancel();assert.notEqual(me.state.draft.works.model,'not-a-route');
+me.update('works',{model:''});assert.equal(await me.save(),true);assert.equal(mf.getSnapshot().value.members.find(x=>x.key==='works').model,'');
+console.log('PASS opaque IDs round-trip, failed providers isolated, invalid route rejects Save, cancel and clear persist');

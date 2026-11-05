@@ -2,6 +2,27 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.4.0] - 2026-11-05
+
+### Added
+
+- Per-office model settings from the official live model catalog, with explicit
+  Save/Cancel, refresh, retained unavailable choices and opaque model IDs.
+- Cabinet-only route policy: member override, configured Lead fallback, then
+  the DSH deployment default. Clearing actively restores that default.
+- Scoped prompt/request snapshots keyed by AgentLoop turn signal, actual role
+  checks, live preset gating and native selection ordering/effort compatibility.
+- Regression coverage with official Cordis/SystemPrompt/model-selection and
+  catalog components, without external model calls. Isolated browser checks
+  cover catalog selection, Save, reload, Cancel and clear.
+
+### Fixed
+
+- Declare the optional browser Remote services before access, preventing the
+  plugin boot failure in the initial implementation.
+- Reject invalid model input before Save instead of silently deleting a choice.
+- Keep the published 0.3.0/0.3.1 changelog entries unchanged.
+
 ## [0.3.1] - 2026-11-05
 
 ### Changed

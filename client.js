@@ -2538,14 +2538,50 @@ window.__ModuleLoader__.load({
 		/** Image data URLs accepted for a member avatar; anything else is ignored. */
 		const MEMBER_AVATAR_PREFIXES = ['data:image/png;', 'data:image/jpeg;', 'data:image/webp;'];
 		const MEMBER_AVATAR_FIELDS = { lead: 'avatarLead', hanlin: 'avatarHanlin', works: 'avatarWorks', dali: 'avatarDali', yushi: 'avatarYushi' };
-				let memberConfig = { names: new Map(), prompts: new Map(), modes: new Map(), avatars: new Map() };
+				let memberConfig = { names: new Map(), prompts: new Map(), modes: new Map(), models: new Map(), avatars: new Map() };
 		let memberWriter = null;
+		/** Host remote handle for the model catalog; null degrades the picker to text. */
+		let memberRemote = null;
 		const MEMBER_LISTENERS = new Set();
 		let memberT = (key) => key;
 		function clampMemberText(value, limit) {
 			if (typeof value !== 'string') return '';
 			const trimmed = value.trim();
 			return trimmed.length > limit ? trimmed.slice(0, limit) : trimmed;
+		}
+		/**
+		 * Coerce a stored per-member model route to `provider/id` or '', using
+		 * the same rule as the host half (index.js clampModel) so a value saved
+		 * here survives the host's field-level validation unchanged. Model ids
+		 * may contain slashes; only the first one separates provider from id.
+		 */
+		function clampMemberModel(value) {
+			if (typeof value !== 'string') return '';
+			const trimmed = value;
+			if (trimmed === '' || trimmed.length > 200) return '';
+			if (!/^[^/\s\x00-\x1f\x7f]+\/[^\x00-\x1f\x7f]+$/.test(trimmed)) return '';
+			return trimmed;
+		}
+		/**
+		 * Flatten one runtime model catalog (the official session.modelCatalog
+		 * response value) into [{value,label}] picker options. Nothing here is
+		 * a hard-coded model id: every entry comes from the host response.
+		 */
+		function modelOptionsOf(catalog) {
+			const options = [];
+			if (catalog === null || typeof catalog !== 'object' || !Array.isArray(catalog.groups)) return options;
+			for (const group of catalog.groups) {
+				if (group === null || typeof group !== 'object' || typeof group.id !== 'string' || !Array.isArray(group.models)) continue;
+				if (!/^[^/\s\x00-\x1f\x7f]+$/.test(group.id)) continue;
+				for (const model of group.models) {
+					if (model === null || typeof model !== 'object' || typeof model.id !== 'string') continue;
+					const value = group.id + '/' + model.id;
+					if (clampMemberModel(value) !== value || options.some(option => option.value === value)) continue;
+					const name = typeof model.name === 'string' && model.name !== '' && model.name !== model.id ? model.name : '';
+					options.push({ value, label: name === '' ? value : value + ' — ' + name });
+				}
+			}
+			return options;
 		}
 		/** Runtime member name -> bureau key, mirroring the host half's matching. */
 		function bureauOfName(name) { return bureauOf(name).key; }
@@ -2554,6 +2590,7 @@ window.__ModuleLoader__.load({
 			const names = new Map();
 			const prompts = new Map();
 			const modes = new Map();
+			const models = new Map();
 			const avatars = new Map();
 			const members = raw !== null && typeof raw === 'object' && Array.isArray(raw.members) ? raw.members : [];
 			for (const entry of members) {
@@ -2565,6 +2602,7 @@ window.__ModuleLoader__.load({
 				names.set(key, name);
 				prompts.set(key, prompt);
 				modes.set(key, entry.mode === 'off' || entry.mode === 'custom' ? entry.mode : '');
+				models.set(key, clampMemberModel(entry.model));
 			}
 			for (const key of AVATAR_KEYS) {
 				const value = raw !== null && typeof raw === 'object' ? raw[MEMBER_AVATAR_FIELDS[key]] : undefined;
@@ -2572,7 +2610,7 @@ window.__ModuleLoader__.load({
 				const url = value.trim();
 				if (url.length <= 48 * 1024 && /^data:image\/(?:png|jpeg|webp);base64,(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(url) && url.length > url.indexOf(',') + 1) avatars.set(key, url);
 			}
-			return { names, prompts, modes, avatars };
+			return { names, prompts, modes, models, avatars };
 		}
 		function setMemberConfig(raw) {
 			memberConfig = normalizeMemberConfig(raw);
@@ -2637,12 +2675,12 @@ window.__ModuleLoader__.load({
 
 		/** Build the members array the settings schema expects. */
 		function membersPayload(draft) {
-			return AVATAR_KEYS.map((key) => ({ key, name: draft[key].name, prompt: draft[key].prompt, mode: draft[key].mode }));
+			return AVATAR_KEYS.map((key) => ({ key, name: draft[key].name, prompt: draft[key].prompt, mode: draft[key].mode, model: clampMemberModel(draft[key].model) }));
 		}
 		/** Default draft: runtime names, built-in avatars, Lead 御下术 on. */
 		function emptyMemberDraft() {
 			const draft = {};
-			for (const key of AVATAR_KEYS) draft[key] = { name: '', prompt: '', mode: '' };
+			for (const key of AVATAR_KEYS) draft[key] = { name: '', prompt: '', mode: '', model: '' };
 			return draft;
 		}
 		/** Draft from the mirrored snapshot (what the form starts with). */
@@ -2652,7 +2690,8 @@ window.__ModuleLoader__.load({
 				draft[key] = {
 					name: memberConfig.names.get(key) || '',
 					prompt: memberConfig.prompts.get(key) || '',
-					mode: memberConfig.modes.get(key) || ''
+					mode: memberConfig.modes.get(key) || '',
+					model: memberConfig.models.get(key) || ''
 				};
 			}
 			return draft;
@@ -3442,7 +3481,7 @@ window.__ModuleLoader__.load({
     const config = normalizeMemberConfig(s?.value);
     state.draft = emptyMemberDraft(); state.avatars = {}; state.errors = {};
     for (const key of AVATAR_KEYS) {
-      state.draft[key] = { name: config.names.get(key) || '', prompt: config.prompts.get(key) || '', mode: config.modes.get(key) || '' };
+      state.draft[key] = { name: config.names.get(key) || '', prompt: config.prompts.get(key) || '', mode: config.modes.get(key) || '', model: config.models.get(key) || '' };
       state.avatars[key] = config.avatars.get(key) || '';
     }
     state.revision = s?.revision; state.ready = ready(s); state.dirty = false; state.conflict = false;
@@ -3475,12 +3514,17 @@ window.__ModuleLoader__.load({
       if (!editable()) return;
       epoch++; uploads = {};
       const keys = key ? [key] : AVATAR_KEYS;
-      for (const k of keys) { state.draft[k] = { name: '', prompt: '', mode: '' }; state.avatars[k] = ''; }
+      for (const k of keys) { state.draft[k] = { name: '', prompt: '', mode: '', model: '' }; state.avatars[k] = ''; }
       state.draft = { ...state.draft }; state.avatars = { ...state.avatars }; state.errors = {}; changed();
     },
     cancel() { if (!active || state.busy) return; adopt(form?.getSnapshot()); state.status = ''; emit(); },
     async save() {
       if (!editable() || !state.dirty) return false;
+      for (const key of AVATAR_KEYS) {
+        if (state.draft[key].model && clampMemberModel(state.draft[key].model) !== state.draft[key].model) {
+          state.errors[key] = 'member.error.model'; emit(); return false;
+        }
+      }
       const current = form.getSnapshot();
       if (!ready(current) || current.revision !== state.revision) { state.conflict = true; state.status = 'member.status.conflict'; emit(); return false; }
       const ops = [{ op: 'set', path: ['members'], value: membersPayload(state.draft) }];
@@ -3506,6 +3550,25 @@ window.__ModuleLoader__.load({
             if (!editorRef.current) editorRef.current = createMemberEditor(memberWriter, () => redraw(n => n + 1));
             const editor = editorRef.current;
             React.useEffect(() => editor.connect(), [editor]);
+            // Model catalog for the per-member picker: the official
+            // session.modelCatalog remote (host LLM registry). undefined =
+            // still loading, null = unavailable — both degrade to a plain
+            // provider/id text field; the option list is never hard-coded.
+            const [modelCatalog, setModelCatalog] = React.useState(undefined);
+            const [catalogRevision, refreshCatalog] = React.useState(0);
+            React.useEffect(() => {
+              let alive = true;
+              setModelCatalog(undefined);
+              (async () => {
+                try {
+                  if (!memberRemote || typeof memberRemote.session?.modelCatalog !== 'function') throw new Error('modelCatalog remote unavailable');
+                  const response = await memberRemote.session.modelCatalog();
+                  if (alive) setModelCatalog(response?.ok && Array.isArray(response.value?.groups) ? response.value : null);
+                } catch { if (alive) setModelCatalog(null); }
+              })();
+              return () => { alive = false; };
+            }, [catalogRevision]);
+            const modelOptions = modelOptionsOf(modelCatalog !== undefined && modelCatalog !== null ? modelCatalog : null);
             const { draft, avatars, errors, ready, busy, dirty, conflict, status } = editor.state;
             const update = (key, patch) => editor.update(key, patch);
             const writeAvatar = (key, url) => editor.avatar(key, url);
@@ -3562,7 +3625,7 @@ window.__ModuleLoader__.load({
 						]),
 						avatars[key] ? h('button', { key: 'clear', type: 'button', style: { fontSize: 11, cursor: 'pointer' }, onClick: () => writeAvatar(key, '') }, t('member.avatar.clear')) : null
 					]),
-					errors[key] ? h('div', { key: 'e', style: { fontSize: 11, color: '#f25a5a', marginBottom: 4 } }, errors[key]) : null,
+					errors[key] ? h('div', { key: 'e', style: { fontSize: 11, color: '#f25a5a', marginBottom: 4 } }, errors[key] === 'member.error.model' ? t(errors[key]) : errors[key]) : null,
 					h('label', { key: 'name', style: { display: 'block', fontSize: 11, color: INK2, marginBottom: 2 } }, t('member.name')),
 					h('input', {
 						key: 'ni',
@@ -3573,6 +3636,32 @@ window.__ModuleLoader__.load({
 						style: inputStyle,
 						onChange: (event) => update(key, { name: event?.target?.value ?? '' })
 					}),
+					h('label', { key: 'ml', style: { display: 'block', fontSize: 11, color: INK2, margin: '8px 0 2px' } }, t('member.model')),
+					modelOptions.length > 0
+						? (function () {
+							const value = draft[key].model || '';
+							const opts = [h('option', { key: '', value: '' }, t(key === 'lead' ? 'member.model.defaultLead' : 'member.model.default'))];
+							if (value !== '' && !modelOptions.some((option) => option.value === value)) opts.push(h('option', { key: 'current', value }, value));
+							for (const option of modelOptions) opts.push(h('option', { key: option.value, value: option.value }, option.label));
+							return h('select', {
+								key: 'mi',
+								value,
+								style: inputStyle,
+								onChange: (event) => update(key, { model: event?.target?.value ?? '' })
+							}, opts);
+						}())
+						: h('input', {
+							key: 'mi',
+							type: 'text',
+							disabled: modelCatalog === undefined,
+							value: draft[key].model,
+							maxLength: 200,
+							placeholder: 'provider/id',
+							style: inputStyle,
+							onChange: (event) => update(key, { model: event?.target?.value ?? '' })
+						}),
+					modelCatalog !== undefined && modelOptions.length === 0 ? h('div', { key: 'mh', style: { fontSize: 11, color: INK3, marginTop: 4 } }, t('member.model.unavailable')) : null,
+					h('div', { key: 'mhint', style: { fontSize: 11, color: INK3, marginTop: 4 } }, t('member.model.hint')),
 					h('label', { key: 'prompt', style: { display: 'block', fontSize: 11, color: INK2, margin: '8px 0 2px' } }, t('member.prompt')),
 					h('textarea', {
 						key: 'pi',
@@ -3600,7 +3689,9 @@ window.__ModuleLoader__.load({
 				!ready ? h('div', { key: 'unavailable', role: 'status' }, t('member.status.unavailable')) : null,
                 status ? h('div', { key: 'status', style: { fontSize: 11, color: INK2, marginBottom: 8 } }, t(status)) : null,
                 conflict ? h('div', { key: 'conflict', role: 'alert' }, t('member.status.conflict')) : null,
-                h('fieldset', { key: 'fields', disabled: !ready || busy, style: { border: 0, padding: 0, margin: 0 } }, cards),
+                h('button', { key: 'catalog', type: 'button', onClick: () => refreshCatalog(value => value + 1) }, t('member.model.refresh')),
+                  modelCatalog?.failures?.length ? h('div', { key: 'catalog-errors', role: 'status' }, t('member.model.partial')) : null,
+                  h('fieldset', { key: 'fields', disabled: !ready || busy, style: { border: 0, padding: 0, margin: 0 } }, cards),
                 h('button', { key: 'save', type: 'button', disabled: !ready || busy || !dirty || conflict, onClick: () => editor.save() }, t('member.save')),
                 h('button', { key: 'cancel', type: 'button', disabled: busy, onClick: () => editor.cancel() }, t('member.cancel'))
 			]);
@@ -3659,6 +3750,14 @@ window.__ModuleLoader__.load({
 			'member.status.failed': '保存失败，请重试',
 			'member.status.unavailable': '设置通道不可用',
 			'member.lead.hint': '清空此框 = 关闭御下术（不注入该段）；「恢复默认」还原出厂定稿。',
+			'member.model': '模型（每成员独立）',
+			'member.model.default': '使用首辅配置；未配置时使用 DSH 默认模型',
+			'member.model.defaultLead': '使用 DSH 默认模型',
+			'member.model.refresh': '刷新模型目录',
+			'member.model.partial': '部分提供方加载失败；现有选择保留。可刷新重试。',
+			'member.error.model': '模型必须为 provider/id，最长 200 字符，不能含控制字符。',
+			'member.model.unavailable': '模型列表暂不可用：请手动输入 provider/id。',
+			'member.model.hint': '保存后在下一次提示词装配生效；正在进行的请求不变。仅内阁模式应用，清空后主动恢复默认模型。',
 			'member.error.type': '格式不支持：只接受 PNG / JPEG / WebP',
 			'member.error.size': '文件过大：源文件不超过 2MB',
 			'member.error.decode': '图片读取失败，请换一张',
@@ -3716,6 +3815,14 @@ window.__ModuleLoader__.load({
 			'member.status.failed': 'Save failed, try again',
 			'member.status.unavailable': 'Settings channel unavailable',
 			'member.lead.hint': 'Clearing this box turns the Lead policy off (nothing injected); "Restore default" brings back the factory text.',
+			'member.model': 'Model (per member)',
+			'member.model.default': 'Use Lead configuration, otherwise DSH default',
+			'member.model.defaultLead': 'Use DSH default model',
+			'member.model.refresh': 'Refresh model catalog',
+			'member.model.partial': 'Some providers failed to load; saved choices are retained. Refresh to retry.',
+			'member.error.model': 'Use provider/id, at most 200 characters, without control characters.',
+			'member.model.unavailable': 'Model list unavailable: type provider/id manually.',
+			'member.model.hint': 'Applies at the next prompt assembly after Save; in-flight requests stay unchanged. Cabinet mode only. Clearing actively restores the default model.',
 			'member.error.type': 'Unsupported format: PNG / JPEG / WebP only',
 			'member.error.size': 'File too large: source must be at most 2MB',
 			'member.error.decode': 'Could not read the image, try another file',
@@ -3756,6 +3863,15 @@ window.__ModuleLoader__.load({
 			ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'cabinet-ui: dictionaries');
 			const t = ctx.locale.bind(NS);
 			memberT = t;
+			// Model catalog remote for the settings picker; absent remotes
+			// degrade the picker to a provider/id text field at render time.
+			ctx.inject(['remote', 'remote.session'], scope => {
+				const remote = scope.remote;
+				scope.effect(() => {
+					memberRemote = remote;
+					return () => { if (memberRemote === remote) memberRemote = null; };
+				}, 'cabinet-ui: model catalog remote');
+			});
 			// Stage one: declare the page type. No patterns => a page type, opened by kind.
 			ctx.effect(() => ctx.sidebarRightTabs.register({
 				id: TAB_ID,

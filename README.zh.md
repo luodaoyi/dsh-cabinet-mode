@@ -30,6 +30,24 @@
 冲突，须取消重读后再编辑，不会用旧草稿覆盖。配置尚未加载时禁止编辑。
 保存的提示词在下一次提示词装配时生效。
 
+每个官职都有 **模型** 下拉，读取官方 `session.modelCatalog`。修改提供方后可点击
+**刷新模型目录**；目录中暂时不存在的已存选择仍保留，部分提供方失败不会清空配置。
+目录不可用时提供手动 `provider/id` 输入。模型 ID 支持 +、@、空格及额外斜杠，
+仅第一个斜杠分隔提供方；格式错误会阻止保存。
+
+仅在 **内阁模式** 中，profile 策略优先于原生会话模型选择：成员显式模型优先；
+阁臣留空时使用已配置的首辅模型，首辅未配置时使用当前 **DSH 部署默认模型**。
+首辅留空也使用部署默认模型，并非继承另一个会话最后使用的模型。清空会主动恢复
+该默认路由，即使历史请求头仍记录上次覆盖模型也不会继续沿用它。
+
+路由在提示词装配时快照，并通过同一 AgentLoop turn signal 关联请求。保存影响
+下一次装配，已存活成员同样生效；正在进行的请求保持原快照。实时 cabinet preset
+和真实团队角色共同限定范围，名为 lead 的阁臣不会获得首辅策略。换模型时使用
+新模型适配器的 reasoning 默认值，同路由保留原生 effort。步骤中途切换模式会
+中止该步骤，避免提示词与路由错配；运行期间切出内阁时，将残留插件覆盖恢复到
+接管前记录的路由。卸载会中止仍在运行的受管轮次、保留排队输入并移除监听器，但不会改写会话历史。默认模型不可用时明确
+报错，不会静默保留旧覆盖。
+
 可上传不超过 2 MB 的 PNG/JPEG/WebP；浏览器居中裁成 96×96 PNG，data URL 不超过
 48 KB。保存后头像同时用于内阁面板和原生团队列表。**恢复默认** 将该官职组的
 显示名、头像、提示词恢复出厂状态；**重置全部** 重置五员草稿，二者都须再点保存。
@@ -140,7 +158,7 @@ https://raw.githubusercontent.com/luodaoyi/dsh-cabinet-mode/market-index/marketp
 仅在商店不可用或本地开发时使用。先完全退出桌面 DSH，释放 profile 锁，再执行：
 
 ```sh
-dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.3.1/dsh-cabinet-mode-0.3.1.tgz
+dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.4.0/dsh-cabinet-mode-0.4.0.tgz
 dsh plugin --profile desktop list
 ```
 
@@ -151,7 +169,7 @@ dsh plugin --profile desktop list
 若通过插件市场安装：刷新市场，先在**已安装**页卸载旧版本，再从**插件市场**安装新版本，然后重启——没有 tgz URL 要换，也没有一键更新。否则用同一条安装命令换新版本 URL（或在插件页选新 `.tgz`），然后完全退出并重启 DeepSeek Harness：
 
 ```sh
-dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.3.1/dsh-cabinet-mode-0.3.1.tgz
+dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.4.0/dsh-cabinet-mode-0.4.0.tgz
 ```
 
 `dsh plugin --profile desktop list` 应显示新版本。升级已在 Windows 实测：

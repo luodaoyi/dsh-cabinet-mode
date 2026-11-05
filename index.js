@@ -1,5 +1,6 @@
 /** Profile-wide settings; prompt rendering is restricted to live Cabinet agents. */
 import z from '@deepseek-ai/schemastery';
+import { randomUUID } from 'node:crypto';
 
 /** Prompt section carrying the configured member block (empty when unset). */
 const MEMBER_SECTION = 'cabinet:member';
@@ -87,6 +88,48 @@ const MAX_NAME_LENGTH = 40;
 const MAX_PROMPT_LENGTH = 4000;
 /** One avatar data URL must stay a small field (96x96 PNG, browser-normalized). */
 const MAX_AVATAR_LENGTH = 48 * 1024;
+/** One model route bound; a longer value is treated as corrupt and reset. */
+const MAX_MODEL_LENGTH = 200;
+
+/**
+ * Coerce a stored per-member model route to `provider/id` or ''.
+ * Wrong shapes (a number, an object), a missing slash, control characters or
+ * an over-long value all degrade to '' — the member then follows the Lead
+ * default, matching the field-level tolerance used for name/prompt/mode.
+ */
+function clampModel(value) {
+	if (typeof value !== 'string') return '';
+	const trimmed = value;
+	if (trimmed === '' || trimmed.length > MAX_MODEL_LENGTH) return '';
+	// Model IDs are opaque (including +, @, spaces and additional slashes).
+	if (!/^[^/\s\x00-\x1f\x7f]+\/[^\x00-\x1f\x7f]+$/.test(trimmed)) return '';
+	return trimmed;
+}
+
+/**
+ * Parse a configured `provider/id` route into the {provider, model} pair the
+ * agent/request waterfall expects. Model ids may themselves contain slashes,
+ * so only the first slash splits (provider before it, model id after it).
+ * Undefined for an empty or corrupt value; the caller resolves the default.
+ */
+function modelRoute(value) {
+	const route = clampModel(value);
+	if (route === '') return undefined;
+	const cut = route.indexOf('/');
+	const provider = route.slice(0, cut);
+	const model = route.slice(cut + 1);
+	if (provider === '' || model === '') return undefined;
+	return { provider, model };
+}
+
+/**
+ * The configured model route for one bureau key, read fresh on every call so a
+ * saved setting applies at the next request boundary of an already-running
+ * member instead of only after a restart.
+ */
+function memberModel(config, key) {
+	return modelRoute(memberEntries(config).get(key)?.model);
+}
 
 /**
  * Factory default prompt for the Lead (御下术). This text is product copy: the
@@ -149,7 +192,8 @@ function memberEntries(config) {
 		entries.set(key, {
 			name: clampText(entry.name, MAX_NAME_LENGTH),
 			prompt: clampText(entry.prompt, MAX_PROMPT_LENGTH),
-			mode: entry.mode === 'off' || entry.mode === 'custom' ? entry.mode : ''
+			mode: entry.mode === 'off' || entry.mode === 'custom' ? entry.mode : '',
+			model: clampModel(entry.model)
 		});
 	}
 	return entries;
@@ -229,6 +273,115 @@ function sectionText(ctx, config, agent) {
 	}
 }
 
+/** Resolve current composition and actual team role, never a cached name. */
+function memberKeyOf(ctx, agent) {
+	if (ctx.get('agentPresets')?.composedPreset(agent.ctx) !== 'cabinet') return undefined;
+	const member = membershipOf(ctx, agent);
+	if (member === undefined) return undefined;
+	if (member.role === 'lead') return 'lead';
+	if (member.role !== 'teammate') return undefined;
+	const key = bureauOf(member.name).key;
+	return key !== '' && key !== 'lead' ? key : undefined;
+}
+
+/** Couple one live Cabinet route to one AgentLoop turn signal. */
+function attachMemberModel(ctx, config, agent, attached, routeMemory = new Map()) {
+	if (!agent || typeof agent.ctx?.on !== 'function') return undefined;
+	if (agent.id !== undefined && attached.has(agent.id)) return undefined;
+	let active = true;
+	let controlledSignal;
+	const turns = new WeakMap();
+	let disposeNotice;
+	const sameRoute = (a, b) => !!a && !!b && a.provider === b.provider && a.model === b.model;
+	const keyFor = () => { try { return memberKeyOf(ctx, agent); } catch { return undefined; } };
+	const defaultRoute = () => {
+		const value = ctx.get('agentDefaultModel')?.currentSelection?.() ?? agent.options;
+		return value?.provider && value?.model ? { provider: value.provider, model: value.model, ...(value.reasoningEffort === undefined ? {} : { reasoningEffort: value.reasoningEffort }) } : undefined;
+	};
+	const disposeAssembly = agent.ctx.on('system-prompt/assemble', async (_assembly, context, next) => {
+		// Native setup may register its own prepended notice before this assembly.
+		// Install our final-route notice last, after all selection setup has run.
+		disposeNotice?.();
+		disposeNotice = installNotice();
+		const key = keyFor();
+		const route = key === undefined ? undefined : memberModel(config, key) ?? (key === 'lead' ? undefined : memberModel(config, 'lead')) ?? defaultRoute();
+		const signal = context?.signal;
+		// AgentLoop serializes steps within one turn. Reject ambiguous concurrent
+		// assemblies on that signal instead of sending a mismatched model/prompt.
+		if (signal && turns.get(signal)?.pending) throw new Error('Cabinet: overlapping prompt assembly for one turn');
+		const state = { key, route, pending: true };
+		if (signal) turns.set(signal, state);
+		try {
+			const assembled = await next();
+			if (!active) return assembled;
+			if (keyFor() !== key || signal?.aborted) throw new Error('Cabinet: membership or mode changed during prompt assembly');
+			const previous = routeMemory.get(agent.id);
+			if (key === undefined && previous && sameRoute(assembled.variables, previous.override)) state.route = previous.baseline;
+			if (key !== undefined && !state.route) throw new Error('Cabinet: no default model available to clear the member override');
+			state.pending = false;
+			if (signal) controlledSignal = state.route ? signal : undefined;
+			return state.route ? { ...assembled, variables: { ...assembled.variables, provider: state.route.provider, model: state.route.model } } : assembled;
+		} catch (error) { if (signal && turns.get(signal) === state) turns.delete(signal); throw error; }
+	}, { prepend: true });
+	const disposeRequest = agent.ctx.on('agent/request', async (payload, next) => {
+		const state = payload?.signal ? turns.get(payload.signal) : undefined;
+		const resolved = await next();
+		if (!active) {
+			if (state?.route) throw new Error('Cabinet: model policy unloaded during request');
+			return resolved;
+		}
+		if (!state || state.pending) {
+			const key = keyFor();
+			if (key !== undefined && (memberModel(config, key) || memberModel(config, 'lead'))) throw new Error('Cabinet: model request has no matching prompt assembly');
+			return resolved;
+		}
+		if (state.key !== keyFor() || payload.signal.aborted) throw new Error('Cabinet: membership or mode changed before request');
+		if (!state.route) return resolved;
+		if (state.key !== undefined) {
+			const previous = routeMemory.get(agent.id);
+			const baseline = previous && sameRoute(resolved, previous.override) ? previous.baseline : {
+				provider: resolved.provider, model: resolved.model,
+				...(resolved.reasoningEffort === undefined ? {} : { reasoningEffort: resolved.reasoningEffort })
+			};
+			routeMemory.set(agent.id, { baseline, override: state.route });
+		} else routeMemory.delete(agent.id);
+		// Preserve native effort on the same route; a different model must use
+		// its own adapter default rather than another model's effort identifier.
+		if (sameRoute(state.route, resolved)) return resolved;
+		const { reasoningEffort: _oldEffort, ...rest } = resolved;
+		return { ...rest, ...state.route };
+	}, { prepend: true });
+	const installNotice = () => agent.ctx.on('agent/pre-step', async (payload, next) => {
+		const decision = await next();
+		const state = payload.signal ? turns.get(payload.signal) : undefined;
+		if (!active || !state?.route || decision.kind === 'reject' || payload.signal.aborted) return decision;
+		if (state.key !== keyFor()) throw new Error('Cabinet: membership or mode changed before step');
+		// Replace the native selection's notice with the route actually assembled.
+		const messages = decision.messages.filter(message => message.source?.kind !== 'model-selection');
+		if (!messages.length && (payload.step === 1 || payload.messages.length)) return { ...decision, messages };
+		const previous = agent.session?.requestHeader?.()?.config;
+		if (!previous || sameRoute(previous, state.route)) return { ...decision, messages };
+		const from = previous.provider + '/' + previous.model;
+		const to = state.route.provider + '/' + state.route.model;
+		return { ...decision, messages: [...messages, {
+			id: randomUUID(), role: 'user',
+			content: [{ type: 'text', text: '[model changed: assistant turns above this point were generated by ' + from + '; the session continues with ' + to + ']' }],
+			source: { kind: 'model-selection', form: 'notice', summary: (from + ' → ' + to).slice(0, 200) }
+		}] };
+	}, { prepend: true });
+	const dispose = () => {
+		active = false;
+		// Removing hooks between assembly and request must not send the already
+		// rendered prompt through a different route. Preserve queued user input.
+		if (controlledSignal && !controlledSignal.aborted) agent.cancel?.({ kind: 'hook', reason: 'Cabinet model policy unloaded' }, { keepInbox: true });
+		try { disposeAssembly(); } catch { /* already disposed */ }
+		try { disposeRequest(); } catch { /* already disposed */ }
+		try { disposeNotice?.(); } catch { /* already disposed */ }
+	};
+	if (agent.id !== undefined) attached.set(agent.id, dispose);
+	return dispose;
+}
+
 /** Host plugin entry. */
 const name = 'cabinet-ui';
 /** Services read by this entry; `agentTeams` is resolved lazily in apply(). */
@@ -245,6 +398,39 @@ function apply(ctx, config) {
 		// User prompts are free text; never treat `{{...}}` in them as variables.
 		interpolate: false
 	}), 'cabinet-member: prompt section');
+	// Per-member model selection: attach the assemble/request waterfall to each
+	// Cabinet member agent as it is announced (and to agents already live when
+	// this plugin mounts), dispose it with the agent. Agents created before
+	// roster registration are resolved lazily at their first assembly.
+	const attached = new Map();
+	// Keep the pre-Cabinet route across same-session Agent recreation on mode switches.
+	const routeMemory = new Map();
+	const attach = (agent) => {
+		try {
+			attachMemberModel(ctx, config, agent, attached, routeMemory);
+		} catch (error) {
+			try { ctx.logger?.warn?.(`cabinet-ui: model selection attach failed: ${String(error)}`); } catch { /* logger unavailable */ }
+		}
+	};
+	ctx.effect(() => {
+		const offCreated = ctx.on('agent/created', ({ agent }) => attach(agent));
+		const offDisposed = ctx.on('agent/disposed', ({ agent }) => {
+			const dispose = agent === undefined || agent === null ? undefined : attached.get(agent.id);
+			if (dispose === undefined) return;
+			attached.delete(agent.id);
+			dispose();
+		});
+		try {
+			for (const agent of ctx.get('agents')?.list?.() ?? []) attach(agent);
+		} catch { /* registry unavailable: announce listener still covers new agents */ }
+		return () => {
+			try { offCreated?.(); } catch { /* already disposed */ }
+			try { offDisposed?.(); } catch { /* already disposed */ }
+			for (const dispose of Array.from(attached.values())) dispose();
+			attached.clear();
+			routeMemory.clear();
+		};
+	}, 'cabinet-member: model selection');
 }
 
-export { bureauOf, sectionText, memberBlock, Config, DEFAULT_LEAD_PROMPT, DEFAULT_MEMBER_PROMPTS, MEMBER_KEYS, MEMBER_LABELS, MEMBER_SECTION, MAX_AVATAR_LENGTH, MAX_NAME_LENGTH, MAX_PROMPT_LENGTH, apply, inject, name };
+export { bureauOf, sectionText, memberBlock, memberModel, modelRoute, clampModel, attachMemberModel, Config, DEFAULT_LEAD_PROMPT, DEFAULT_MEMBER_PROMPTS, MEMBER_KEYS, MEMBER_LABELS, MEMBER_SECTION, MAX_AVATAR_LENGTH, MAX_MODEL_LENGTH, MAX_NAME_LENGTH, MAX_PROMPT_LENGTH, apply, inject, name };

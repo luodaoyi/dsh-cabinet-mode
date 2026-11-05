@@ -50,6 +50,31 @@ atomically using the revision that was loaded. If another page changes settings,
 cancel/reload before editing again; a stale draft cannot overwrite it. Editing is
 disabled until settings have loaded. Changes apply to the next prompt assembly.
 
+Each office has a **Model** picker populated by the official runtime
+`session.modelCatalog`. Use **Refresh model catalog** after changing providers.
+Saved choices absent from the current catalog remain visible; partial provider
+failures do not erase them. If the catalog is unavailable, a manual
+`provider/id` field is offered. IDs may contain +, @, spaces and further slashes;
+only the first slash separates the provider. Invalid input blocks Save.
+
+In **Cabinet mode**, the profile policy takes precedence over the native
+session picker: an explicit member model wins; an empty teammate selection
+uses the configured Lead model, otherwise the current **DSH deployment default**.
+An empty Lead selection uses that deployment default. This is not inheritance
+of a different session's last request. Clearing actively restores this default,
+even when the previous request header recorded an overridden model.
+
+Routes are snapshotted at prompt assembly and paired with the same AgentLoop
+turn signal for requests. Save affects the next assembly, including already-live
+members; in-flight requests keep their snapshot. Actual team roles and the live
+Cabinet preset gate the policy; a teammate named lead cannot gain Lead policy.
+Different models use their adapter's reasoning default; matching routes retain
+native effort. Mode changes during a step abort that step rather than route a
+mismatched prompt. On a live mode exit, a retained plugin override is restored
+to the route recorded before Cabinet took over. Unloading cancels any active routed turn while retaining queued input, then
+removes its listeners; it does not rewrite persisted session history. The default model
+must be available; missing defaults fail explicitly instead of keeping a stale override.
+
 Upload PNG/JPEG/WebP up to 2 MB; the browser crops it to a 96×96 PNG (at most
 48 KB data URL). Saved portraits apply to Cabinet cards and native team avatars.
 Restore default resets that office's name, portrait and factory prompt; Reset all
@@ -193,7 +218,7 @@ On failure, show the exact error. For $.format must be 1, replace the webpage so
 Use this only when the market is unavailable or for local development. Fully quit desktop DSH first to release the profile lock, then install the release bundle:
 
 ```sh
-dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.3.1/dsh-cabinet-mode-0.3.1.tgz
+dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.4.0/dsh-cabinet-mode-0.4.0.tgz
 dsh plugin --profile desktop list
 ```
 
@@ -208,7 +233,7 @@ the same install command with the new version URL (or pick the new `.tgz` in the
 plugin page), then fully quit and restart DeepSeek Harness:
 
 ```sh
-dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.3.1/dsh-cabinet-mode-0.3.1.tgz
+dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.4.0/dsh-cabinet-mode-0.4.0.tgz
 ```
 
 `dsh plugin --profile desktop list` should report the new version. Upgrades were
