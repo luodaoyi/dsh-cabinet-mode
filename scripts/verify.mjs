@@ -243,7 +243,7 @@ if (existsSync(PATCH_PATH)) {
 }
 
 // ---------- fallback scripts ----------
-for (const test of ['test-install.mjs', 'test-client.mjs']) {
+for (const test of ['test-install.mjs', 'test-client.mjs', 'test-avatars.mjs']) {
   const result = spawnSync(process.execPath, [join(ROOT, 'scripts', test)], {
     encoding: 'utf8', timeout: 30000, windowsHide: true,
   });
