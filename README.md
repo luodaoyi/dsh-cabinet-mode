@@ -68,18 +68,13 @@ preset declaration:
   in cards, Owner tags and off-roster groups. Truncated labels have full tooltips;
   unmatched names use a neutral avatar.
 
-The five member avatars are tinted per bureau: Lead bright yellow, 翰林院编修
-(编辑) cyan, 工部主事 (执行) red, 大理寺评事 (核验) dark, 都察院御史 (验收)
-crimson — light-toned chibi portraits in Ming-style court dress
-(soft-focus guofeng backdrop inside the circle). They are
-embedded in `client.js` as 128px data URLs; the square source PNGs live in
-`docs/images/avatars/` and are downscaled by `src/build_avatars.py` (originals
-are kept at 512x512 and are never embedded directly).
+The five original chibi portraits use Ming-style black winged hats, round-collar robes and square rank badges. The Lead wears burgundy with a crane badge (an artistic setting of a grand secretary with an additional first-rank title); Hanlin editor and Dali reviewer wear seventh-rank mandarin-duck badges, Works officer a sixth-rank egret, and the investigating censor a xiezhi. Robe colours distinguish roles and are not presented as mandatory rank colours.
 
-Example (the other four are in the same directory: `hanlin.png` / `works.png` /
-`dali.png` / `yushi.png`):
+See [costume references, role settings and generation prompts](docs/images/avatars/README.md). The 1254px square sources are downscaled by `src/build_avatars.py` to 128px PNGs embedded in `client.js`. At the panel's 22–24px display size, role labels remain the primary identification.
 
-![Lead avatar example](docs/images/avatars/lead.png)
+| Lead | Hanlin | Works | Dali | Censor |
+| --- | --- | --- | --- | --- |
+| ![Lead, crane badge](src/avatars/lead.png) | ![Hanlin editor, duck badge](src/avatars/hanlin.png) | ![Works officer, egret badge](src/avatars/works.png) | ![Dali reviewer, duck badge](src/avatars/dali.png) | ![Investigating censor, xiezhi badge](src/avatars/yushi.png) |
 
 The panel reads two existing data channels only — per-session running status
 (`api-session/status`) and the `agentTeam` session projection (roster and task
@@ -139,7 +134,7 @@ On failure, show the exact error. For $.format must be 1, replace the webpage so
 Use this only when the market is unavailable or for local development. Fully quit desktop DSH first to release the profile lock, then install the release bundle:
 
 ```sh
-dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.2.3/dsh-cabinet-mode-0.2.3.tgz
+dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.2.4/dsh-cabinet-mode-0.2.4.tgz
 dsh plugin --profile desktop list
 ```
 
@@ -154,7 +149,7 @@ the same install command with the new version URL (or pick the new `.tgz` in the
 plugin page), then fully quit and restart DeepSeek Harness:
 
 ```sh
-dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.2.3/dsh-cabinet-mode-0.2.3.tgz
+dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.2.4/dsh-cabinet-mode-0.2.4.tgz
 ```
 
 `dsh plugin --profile desktop list` should report the new version. Upgrades were

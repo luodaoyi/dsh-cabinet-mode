@@ -2,6 +2,18 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.2.4] - 2026-11-05
+
+### Changed
+
+- Replace all five Cabinet portraits with original Ming-style chibi officials,
+  using role-specific crane, duck, egret and xiezhi rank badges. Document the
+  chief secretary's additional-rank artistic setting and costume references.
+- Preserve role matching and member identity labels; regenerate the 128px PNGs
+  and embedded browser/module assets through the existing Pillow pipeline.
+- Add byte-parity regression checks for the five PNGs and both embedded modules,
+  and include exact illustration prompts and bilingual README galleries.
+
 ## [0.2.3] - 2026-11-05
 
 ### Documentation

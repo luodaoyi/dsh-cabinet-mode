@@ -36,11 +36,13 @@
 - **任务三色**：待办灰、进行中蓝、已完成绿（面板底部附图例）。
 - **成员形象**：每行包含圆形头像、中文称谓与成员原名、状态文字和当前模型。别名共享衙门头像，成员卡片、Owner 标签和不在册分组保留原名以区分身份；截断文字提供完整提示，未匹配名称使用中性头像。
 
-五张成员头像按衙门分色：首辅明黄、翰林院编修青、工部主事赤、大理寺评事玄、都察院御史绯——浅色系国风 Q 版明代冠服人物（圈内浅景深国风背景）。头像以 128px data URL 内嵌进 `client.js`，源图为正方形 PNG 存于 `docs/images/avatars/`，由 `src/build_avatars.py` 缩放生成（源图 512×512，不直接内嵌）。
+五张原创 Q 版头像采用明代乌纱帽、圆领袍与方形胸补。首辅用酒红袍、鹤补（明确采用“加一品衔大学士”的艺术设定）；翰林院编修与大理寺评事用七品鸂鶒补，工部主事用六品鹭鸶补，都察院角色具体按监察御史设定，使用獬豸补。袍色用于区分角色，不宣称是各品级常服的固定颜色。
 
-示例（其余四张同目录：`hanlin.png` / `works.png` / `dali.png` / `yushi.png`）：
+详见[衣冠依据、角色设定与生成提示词](docs/images/avatars/README.md)。1254px 正方形源图经 `src/build_avatars.py` 缩放为 128px PNG 并内嵌到 `client.js`；界面实际显示 22–24px，身份辨认仍以角色文字为准。
 
-![首辅头像示例](docs/images/avatars/lead.png)
+| 首辅 | 翰林院编修 | 工部主事 | 大理寺评事 | 都察院御史 |
+| --- | --- | --- | --- | --- |
+| ![首辅：鹤补](src/avatars/lead.png) | ![编修：鸂鶒补](src/avatars/hanlin.png) | ![主事：鹭鸶补](src/avatars/works.png) | ![评事：鸂鶒补](src/avatars/dali.png) | ![监察御史：獬豸补](src/avatars/yushi.png) |
 
 面板只读取两条既有数据通道：成员运行状态（`api-session/status`）与会话投影 `agentTeam`（成员名册与任务板），不新增服务、不新增协议。
 
@@ -93,7 +95,7 @@ https://raw.githubusercontent.com/luodaoyi/dsh-cabinet-mode/market-index/marketp
 仅在商店不可用或本地开发时使用。先完全退出桌面 DSH，释放 profile 锁，再执行：
 
 ```sh
-dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.2.3/dsh-cabinet-mode-0.2.3.tgz
+dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.2.4/dsh-cabinet-mode-0.2.4.tgz
 dsh plugin --profile desktop list
 ```
 
@@ -104,7 +106,7 @@ dsh plugin --profile desktop list
 若通过插件市场安装：刷新市场，先在**已安装**页卸载旧版本，再从**插件市场**安装新版本，然后重启——没有 tgz URL 要换，也没有一键更新。否则用同一条安装命令换新版本 URL（或在插件页选新 `.tgz`），然后完全退出并重启 DeepSeek Harness：
 
 ```sh
-dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.2.3/dsh-cabinet-mode-0.2.3.tgz
+dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.2.4/dsh-cabinet-mode-0.2.4.tgz
 ```
 
 `dsh plugin --profile desktop list` 应显示新版本。升级已在 Windows 实测：
