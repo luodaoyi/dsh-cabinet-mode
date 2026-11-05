@@ -2379,11 +2379,42 @@ window.__ModuleLoader__.load({
 		};
 
 		// ---------- avatar mapping ------------------------------------------
-		// member name -> avatar key by prefix: lead/hanlin/works/dali/yushi;
-		// an unmatched name gets a neutral "unassigned" mark instead of a bureau
-		// avatar, so a stranger is never mistakable for the Lead.
-		const AVATAR_KEYS = ['lead', 'hanlin', 'works', 'dali', 'yushi'];
-		const ROLE_PREFIXES = { lead: ['首辅', '内阁首辅'], hanlin: ['翰林院', '编修'], works: ['工部', '主事'], dali: ['大理寺', '评事'], yushi: ['都察院', '御史'] };
+		// member name -> bureau by prefix. Teammates are named either after the office
+		// they hold (hanlin, gongbu, gongbu2, dali, yushi) or with the Chinese role
+		// prefixes the maintainer documents (首辅/内阁首辅, 翰林院/编修, 工部/主事,
+		// 大理寺/评事, 都察院/御史). One alias table answers both questions: which
+		// avatar to draw and how to label the member in Chinese.
+		const BUREAUX = [
+			{ key: 'lead', aliases: ['lead', 'shoufu', '首辅', '内阁首辅'], label: '首辅' },
+			{ key: 'hanlin', aliases: ['hanlin', 'bianxiu', '翰林院', '翰林', '编修'], label: '翰林院编修' },
+			{ key: 'works', aliases: ['gongbu', 'works', 'zhushi', '工部', '主事'], label: '工部主事' },
+			{ key: 'dali', aliases: ['dali', 'pingshi', '大理寺', '大理', '评事'], label: '大理寺评事' },
+			{ key: 'yushi', aliases: ['yushi', 'censor', '都察院', '御史'], label: '都察院御史' }
+		];
+		const AVATAR_KEYS = BUREAUX.map((bureau) => bureau.key);
+		function bureauOf(name) {
+			const text = typeof name === 'string' ? name.trim() : '';
+			const lower = text.toLowerCase();
+			for (const bureau of BUREAUX) {
+				for (const alias of bureau.aliases) {
+					if (!lower.startsWith(alias.toLowerCase())) continue;
+					const rest = text.slice(alias.length);
+					// A pure number is an ordinal (gongbu2 -> 工部主事2); a separator
+					// qualifier names the same office with a role (works-ui,
+					// dali-reviewer). Anything else ("hanlinx") stays unmatched.
+					if (rest !== '' && !/^\d+$/.test(rest) && !/^[-_.][A-Za-z0-9]+$/.test(rest)) continue;
+					return { key: bureau.key, label: bureau.label, suffix: rest, matched: true };
+				}
+			}
+			return { key: '', label: text || '未知', suffix: '', matched: false };
+		}
+		function displayName(name) {
+			const bureau = bureauOf(name);
+			if (!bureau.matched) return bureau.label;
+			if (/^\d+$/.test(bureau.suffix)) return bureau.label + bureau.suffix;
+			if (bureau.suffix !== '') return bureau.label + '（' + bureau.suffix.slice(1) + '）';
+			return bureau.label;
+		}
 		const NEUTRAL_CACHE = new Map();
 		function neutralAvatar(name) {
 			const text = typeof name === 'string' ? name.trim() : '';
@@ -2401,13 +2432,13 @@ window.__ModuleLoader__.load({
 			return url;
 		}
 		function avatarFor(name) {
-			const text = typeof name === 'string' ? name.trim() : '';
-			for (const key of AVATAR_KEYS) if (text.startsWith(key) || ROLE_PREFIXES[key].some((prefix) => text.startsWith(prefix))) return AVATARS[key];
-			return neutralAvatar(text);
+			const bureau = bureauOf(name);
+			if (bureau.matched && AVATARS[bureau.key]) return AVATARS[bureau.key];
+			return neutralAvatar(typeof name === 'string' ? name : '');
 		}
 		function isPlaceholder(name) {
-			const text = typeof name === 'string' ? name : '';
-			return AVATAR_KEYS.some((key) => text.startsWith(key) && AVATAR_PLACEHOLDERS.includes(key));
+			const bureau = bureauOf(name);
+			return bureau.matched && AVATAR_PLACEHOLDERS.includes(bureau.key);
 		}
 
 		// ---------- DOM enhancement: avatars in the native team roster ----------
@@ -2670,7 +2701,7 @@ window.__ModuleLoader__.load({
 					h('span', {
 						key: 'n',
 						style: { fontSize: 13, fontWeight: 600, color: INK, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }
-					}, member.name),
+					}, displayName(member.name)),
 					lead ? h('span', { key: 'lead', className: 'cabinet-badge-lead' }, tt('lead.tag')) : null,
 					isCurrent ? h(Tag, { key: 'cur', background: 'rgba(127,127,127,.2)', color: INK2 }, tt('current')) : null
 				]),
@@ -2721,7 +2752,7 @@ window.__ModuleLoader__.load({
 			if (!task.ownerName) {
 				parts.push(h(Tag, { key: 'own', background: 'rgba(127,127,127,.18)', color: INK2 }, t('task.unassigned')));
 			} else {
-				parts.push(h(Tag, { key: 'owner', background: 'rgba(127,127,127,.16)', color: INK2 }, 'Owner: ' + task.ownerName));
+				parts.push(h(Tag, { key: 'owner', background: 'rgba(127,127,127,.16)', color: INK2 }, 'Owner: ' + displayName(task.ownerName)));
 			}
 			parts.push(h('span', {
 				key: 'id',
@@ -3035,7 +3066,7 @@ window.__ModuleLoader__.load({
 			if (unassigned.length > 0) cells.push({ key: 'group:unassigned', title: tt('task.unassigned'), tasks: unassigned });
 			if (leadOwn.length > 0) cells.push({ key: 'group:leadown', title: tt('task.leadOwn'), tasks: leadOwn });
 			for (const owner of foreignOwners) {
-				cells.push({ key: 'group:' + owner, title: owner, tasks: tasks.filter((task) => task.ownerName === owner) });
+				cells.push({ key: 'group:' + owner, title: displayName(owner), tasks: tasks.filter((task) => task.ownerName === owner) });
 			}
 
 			const treeChildren = [
