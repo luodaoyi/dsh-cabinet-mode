@@ -72,7 +72,7 @@ The five original chibi portraits use Ming-style black winged hats, round-collar
 
 See [costume references, role settings and generation prompts](docs/images/avatars/README.md). The 1254px square sources are downscaled by `src/build_avatars.py` to 128px PNGs embedded in `client.js`. At the panel's 22–24px display size, role labels remain the primary identification.
 
-| Lead | Hanlin | Works | Dali | Censor |
+| 内阁首辅 | 翰林院编修 | 工部主事 | 大理寺评事 | 监察御史 |
 | --- | --- | --- | --- | --- |
 | ![Lead, crane badge](src/avatars/lead.png) | ![Hanlin editor, duck badge](src/avatars/hanlin.png) | ![Works officer, egret badge](src/avatars/works.png) | ![Dali reviewer, duck badge](src/avatars/dali.png) | ![Investigating censor, xiezhi badge](src/avatars/yushi.png) |
 
@@ -134,7 +134,7 @@ On failure, show the exact error. For $.format must be 1, replace the webpage so
 Use this only when the market is unavailable or for local development. Fully quit desktop DSH first to release the profile lock, then install the release bundle:
 
 ```sh
-dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.2.4/dsh-cabinet-mode-0.2.4.tgz
+dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.2.5/dsh-cabinet-mode-0.2.5.tgz
 dsh plugin --profile desktop list
 ```
 
@@ -149,7 +149,7 @@ the same install command with the new version URL (or pick the new `.tgz` in the
 plugin page), then fully quit and restart DeepSeek Harness:
 
 ```sh
-dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.2.4/dsh-cabinet-mode-0.2.4.tgz
+dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.2.5/dsh-cabinet-mode-0.2.5.tgz
 ```
 
 `dsh plugin --profile desktop list` should report the new version. Upgrades were
@@ -164,7 +164,7 @@ on DSH 0.2.1-rc.5.
 | | |
 |---|---|
 | Mode name | 内阁模式 (**Cabinet Mode**), preset id `cabinet`, order 5 |
-| Identity | One persona shared by the Lead and every teammate. The Lead (内阁首辅) reads the request, splits it, assigns work, adjudicates, summarizes and closes the loop; members (翰林院编修 / 工部主事 / 大理寺评事 / 都察院御史) execute bureau-scoped work and must never claim to be the Lead. |
+| Identity | One persona shared by the Lead and every teammate. The Lead (内阁首辅) reads the request, splits it, assigns work, adjudicates, summarizes and closes the loop; members (翰林院编修 / 工部主事 / 大理寺评事 / 监察御史) execute bureau-scoped work and must never claim to be the Lead. |
 | Default posture | Research first, change code only when explicitly authorized; every conclusion must cite a path, line, command output or source; unverified items must be marked as such. |
 | Tools | Same 22 plugin rows as the tested DSH Standard Mode (shell, filesystem, jobs, schedule, skills, goals, plan mode, compaction, delegation/workflow, ask-user, todo, web, present). |
 | Platform | Cross-platform: `tool-bash` is enabled on Linux/macOS, `tool-pwsh` on Windows, exactly like Standard Mode. No absolute paths, no shell-specific install step, no build step. |

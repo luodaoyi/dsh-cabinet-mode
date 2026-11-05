@@ -2,6 +2,16 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.2.5] - 2026-11-05
+
+### Changed
+
+- Use Chinese official titles consistently: 内阁首辅, 翰林院编修, 工部主事,
+  大理寺评事 and 监察御史. Keep the existing rank-appropriate portraits,
+  English internal keys, original member identities and legacy censor aliases.
+- Align the persona and README galleries with these titles; the Lead tag remains
+  Chinese in both UI locales. Add title, alias and identity regression checks.
+
 ## [0.2.4] - 2026-11-05
 
 ### Changed

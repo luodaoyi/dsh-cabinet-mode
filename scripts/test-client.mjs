@@ -36,6 +36,18 @@ for (const [name, expected] of [
 ]) assert.equal(client.displayName(name), expected);
 for (const name of ['hanlinx', 'works-', 'gongbu2x']) assert.match(client.avatarFor(name), /^data:image\/svg\+xml/);
 assert.equal(client.avatarFor('gongbu2'), client.avatarFor('works'));
+// Display Chinese offices without changing the original runtime identity.
+for (const [key, title] of [
+  ['lead', '内阁首辅'], ['hanlin', '翰林院编修'], ['works', '工部主事'],
+  ['dali', '大理寺评事'], ['yushi', '监察御史'],
+]) {
+  assert.equal(client.displayName(key), title + ' · ' + key);
+  assert.equal(client.displayName(title), title);
+  assert.equal(client.avatarFor(key), client.avatarFor(title));
+}
+assert.equal(client.displayName('都察院御史'), '监察御史 · 都察院御史');
+assert.equal(client.avatarFor('都察院御史-一'), client.avatarFor('监察御史-一'));
+for (const language of [client.zh, client.en]) assert.equal(language['lead.tag'], '内阁首辅');
 
 const render = (team, language) => client.CabinetPanel({
   sessionId: 'lead-session',
