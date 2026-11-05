@@ -14,8 +14,11 @@ a research-team preset modeled on the Great Ming Research Bureau cabinet
 (大明科研司·内阁): a Lead (内阁首辅) directs members (阁臣) of four bureaus, defaults
 to research before touching code, and must never fabricate sources.
 
-The package ships a host half (`index.js`, an empty `apply`) and a browser half
-(`client.js`, the right-Sidebar **Cabinet** panel) with the five member avatars
+The package ships a host half (`index.js`, which declares the 「内阁成员」
+settings schema and injects each member's prompt block at assembly time) and a
+browser half
+(`client.js`, the right-Sidebar **Cabinet** panel plus the DSH settings page's
+「内阁成员」 section) with the five member avatars
 embedded as 128px data URLs (square sources in `docs/images/avatars/`,
 downscaled by `src/build_avatars.py`); it also keeps the optional Node.js
 fallback scripts (`scripts/*.mjs`). It has **no third-party runtime

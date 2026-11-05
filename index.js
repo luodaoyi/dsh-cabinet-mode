@@ -152,12 +152,24 @@ const Config = z === undefined ? undefined : z.object({
 	avatarYushi: avatarField()
 });
 
-/** One avatar field: an accepted image data URL when the stored value is one, else the default. */
+/** One avatar field: an accepted image data URL when the stored value is one, else the default.
+ *
+ * The check is INLINED as string literals on purpose. The settings wire carries
+ * `schema.toJSON()`, and the browser rehydrates each transform callback with
+ * `new Function("return " + cb)()` in a scope with no access to this module's
+ * bindings: a callback calling `isAllowedAvatar` throws
+ * `isAllowedAvatar is not defined`, the shell's `decode()` catches it and
+ * returns `undefined`, and the settings page shows every member as unset
+ * forever. Every reference inside the callback must be a literal or a built-in
+ * (`typeof`, `String.prototype.startsWith`). scripts/verify.mjs asserts exactly
+ * this round trip.
+ */
 function avatarField() {
 	return z.transform(z.any(), (value) => {
 		if (typeof value !== 'string') return '';
 		const trimmed = value.trim();
-		return isAllowedAvatar(trimmed) ? trimmed : '';
+		if (trimmed.startsWith('data:image/png;') || trimmed.startsWith('data:image/jpeg;') || trimmed.startsWith('data:image/webp;')) return trimmed;
+		return '';
 	}).default('').volatile();
 }
 

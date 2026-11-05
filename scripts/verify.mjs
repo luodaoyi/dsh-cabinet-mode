@@ -29,7 +29,7 @@
 
 import { existsSync, readFileSync, readdirSync, mkdtempSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
@@ -253,6 +253,40 @@ if (pkg) {
     if (extra.length > 0) problems.push(`unexpected keys ${extra.join(',')}`);
     if (problems.length > 0) bad('member duty prompts', problems.join('; '));
     else ok('member duty prompts: identical in both halves, one per non-Lead member, each names its office');
+  }
+
+  // P0 guard: the settings page decodes its value by rehydrating the WIRE copy of
+  // this schema (`settings.describe` carries `schema.toJSON()`; the shell rebuilds
+  // it with `new Function("return " + cb)()` for every transform callback, in a
+  // scope with no access to this module). A callback closing over a module binding
+  // (the old `isAllowedAvatar`) threw `isAllowedAvatar is not defined`, the shell
+  // caught it and returned `undefined`, and every member showed as unset after a
+  // refresh. Assert the round trip end to end.
+  try {
+    const { Config } = await import(pathToFileURL(join(ROOT, 'index.js')).href);
+    if (Config === undefined) {
+      bad('settings wire round trip', 'Config is undefined (schemastery not resolvable)');
+    } else {
+      const wire = JSON.parse(JSON.stringify(Config));
+      const rehydrated = new (await import('@deepseek-ai/schemastery')).default(JSON.parse(JSON.stringify(wire)));
+      const samples = [
+        ['saved values', { members: [{ key: 'hanlin', name: 'VISIBLE_WRITE_OK', prompt: '', mode: '' }], avatarLead: 'data:image/png;base64,AAA' }],
+        ['empty object', {}],
+        ['corrupt members', { members: 'oops-not-an-array' }],
+        ['wrong avatar type', { avatarLead: 12345 }],
+        ['non-whitelisted image', { avatarLead: 'data:image/svg+xml;base64,X' }],
+      ];
+      const failed = [];
+      for (const [label, value] of samples) {
+        try { rehydrated(value); } catch (error) { failed.push(`${label}: ${error.message}`); }
+      }
+      // The gate must also PASS with the saved values (decode() returns view.value
+      // only when validate() does not throw).
+      if (failed.length > 0) bad('settings wire round trip', failed.join('; '));
+      else ok('settings wire round trip: schema.toJSON() -> rehydrate -> validate survives all samples (no module-closure refs)');
+    }
+  } catch (error) {
+    bad('settings wire round trip', error?.message ?? String(error));
   }
 }
 
