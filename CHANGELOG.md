@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.2.2] - 2026-11-05
+
+### Documentation
+
+- Make the plugin market the preferred installation path for users and AI
+  assistants in both READMEs, with tested UI steps, the exact raw index URL,
+  verification boundaries and explicit tarball/local-directory fallbacks.
+
 ## [0.2.1] - 2026-11-05
 
 ### Changed

@@ -2,6 +2,8 @@
 
 [English](README.md) | 中文
 
+**安装入口：** [优先从插件市场安装](#从插件市场安装索引源推荐)。
+
 <p align="center">
   <img src="docs/images/cabinet-portrait.jpg" width="200" alt="内阁模式图标来源：明代内阁首辅画像（已作为 bundle 图标 icon.svg 随包发布）"/>
 </p>
@@ -51,85 +53,58 @@
 
 ---
 
-## 让 AI 帮你安装（复制下面这段提示词）
+## 从插件市场安装（索引源，推荐）
 
-```text
-请帮我安装 DeepSeek Harness 的「内阁模式」（Cabinet Mode）bundle。
+**用户和 AI 助手都优先通过 DSH 插件市场安装。** 商店会把已发布的 npm bundle 安装到当前 profile，无需克隆仓库、手改配置或寻找 tgz 下载地址。
 
-1. 先运行 `dsh --version` 并告诉我版本。0.2.1-rc.3 是已实测参照；本包不声明
-   DSH 版本硬限制，但其他版本未经验证。
-2. 把 bundle 装进我的 DSH profile：
-   dsh plugin --profile desktop add <dsh-cabinet-mode 仓库或 .tgz 的绝对路径>
-   （也可用 GitHub Release 的 tgz URL 代替本地路径。）
-   若 `dsh` CLI 不可用：打开 DSH 设置 → 插件 → 添加插件 → 选择「本地目录」，
-   指向 dsh-cabinet-mode 仓库的绝对路径。
-3. 运行 `dsh plugin --profile desktop list`，确认出现 dsh-cabinet-mode。
-4. 不要同时把 cordis.patch.yml 追加到我的 profile patch：两种安装方式互斥，
-   同时装会让 preset 重复而加载失败。
-5. 安装完成后提醒我完全退出并重启 DSH；然后在新建任务时选择「内阁模式」
-   （preset id: cabinet）。
-
-任何一步失败请贴原始错误并停止，不要连续重试超过一次。
-```
-
-## 手动安装（3 行）
-
-```sh
-dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.2.1/dsh-cabinet-mode-0.2.1.tgz
-# 完全退出并重启 DeepSeek Harness
-# 新建任务 -> 模式选择器 -> 内阁模式
-```
-
-本地目录安装：把上面的 tgz URL 换成仓库绝对路径即可。Windows 上 CLI 为 `dsh`（经 `dsh.cmd`），Linux/macOS 命令相同。
-
-> **DSH 0.2.1-rc.5 桌面端实测（2026-10-31）：**
->
-> - 桌面端自带的 `dsh` CLI 跑 `dsh plugin --profile desktop list/add ...` 正常
->   （exit 0）。首次使用可能要求先初始化 profile（提示「Open DeepSeek Harness
->   Desktop once … then fully quit it」），并可能等待 profile 锁最多 120 秒——
->   所以**安装/升级前先完全退出 DeepSeek Harness**。
-> - 桌面 profile 真正被拒的是 `dsh --profile desktop --dump-config`
->   （"managed exclusively by the Electron application"）；组合校验请用 `web`
->   profile。
-> - 备选：插件页（设置 → 插件 → 添加插件 → 本地目录 / tgz URL），或 DeepSeek
->   Harness 自带的 pnpm——装完确认 profile `package.json` 的
->   `dsh.profile.bundles` 里保留了 `dsh-cabinet-mode`：
->
-> ```sh
-> node "<DeepSeek Harness 安装目录>\resources\runtime\primary-runtime\dependencies\pnpm\bin\pnpm.mjs" --dir "%USERPROFILE%\.dsh\profiles\desktop" add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.2.1/dsh-cabinet-mode-0.2.1.tgz
-> ```
->
-> 操作前先备份该 profile 的 `package.json` / `pnpm-lock.yaml`。
-
-## 从插件市场安装（索引源）
-
-本 bundle 同时登记在一份由 npm registry 生成的 DeepSeek Harness 插件市场索引里，DSH 可直接安装与更新，无需 tgz URL 或本地目录：
+复制这个 **raw JSON 索引地址**：
 
 ```text
 https://raw.githubusercontent.com/luodaoyi/dsh-cabinet-mode/market-index/marketplace.json
 ```
 
-请复制上面的 **raw JSON 地址**，不要复制 GitHub 的 `tree` 或 `blob` 网页地址。若提示 `$.format must be 1`，移除错误源，再添加上述 raw 地址。先在「插件 → 实验性插件」启用「自定义插件市场」，再打开「发现 → 索引源」。
+1. 打开「**插件 → 实验性插件**」，必要时点击「**更多**」，启用「**自定义插件市场**」。
+2. 返回「**插件 → 发现**」，打开「**索引源**」，粘贴上面的 raw 地址，点击「**添加**」。
+3. 等待出现「**内阁模式 / Cabinet Mode**」，点击「**安装**」。确认弹窗中的包名为 `dsh-cabinet-mode@<版本>`，注册表为 `https://registry.npmjs.org/`，再确认安装。
+4. 检查界面显示「**已安装**」及版本号。**完全退出并重启 DSH**，新建会话，在模式选择器中选「**内阁模式**」（`cabinet`）；需要时通过右侧栏「**+**」打开内阁页签。
 
-1. 在 DSH 打开**插件市场**，打开**索引源**列表，添加上面的 URL 并刷新。
-2. 在市场列表中安装 **内阁模式 / Cabinet Mode**（`dsh-cabinet-mode`）。DSH 会把 `dsh-cabinet-mode@<版本>` 从 `https://registry.npmjs.org` 安装到当前 profile。这与方式 A 是同一种 bundle 安装，二者只能选其一。
-3. **完全退出并重启 DeepSeek Harness**，然后新建任务，在模式选择器中选择**内阁模式**。
-4. 以后更新：先在**已安装**页卸载旧版本，再从**插件市场**安装新版本，然后再次重启。市场对第三方插件**没有原地升级**——「有新版本」徽标点下去只是打开「已安装」页。
+**不要填写 GitHub 的 `blob` 或 `tree` 网页地址。** DSH 不会把网页自动转换成索引；我们已用 blob 地址复现 `$.format must be 1`。遇到该错误，移除错误源，重新添加上述 raw 地址。Respire 等其他商店也适用同一规则。
 
-「可更新」如何判定：DSH 只比较 **SemVer 版本号**，同一版本号重新构建不会提示可更新（npm 版本不可变，npm 源不受影响）。**没有任何定时自动检查**：只有打开或刷新插件市场时才抓取索引，缓存 10 分钟。以上为 DSH 0.2.1-rc.5 源码级结论（行号见 [docs/cross-platform.md](docs/cross-platform.md) 第 7 节）；真实更新流程未做端到端实测。
+**验证范围：** 2026-11-05 已在 Windows、DSH 0.2.1-rc.5 的隔离 web profile 中，通过真实客户端添加 raw 索引并安装 0.2.0。其他 DSH 版本和 Linux/macOS 的商店界面流程尚未验证；索引格式另由官方 rc.5 解析器回归测试。真实团队任务交互属于另一项验证。
 
-索引在每次 tag 发布后由 npm registry 重新生成，只列出已发布、未弃用的稳定版本；不要手工编辑 `market-index` 分支。
+## 让 AI 帮你安装（复制下面这段提示词）
 
-> **发布状态（2026-11-03）：** `dsh-cabinet-mode@0.1.4`、`0.1.5`、`0.1.6` 已由 tag 触发的 OIDC 流程发布到 `registry.npmjs.org`，均带 sigstore provenance；`market-index` 分支在每次发布后自动刷新。tag → 发布 → GitHub Release → 刷新索引全链路已两次跑绿（v0.1.5：run 41657224370；v0.1.6：run 41661809576），索引现列出 0.1.6、0.1.5 与 0.1.4。registry 上另有占位版本 `0.0.0-stage`（预发布，索引不列）。
->
-> **未验证：** 你所用 DSH 版本的插件市场界面文案与点击路径，以及该 GUI 里的真实安装/更新。上面的 `dsh-cabinet-mode@<版本>` 安装 spec 是格式 1 读取器（`@deepseek-ai/dsh-plugin-market-index@0.2.1-rc.5` 的 `marketInstallTarget`）对 npm 源返回的结果；该函数已在本机执行，界面未实测。
+```text
+请帮我安装 DeepSeek Harness 的「内阁模式」bundle，优先使用插件市场索引：
+https://raw.githubusercontent.com/luodaoyi/dsh-cabinet-mode/market-index/marketplace.json
+
+1. 确认我的 DSH 版本和目标 profile。通过已有界面启用「自定义插件市场」，进入「插件 → 发现 → 索引源」。
+2. 添加上面的 raw JSON 地址。不要使用 GitHub blob/tree 网页，不要修改索引，也不要编造添加商店源的 CLI 命令。
+3. 从该源安装「内阁模式」，确认弹窗为 dsh-cabinet-mode@<版本>、注册表为 https://registry.npmjs.org/，然后核实「已安装」结果和版本号。
+4. 如果你无法操作界面，请给我简短的界面步骤；只有市场不可用或我选择备用方法时，才使用 Release tgz 或本地目录，并先解释具体原因。
+5. 不要再向 profile 追加 cordis.patch.yml，避免重复 preset。保留我的已有 profile 和其他插件。
+6. 提醒我完全退出并重启 DSH，新建会话并选择「内阁模式」（preset id cabinet）。未核实安装版本不要声称成功，未测试的团队交互不要声称已验证。
+
+失败时给出原始错误。遇到 $.format must be 1，先把网页源换成 raw JSON 地址；不要反复重装或悄悄换安装方法。
+```
+
+## 备用：Release 包或本地目录安装
+
+仅在商店不可用或本地开发时使用。先完全退出桌面 DSH，释放 profile 锁，再执行：
+
+```sh
+dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.2.2/dsh-cabinet-mode-0.2.2.tgz
+dsh plugin --profile desktop list
+```
+
+核实安装版本，重启 DSH 后新建会话并选择内阁模式。本地开发可把 URL 换成仓库绝对路径；CLI 不可用时，在「插件 → 添加插件」选择 tgz URL 或本地目录。确认目标 profile：`desktop` 是桌面应用 profile。上述方法均不可与手工 preset patch 叠加。可选安装脚本仅提供 persona preset 回退，不提供内阁界面。
 
 ## 升级
 
 若通过插件市场安装：刷新市场，先在**已安装**页卸载旧版本，再从**插件市场**安装新版本，然后重启——没有 tgz URL 要换，也没有一键更新。否则用同一条安装命令换新版本 URL（或在插件页选新 `.tgz`），然后完全退出并重启 DeepSeek Harness：
 
 ```sh
-dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.2.1/dsh-cabinet-mode-0.2.1.tgz
+dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.2.2/dsh-cabinet-mode-0.2.2.tgz
 ```
 
 `dsh plugin --profile desktop list` 应显示新版本。升级已在 Windows 实测：
@@ -167,13 +142,13 @@ v0.1.2 → v0.1.3 走内嵌 pnpm（DSH 0.2.1-rc.5）。
 
 | 方式 | Windows | Linux | macOS | 说明 |
 |---|---|---|---|---|
-| **A. DSH 插件管理器**（推荐）：插件页「添加插件 → 本地目录/包」，或 `dsh plugin --profile <profile> add <绝对路径 / .tgz / release URL>` | ✅ 2026-10-29 本机实测：本地目录安装与 **GitHub Release 资产 URL 安装**均成功；`dsh plugin --profile desktop list` = 3 packages；合成校验通过 | ⚙️ 代码级推断，**未在本机实测** | ⚙️ 代码级推断，**未在本机实测** | 纯 YAML bundle：无构建、无依赖、无 OS 专用代码。见 [docs/cross-platform.md](docs/cross-platform.md)。 |
+| **插件市场**（索引源）：见 [从插件市场安装](#从插件市场安装索引源推荐) | ✅ **Windows rc.5 web 客户端安装已实测**（隔离 profile，2026-11-05） | ❌ **未实测** | ❌ **未实测** | 通过 DSH 插件市场安装同一个 npm bundle；npm 发布与 `market-index` 分支均已存在。 |
+| **A. DSH 插件管理器**（备用）：插件页「添加插件 → 本地目录/包」，或 `dsh plugin --profile <profile> add <绝对路径 / .tgz / release URL>` | ✅ 2026-10-29 本机实测：本地目录安装与 **GitHub Release 资产 URL 安装**均成功；`dsh plugin --profile desktop list` = 3 packages；合成校验通过 | ⚙️ 代码级推断，**未在本机实测** | ⚙️ 代码级推断，**未在本机实测** | 纯 YAML bundle：无构建、无依赖、无 OS 专用代码。见 [docs/cross-platform.md](docs/cross-platform.md)。 |
 | **B. 回退 node 脚本**（无插件管理器时）：`node scripts/install.mjs --profile <profile>` 演练后 `--apply`，写入 profile 的 `cordis.patch.yml` | ✅ 脚本已在 Windows 实测（演练 + 临时副本） | ⚙️ 代码级推断，**未实测** | ⚙️ 代码级推断，**未实测** | 三平台同一路径：`<DSH_HOME>/profiles/<profile>/cordis.patch.yml`。 |
-| **插件市场**（索引源）：见 [从插件市场安装](#从插件市场安装索引源) | ❌ **GUI 安装未实测**（npm 与索引已于 2026-11-03 上线） | ❌ **未实测** | ❌ **未实测** | 通过 DSH 插件市场安装同一个 npm bundle；npm 发布与 `market-index` 分支均已存在。 |
 
 **方式 A 与方式 B 二选一，不可叠加。** 两种方式都会声明 `config.id: cabinet`；同时装会让 preset id 重复，声明加载失败。切换前先卸载旧方式。插件市场安装的是与方式 A 相同的 bundle，同样受这条互斥约束。
 
-### A. 作为 DSH bundle 安装（推荐，全平台）
+### A. 备用：直接安装 DSH bundle
 
 1. 安装到你在用的 profile：
    - **插件页**：设置 → 插件 → 添加插件 → 本地目录/包，选择本仓库（或其 `.tgz`）。
@@ -269,7 +244,7 @@ npmjs.com 侧的一次性配置（维护者在网页上完成，无法从本仓�
 - DSH 升级后已装 bundle 或回退 patch 是否保留。
 - `config.id` 语法校验规则（本 id 为 `cabinet`，仅小写字母）。
 - preset 声明的 HMR 热生效、私有源/代理下的 tgz 安装。
-- **插件市场的真实使用。** 索引解析、npm 安装 spec 解析、把 `dsh-cabinet-mode@0.1.5` 装进一次性 profile 都已在本机执行；tag → 发布 → 自动刷新索引全链路已在 CI 跑通（v0.1.5，run 41657224370）；但 DSH 插件市场 GUI 里的真实安装/更新仍未执行。
+- **市场更新与其他客户端。** 已在 Windows rc.5 web 客户端验证添加 raw 索引和安装 0.2.0；卸载后重装的升级流程、其他 DSH 版本与平台尚未验证。
 
 ## 已知限制
 
