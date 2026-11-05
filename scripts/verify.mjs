@@ -169,6 +169,52 @@ if (pkg) {
   else bad('docs/images/avatars/ five source PNGs', sourceProblems.join('; '));
 }
 
+// ---------- member settings + runtime prompt injection (0.3.0, additive) ----------
+{
+  const indexSrc = existsSync(join(ROOT, 'index.js')) ? readFileSync(join(ROOT, 'index.js'), 'utf8') : '';
+  const clientSrc = existsSync(join(ROOT, 'client.js')) ? readFileSync(join(ROOT, 'client.js'), 'utf8') : '';
+  const problems = [];
+  if (!/export\s*\{[^}]*\bConfig\b/.test(indexSrc)) problems.push('index.js does not export Config');
+  if (!/systemPrompt\.section\s*\(/.test(indexSrc)) problems.push('index.js does not register a systemPrompt section');
+  if (!/GET x/.test(indexSrc) && !/tryMembership/.test(indexSrc)) problems.push('index.js does not use tryMembership for team membership');
+  if (!/interpolate:\s*false/.test(indexSrc)) problems.push('index.js member section does not disable interpolation');
+  if (!/cabinet:member/.test(indexSrc)) problems.push('index.js is missing the cabinet:member section name');
+  if (/DSH_HOME/.test(indexSrc)) problems.push('index.js hardcodes a DSH_HOME-relative import fallback');
+  if (problems.length === 0) ok('index.js: Config + cabinet:member section (per-assembly text, no interpolation, tryMembership, no DSH_HOME path fallback)');
+  else bad('index.js member injection', problems.join('; '));
+
+  const injectUi = Array.isArray(pkg?.dsh?.client?.inject) && pkg.dsh.client.inject.includes('@deepseek-ai/dsh-client-ui-settings');
+  if (injectUi) ok('package.json dsh.client.inject includes @deepseek-ai/dsh-client-ui-settings');
+  else bad('package.json dsh.client.inject', 'missing @deepseek-ai/dsh-client-ui-settings');
+
+  if (Object.keys(pkg?.dependencies ?? {}).length === 0) ok('runtime dependencies stay empty (settings base comes from the Host)');
+  else bad('runtime dependencies', 'dependencies must stay empty');
+
+  // G1: the Lead's factory prompt is product copy and must exist byte-identically
+  // in both halves; scripts/verify.mjs owns the cross-file equality check.
+  const extract = (source) => {
+    const match = source.match(/const DEFAULT_LEAD_PROMPT = `([\s\S]*?)`;/);
+    return match === null ? null : match[1];
+  };
+  const hostDefault = extract(indexSrc);
+  const browserDefault = extract(clientSrc);
+  if (hostDefault === null) bad('Lead default prompt in index.js', 'DEFAULT_LEAD_PROMPT not found');
+  else if (browserDefault === null) bad('Lead default prompt in client.js', 'DEFAULT_LEAD_PROMPT not found');
+  else if (hostDefault !== browserDefault) bad('Lead default prompt parity (index.js vs client.js)', `host ${hostDefault.length} chars, browser ${browserDefault.length} chars`);
+  else {
+    const missing = ['【御下术·仅首辅适用】', '立威', '画饼', '施压', '打压', '拉踩', '情绪收放', '牵制互查', '责任到人', '反制糊弄', '收束', '红线', '绝不对陛下（用户）使用'];
+    const absent = missing.filter((needle) => !hostDefault.includes(needle));
+    if (absent.length > 0) bad('Lead default prompt copy', `missing: ${absent.join(', ')}`);
+    else if (hostDefault.length > 2000) bad('Lead default prompt length', `${hostDefault.length} chars (max 2000)`);
+    else ok(`Lead default prompt: identical in both halves, ${hostDefault.length} chars, carries 御下术 copy and red lines`);
+  }
+
+  // The Lead default must not be smuggled into the static persona in the patch.
+  const patchForLead = existsSync(PATCH_PATH) ? readFileSync(PATCH_PATH, 'utf8') : '';
+  if (patchForLead.includes('御下术')) bad('persona static prefix', 'contains 御下术; the Lead policy must only be injected at runtime');
+  else ok('persona static prefix carries no 御下术 (runtime injection only)');
+}
+
 if (existsSync(PATCH_PATH)) ok('cordis.patch.yml exists');
 else bad('cordis.patch.yml exists');
 
