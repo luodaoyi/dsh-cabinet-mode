@@ -2478,6 +2478,10 @@ window.__ModuleLoader__.load({
 			// Unidentified members get an unranked portrait, never a guessed office.
 			return AVATARS.neutral;
 		}
+		function fallbackAvatar(img, name) {
+			const fallback = AVATARS[bureauOf(name).key] || AVATARS.neutral;
+			if (img && img.getAttribute('src') !== fallback) img.setAttribute('src', fallback);
+		}
 		function avatarFor(name) {
 			const text = typeof name === 'string' ? name.trim() : '';
 			// A saved per-member portrait always wins (settings layer).
@@ -2490,7 +2494,7 @@ window.__ModuleLoader__.load({
 			// built-in portrait, so every alias keeps the same face and a lookalike
 			// ("hanlinx") never gets a bureau portrait.
 			const bureau = bureauOf(name);
-			if (bureau.matched && AVATARS[bureau.key]) return AVATARS[bureau.key];
+			if (bureau.matched && AVATARS[bureau.key]) return memberConfig.avatars.get(bureau.key) || AVATARS[bureau.key];
 			// A saved display name has no office prefix; keep its member's portrait.
 			if (key !== '' && text !== '') return AVATARS[key];
 			return neutralAvatar();
@@ -2506,7 +2510,7 @@ window.__ModuleLoader__.load({
 		// roster and the settings section read one snapshot. With no saved values
 		// this stays empty, which reproduces v0.2.0 rendering exactly: the runtime
 		// member name and the built-in avatar, with no display-name layer.
-		const MEMBER_LABELS = { lead: '首辅', hanlin: '翰林院编修', works: '工部主事', dali: '大理寺评事', yushi: '都察院御史' };
+		const MEMBER_LABELS = { lead: '内阁首辅', hanlin: '翰林院编修', works: '工部尚书', dali: '大理寺卿', yushi: '左都御史' };
 		// Factory default prompt for the Lead (御下术). Product copy: shown in the
 		// settings box, restored by 「恢复默认」, and turned off by clearing the box.
 		// scripts/verify.mjs keeps this copy identical to index.js.
@@ -2518,7 +2522,7 @@ window.__ModuleLoader__.load({
 四、打压对事不对人：先点破软处（「只有代码没有证据，等于没做」），再给台阶（补齐哪三件就能过）。
 五、拉踩对比：把同批里做得实的那份树成样板，「照这个标准来」，制造可比较的压力。
 六、情绪收放：先压后给糖——「这次差口气」→「不过这处查得比上回细，接着这个劲头干」。
-七、牵制互查：让评事、御史互相挑刺，你坐收其斗，不亲自和稀泥。
+七、牵制互查：让寺卿、御史互相挑刺，你坐收其斗，不亲自和稀泥。
 八、责任到人：缺陷点名到人到行号，不许用「我们」糊过去。
 九、反制糊弄：报「已完成」必追问证据三件（命令输出、路径行号、未验证清单）；报「卡住」必追问三件（已做什么、卡在哪、需要什么）；两次含糊即降级处理（换人、拆小）。
 十、收束：闭环才许说「这一版可以交差」，不许提前许诺功劳。
@@ -2532,9 +2536,9 @@ window.__ModuleLoader__.load({
 		 */
 		const DEFAULT_MEMBER_PROMPTS = {
 			hanlin: '翰林院编修·主调研与文献考据：接到分派先读原始材料与既有记录，给出可复现的检索路径；结论必须锚定路径、行号或命令输出，未实测一律标「未验证」，禁止以推测冒充实测；调研成果写成结构化文档（结论先行 + 证据行号 + 风险与未验证清单），默认只调研不改码，写操作以任务明确授权为限；只向首辅回报，不直接答复用户，遇阻带「已做什么 / 卡在哪 / 需要什么」三件。',
-			works: '工部主事·主动手执行与产出：接令先复述任务与写入范围，只在授权范围内改文件；产出必附证据（路径、行号、命令输出、退出码），没跑说没跑、没验说没验；构建与测试须原样贴出输出，不许删弱既有校验去凑绿；交付以可复现为准，失败与遗留必须如实上报，不许包装；只向首辅回报，遇阻带「已做什么 / 卡在哪 / 需要什么」三件。',
-			dali: '大理寺评事·主独立核验：不信任何人的自述，全部自己跑；核验报告逐项写明通过 / 不通过 / 未验证，失败证据原样保留，不删不改；给不出可复现命令的结论一律不采信；发现工部与自述不符即回报首辅，不替人遮掩，也不越权改码；只向首辅回报，报告中未实测项必须显式标注「未验证」。',
-			yushi: '都察院御史·主验收并按律弹劾缺陷：按用户原话逐项核对，给通过 / 部分通过 / 不通过并附证据；缺陷按级别列出（P0 阻断 / P1 需修后再提 / P2 须在 PR 声明 / P3 提示），每条给位置、复现与建议修法；「声称实测却无命令输出、截图或文件内容」按造假弹劾；结论必须明确「可提 PR / 不可提 PR」，不骑墙、不和稀泥；只向首辅回报。'
+			works: '工部尚书·主动手执行与产出：接令先复述任务与写入范围，只在授权范围内改文件；产出必附证据（路径、行号、命令输出、退出码），没跑说没跑、没验说没验；构建与测试须原样贴出输出，不许删弱既有校验去凑绿；交付以可复现为准，失败与遗留必须如实上报，不许包装；只向首辅回报，遇阻带「已做什么 / 卡在哪 / 需要什么」三件。',
+			dali: '大理寺卿·主独立核验：不信任何人的自述，全部自己跑；核验报告逐项写明通过 / 不通过 / 未验证，失败证据原样保留，不删不改；给不出可复现命令的结论一律不采信；发现工部与自述不符即回报首辅，不替人遮掩，也不越权改码；只向首辅回报，报告中未实测项必须显式标注「未验证」。',
+			yushi: '左都御史·主验收并按律弹劾缺陷：按用户原话逐项核对，给通过 / 部分通过 / 不通过并附证据；缺陷按级别列出（P0 阻断 / P1 需修后再提 / P2 须在 PR 声明 / P3 提示），每条给位置、复现与建议修法；「声称实测却无命令输出、截图或文件内容」按造假弹劾；结论必须明确「可提 PR / 不可提 PR」，不骑墙、不和稀泥；只向首辅回报。'
 		};
 		/** Factory prompt for one bureau key: the Lead keeps its 御下术 default. */
 		function factoryPromptFor(key) {
@@ -2546,14 +2550,7 @@ window.__ModuleLoader__.load({
 		/** Image data URLs accepted for a member avatar; anything else is ignored. */
 		const MEMBER_AVATAR_PREFIXES = ['data:image/png;', 'data:image/jpeg;', 'data:image/webp;'];
 		const MEMBER_AVATAR_FIELDS = { lead: 'avatarLead', hanlin: 'avatarHanlin', works: 'avatarWorks', dali: 'avatarDali', yushi: 'avatarYushi' };
-		const MEMBER_ALIASES = {
-			lead: ['lead', 'shoufu', '首辅', '内阁首辅'],
-			hanlin: ['hanlin', 'bianxiu', '翰林院', '翰林', '编修'],
-			works: ['gongbu', 'works', 'zhushi', '工部', '主事'],
-			dali: ['dali', 'pingshi', '大理寺', '大理', '评事'],
-			yushi: ['yushi', 'censor', '都察院', '御史']
-		};
-		let memberConfig = { names: new Map(), prompts: new Map(), modes: new Map(), avatars: new Map() };
+				let memberConfig = { names: new Map(), prompts: new Map(), modes: new Map(), avatars: new Map() };
 		let memberWriter = null;
 		const MEMBER_LISTENERS = new Set();
 		let memberT = (key) => key;
@@ -2563,25 +2560,7 @@ window.__ModuleLoader__.load({
 			return trimmed.length > limit ? trimmed.slice(0, limit) : trimmed;
 		}
 		/** Runtime member name -> bureau key, mirroring the host half's matching. */
-		function bureauOfName(name) {
-			const text = typeof name === 'string' ? name.trim() : '';
-			if (text === '') return '';
-			const lower = text.toLowerCase();
-			for (const key of AVATAR_KEYS) {
-				for (const alias of MEMBER_ALIASES[key]) {
-					if (!lower.startsWith(alias.toLowerCase())) continue;
-					const rest = text.slice(alias.length);
-					if (rest !== '' && !/^\d+$/.test(rest) && !/^[-_.].+$/.test(rest)) continue;
-					return key;
-				}
-			}
-			// A saved display name may carry no office prefix (`张翰林`); fall back
-			// to an exact reverse lookup so the configured avatar still applies.
-			for (const key of AVATAR_KEYS) {
-				if (memberConfig.names.get(key) === text) return key;
-			}
-			return '';
-		}
+		function bureauOfName(name) { return bureauOf(name).key; }
 		/** Tolerant read of one settings namespace value; anything odd is ignored. */
 		function normalizeMemberConfig(raw) {
 			const names = new Map();
@@ -2595,15 +2574,15 @@ window.__ModuleLoader__.load({
 				if (key === '') continue;
 				const name = clampMemberText(entry.name, MEMBER_NAME_LIMIT);
 				const prompt = clampMemberText(entry.prompt, MEMBER_PROMPT_LIMIT);
-				if (name !== '') names.set(key, name);
-				if (prompt !== '') prompts.set(key, prompt);
-				if (entry.mode === 'off' || entry.mode === 'custom') modes.set(key, entry.mode);
+				names.set(key, name);
+				prompts.set(key, prompt);
+				modes.set(key, entry.mode === 'off' || entry.mode === 'custom' ? entry.mode : '');
 			}
 			for (const key of AVATAR_KEYS) {
 				const value = raw !== null && typeof raw === 'object' ? raw[MEMBER_AVATAR_FIELDS[key]] : undefined;
 				if (typeof value !== 'string') continue;
 				const url = value.trim();
-				if (MEMBER_AVATAR_PREFIXES.some((prefix) => url.startsWith(prefix)) && url.length <= MEMBER_AVATAR_LIMIT) avatars.set(key, url);
+				if (url.length <= 48 * 1024 && /^data:image\/(?:png|jpeg|webp);base64,(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(url) && url.length > url.indexOf(',') + 1) avatars.set(key, url);
 			}
 			return { names, prompts, modes, avatars };
 		}
@@ -2647,7 +2626,8 @@ window.__ModuleLoader__.load({
 		}
 		/** Panel label: the configured name when present, else the runtime name. */
 		function memberLabel(name) {
-			return configuredName(name) || name;
+			const custom = configuredName(name);
+			return custom ? (custom === name ? name : custom + ' · ' + name) : displayName(name);
 		}
 		/** Re-point already-injected roster avatars after a settings change. */
 		function refreshNativeRosterAvatars() {
@@ -2660,7 +2640,8 @@ window.__ModuleLoader__.load({
 					const row = typeof wrap.closest === 'function' ? wrap.closest('button') : null;
 					const nameNode = row ? row.querySelector('[class*="memberNameText"]') : null;
 					if (!img || !nameNode) continue;
-					const next = avatarFor(String(nameNode.textContent || '').trim());
+					img.onerror = () => fallbackAvatar(img, String(nameNode.textContent || '').trim());
+                    const next = avatarFor(String(nameNode.textContent || '').trim());
 					if (img.getAttribute('src') !== next) img.setAttribute('src', next);
 				}
 			} catch (ignored) { /* roster may be closed; the next scan re-applies */ }
@@ -2774,6 +2755,7 @@ window.__ModuleLoader__.load({
 				const running = !!dot && (!!dot.querySelector('svg[data-state="ongoing"]') || !!dot.querySelector('[class*="_spinner_"]'));
 				const img = slot.tagName === 'IMG' ? slot : slot.querySelector('img');
 				if (img) {
+					img.onerror = () => fallbackAvatar(img, String(nameNode.textContent || '').trim());
 					const src = avatarFor(memberName);
 					if (img.getAttribute('src') !== src) img.src = src;
 					img.className = running ? 'cabinet-avatar-running' : '';
@@ -2836,6 +2818,7 @@ window.__ModuleLoader__.load({
 		function Avatar({ name, size, live }) {
 			const img = h('img', {
 				src: avatarFor(name),
+                onError: event => fallbackAvatar(event.currentTarget, name),
 				alt: '',
 				'aria-hidden': 'true',
 				width: size,
@@ -2983,9 +2966,9 @@ window.__ModuleLoader__.load({
 					h(Avatar, { key: 'avatar', name: member.name, size: size || 22, live: status === 'running' }),
 					h('span', {
 						key: 'n',
-						title: configuredName(member.name) || displayName(member.name),
+						title: memberLabel(member.name),
 						style: { fontSize: 13, fontWeight: 600, color: INK, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }
-					}, configuredName(member.name) || displayName(member.name)),
+					}, memberLabel(member.name)),
 					lead ? h('span', { key: 'lead', className: 'cabinet-badge-lead' }, tt('lead.tag')) : null,
 					isCurrent ? h(Tag, { key: 'cur', background: 'rgba(127,127,127,.2)', color: INK2 }, tt('current')) : null
 				]),
@@ -3036,7 +3019,7 @@ window.__ModuleLoader__.load({
 			if (!task.ownerName) {
 				parts.push(h(Tag, { key: 'own', background: 'rgba(127,127,127,.18)', color: INK2 }, t('task.unassigned')));
 			} else {
-				parts.push(h(Tag, { key: 'owner', title: configuredName(task.ownerName) || displayName(task.ownerName), background: 'rgba(127,127,127,.16)', color: INK2 }, 'Owner: ' + (configuredName(task.ownerName) || displayName(task.ownerName))));
+				parts.push(h(Tag, { key: 'owner', title: memberLabel(task.ownerName), background: 'rgba(127,127,127,.16)', color: INK2 }, 'Owner: ' + memberLabel(task.ownerName)));
 			}
 			parts.push(h('span', {
 				key: 'id',
@@ -3353,7 +3336,7 @@ window.__ModuleLoader__.load({
 			if (unassigned.length > 0) cells.push({ key: 'group:unassigned', title: tt('task.unassigned'), tasks: unassigned });
 			if (leadOwn.length > 0) cells.push({ key: 'group:leadown', title: tt('task.leadOwn'), tasks: leadOwn });
 			for (const owner of foreignOwners) {
-				cells.push({ key: 'group:' + owner, title: configuredName(owner) || displayName(owner), tasks: tasks.filter((task) => task.ownerName === owner) });
+				cells.push({ key: 'group:' + owner, title: memberLabel(owner), tasks: tasks.filter((task) => task.ownerName === owner) });
 			}
 
 			const treeChildren = [
@@ -3454,72 +3437,93 @@ window.__ModuleLoader__.load({
 		// Registered into the official settings shell (`settings.section`) while
 		// the Host serves this namespace. Writes go through the shared config
 		// form: `members` carries the small text fields and each avatar is its own
-		// field, so one edit never resends five images.
+		// field. Explicit Save writes a bounded atomic settings transaction.
 		const MEMBER_SECTION_FIELDS = AVATAR_KEYS;
 
 		function memberAvatarOf(key, overrides) {
-			return (overrides && overrides[key]) || memberConfig.avatars.get(key) || AVATARS[key];
+			return overrides ? (overrides[key] || AVATARS[key]) : (memberConfig.avatars.get(key) || AVATARS[key]);
 		}
+
+		function createMemberEditor(form, notify) {
+  let active = true, epoch = 0, uploads = {};
+  const state = { draft: emptyMemberDraft(), avatars: {}, errors: {}, ready: false, dirty: false, busy: false, conflict: false, revision: undefined, status: '' };
+  const emit = () => { if (active) notify(); };
+  const ready = s => s?.status === 'ready' && s.value !== undefined && s.writable === true && s.revision !== undefined;
+  const adopt = s => {
+    epoch++; uploads = {};
+    const config = normalizeMemberConfig(s?.value);
+    state.draft = emptyMemberDraft(); state.avatars = {}; state.errors = {};
+    for (const key of AVATAR_KEYS) {
+      state.draft[key] = { name: config.names.get(key) || '', prompt: config.prompts.get(key) || '', mode: config.modes.get(key) || '' };
+      state.avatars[key] = config.avatars.get(key) || '';
+    }
+    state.revision = s?.revision; state.ready = ready(s); state.dirty = false; state.conflict = false;
+  };
+  const sync = () => {
+    if (!active) return;
+    const s = form?.getSnapshot();
+    if (!state.dirty && !state.busy) adopt(s);
+    else { state.ready = ready(s); state.conflict = s?.revision !== state.revision; }
+    emit();
+  };
+  const editable = () => active && state.ready && !state.busy;
+  const changed = () => { state.dirty = true; state.status = 'member.status.unsaved'; emit(); };
+  adopt(form?.getSnapshot());
+  let unsubscribe;
+  return {
+    state,
+    connect() { active = true; sync(); unsubscribe = form?.subscribe(sync); return () => { active = false; epoch++; unsubscribe?.(); }; },
+    update(key, patch) { if (!editable()) return; state.draft = { ...state.draft, [key]: { ...state.draft[key], ...patch } }; changed(); },
+    avatar(key, url) { if (!editable()) return; uploads[key] = (uploads[key] || 0) + 1; state.avatars = { ...state.avatars, [key]: url }; changed(); },
+    async upload(key, file) {
+      if (!editable() || !file) return;
+      const generation = epoch, token = uploads[key] = (uploads[key] || 0) + 1;
+      const result = await normalizeAvatarFile(file);
+      if (!editable() || epoch !== generation || uploads[key] !== token) return;
+      state.errors = { ...state.errors, [key]: result.error || '' };
+      if (!result.error) { state.avatars = { ...state.avatars, [key]: result.url }; changed(); } else emit();
+    },
+    reset(key) {
+      if (!editable()) return;
+      epoch++; uploads = {};
+      const keys = key ? [key] : AVATAR_KEYS;
+      for (const k of keys) { state.draft[k] = { name: '', prompt: '', mode: '' }; state.avatars[k] = ''; }
+      state.draft = { ...state.draft }; state.avatars = { ...state.avatars }; state.errors = {}; changed();
+    },
+    cancel() { if (!active || state.busy) return; adopt(form?.getSnapshot()); state.status = ''; emit(); },
+    async save() {
+      if (!editable() || !state.dirty) return false;
+      const current = form.getSnapshot();
+      if (!ready(current) || current.revision !== state.revision) { state.conflict = true; state.status = 'member.status.conflict'; emit(); return false; }
+      const ops = [{ op: 'set', path: ['members'], value: membersPayload(state.draft) }];
+      for (const key of AVATAR_KEYS) ops.push({ op: 'set', path: [MEMBER_AVATAR_FIELDS[key]], value: state.avatars[key] || '' });
+      epoch++; state.busy = true; emit();
+      try {
+        const ok = await form.mutate(ops, state.revision);
+        if (!active) return ok;
+        if (ok) adopt(form.getSnapshot());
+        else { state.conflict = form.getSnapshot()?.revision !== state.revision; }
+        state.status = ok ? 'member.status.saved' : state.conflict ? 'member.status.conflict' : 'member.status.failed';
+        return ok;
+      } catch { if (active) state.status = 'member.status.failed'; return false; }
+      finally { state.busy = false; emit(); }
+    }
+  };
+}
 
 		function CabinetMemberSettings(props) {
 			const t = typeof props?.t === 'function' ? props.t : memberT;
-			const [draft, setDraft] = React.useState(() => memberDraft());
-			const draftRef = React.useRef(draft);
-			draftRef.current = draft;
-			const [avatars, setAvatars] = React.useState(() => {
-				const out = {};
-				for (const key of MEMBER_SECTION_FIELDS) out[key] = memberConfig.avatars.get(key) || '';
-				return out;
-			});
-			const [status, setStatus] = React.useState('');
-			const [errors, setErrors] = React.useState({});
-			const timers = React.useRef({});
-			const report = (ok) => setStatus(ok ? t('member.status.saved') : t('member.status.failed'));
-			const writeMembers = async (next) => {
-				if (!memberWriter) return setStatus(t('member.status.unavailable'));
-				report(await memberWriter.setMembers(membersPayload(next)));
-			};
-			const writeLater = (key) => {
-				if (timers.current[key]) clearTimeout(timers.current[key]);
-				timers.current[key] = setTimeout(() => { writeMembers(draftRef.current); }, 400);
-			};
-			const update = (key, patch, immediate) => {
-				const next = { ...draftRef.current, [key]: { ...draftRef.current[key], ...patch } };
-				draftRef.current = next;
-				setDraft(next);
-				if (immediate) writeMembers(next);
-				else writeLater(key);
-			};
-			const writeAvatar = async (key, url) => {
-				if (!memberWriter) return setStatus(t('member.status.unavailable'));
-				const next = { ...avatars, [key]: url };
-				setAvatars(next);
-				report(await memberWriter.setAvatar(key, url));
-			};
-			const pickFile = async (key, file) => {
-				if (!file) return;
-				const result = await normalizeAvatarFile(file);
-				if (result.error !== undefined) {
-					setErrors({ ...errors, [key]: result.error });
-					return;
-				}
-				setErrors({ ...errors, [key]: '' });
-				writeAvatar(key, result.url);
-			};
-			const resetMember = (key) => {
-				const next = { ...draftRef.current, [key]: { name: '', prompt: '', mode: key === 'lead' ? '' : 'off' } };
-				draftRef.current = next;
-				setDraft(next);
-				writeMembers(next);
-				writeAvatar(key, '');
-			};
-			const resetAll = () => {
-				const next = emptyMemberDraft();
-				draftRef.current = next;
-				setDraft(next);
-				writeMembers(next);
-				for (const key of MEMBER_SECTION_FIELDS) writeAvatar(key, '');
-			};
+            const [, redraw] = React.useState(0);
+            const editorRef = React.useRef(null);
+            if (!editorRef.current) editorRef.current = createMemberEditor(memberWriter, () => redraw(n => n + 1));
+            const editor = editorRef.current;
+            React.useEffect(() => editor.connect(), [editor]);
+            const { draft, avatars, errors, ready, busy, dirty, conflict, status } = editor.state;
+            const update = (key, patch) => editor.update(key, patch);
+            const writeAvatar = (key, url) => editor.avatar(key, url);
+            const pickFile = (key, file) => editor.upload(key, file);
+            const resetMember = key => editor.reset(key);
+            const resetAll = () => editor.reset();
 			const promptOf = (key) => {
 				const mode = draft[key].mode;
 				if (mode === 'off') return '';
@@ -3530,7 +3534,7 @@ window.__ModuleLoader__.load({
 				const preview = memberAvatarOf(key, avatars);
 				return h('div', { key, style: { border: '1px solid var(--dsw-alias-border-l3, rgba(127,127,127,.28))', borderRadius: 8, padding: '10px 12px', marginBottom: 10 } }, [
 					h('div', { key: 'head', style: { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 } }, [
-						h('img', { key: 'a', src: preview, alt: '', width: 32, height: 32, style: { width: 32, height: 32, borderRadius: '50%', objectFit: 'cover', flex: 'none' } }),
+						h('img', { key: 'a', src: preview, onError: event => fallbackAvatar(event.currentTarget, key), alt: '', width: 32, height: 32, style: { width: 32, height: 32, borderRadius: '50%', objectFit: 'cover', flex: 'none' } }),
 						h('strong', { key: 'n', style: { fontSize: 13, color: INK } }, t('member.' + key)),
 						h('span', { key: 'h', style: { fontSize: 11, color: INK3 } }, draft[key].name ? draft[key].name : t('member.name.unset')),
 						h('span', { key: 'gap', style: { flex: 1 } }),
@@ -3550,7 +3554,7 @@ window.__ModuleLoader__.load({
 									key: 'b-' + other,
 									type: 'button',
 									title: t('member.' + other),
-									style: { padding: 0, border: other === key ? '2px solid #4f8cff' : '1px solid transparent', borderRadius: '50%', background: 'transparent', cursor: 'pointer', lineHeight: 0 },
+									style: { padding: 0, border: preview === AVATARS[other] ? '2px solid #4f8cff' : '1px solid transparent', borderRadius: '50%', background: 'transparent', cursor: 'pointer', lineHeight: 0 },
 									// Clicking a built-in portrait selects it for this member;
 									// clicking the selected one again clears the override.
 									onClick: () => writeAvatar(key, avatars[key] === AVATARS[other] ? '' : AVATARS[other])
@@ -3591,7 +3595,7 @@ window.__ModuleLoader__.load({
 						style: { ...inputStyle, resize: 'vertical', fontFamily: 'inherit' },
 						onChange: (event) => {
 							const value = event?.target?.value ?? '';
-							const mode = key === 'lead' ? (value.trim() === '' ? 'off' : 'custom') : (value.trim() === '' ? 'off' : 'custom');
+							const mode = value.trim() === '' ? 'off' : 'custom';
 							update(key, { prompt: value, mode }, false);
 						}
 					}),
@@ -3602,16 +3606,24 @@ window.__ModuleLoader__.load({
 				h('div', { key: 'title', style: { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 } }, [
 					h('strong', { key: 't', style: { fontSize: 14, color: INK } }, t('member.title')),
 					h('span', { key: 'gap', style: { flex: 1 } }),
-					h('button', { key: 'reset', type: 'button', style: { fontSize: 11, cursor: 'pointer' }, onClick: resetAll }, t('member.resetAll'))
+					h('button', { key: 'reset', type: 'button', style: { fontSize: 11, cursor: 'pointer' }, disabled: !ready || busy, onClick: resetAll }, t('member.resetAll'))
 				]),
 				h('div', { key: 'desc', style: { fontSize: 11, color: INK3, marginBottom: 8 } }, t('member.desc')),
-				status ? h('div', { key: 'status', style: { fontSize: 11, color: INK2, marginBottom: 8 } }, status) : null,
-				...cards
+				!ready ? h('div', { key: 'unavailable', role: 'status' }, t('member.status.unavailable')) : null,
+                status ? h('div', { key: 'status', style: { fontSize: 11, color: INK2, marginBottom: 8 } }, t(status)) : null,
+                conflict ? h('div', { key: 'conflict', role: 'alert' }, t('member.status.conflict')) : null,
+                h('fieldset', { key: 'fields', disabled: !ready || busy, style: { border: 0, padding: 0, margin: 0 } }, cards),
+                h('button', { key: 'save', type: 'button', disabled: !ready || busy || !dirty || conflict, onClick: () => editor.save() }, t('member.save')),
+                h('button', { key: 'cancel', type: 'button', disabled: busy, onClick: () => editor.cancel() }, t('member.cancel'))
 			]);
 		}
 
 		// ---------- copy -----------------------------------------------------
 		const zh = {
+            'member.save': "保存",
+            'member.cancel': "取消并重新读取",
+            'member.status.unsaved': "未保存；离开此页会丢弃修改",
+            'member.status.conflict': "配置已在其他页面更新。请取消并重新读取后再编辑。",
 			'team.stale': '团队状态读取失败：以下成员和任务可能是上次成功读取的数据。',
 			'tab.title': '内阁',
 			'guide.title': '内阁',
@@ -3640,12 +3652,12 @@ window.__ModuleLoader__.load({
 			'member.nav': '内阁成员',
 			'member.title': '内阁成员',
 			'member.desc': '五员的名字、头像与提示词。未配置时保持出厂行为；头像归一为 96×96 PNG，单张不超过 48KB。',
-			'member.lead': '首辅',
+			'member.lead': '内阁首辅',
 			'member.hanlin': '翰林院编修',
-			'member.works': '工部主事',
-			'member.dali': '大理寺评事',
-			'member.yushi': '都察院御史',
-			'member.name': '显示名（留空则用运行时名字）',
+			'member.works': '工部尚书',
+			'member.dali': '大理寺卿',
+			'member.yushi': '左都御史',
+			'member.name': '显示名（留空则用官职与原始 ID）',
 			'member.name.unset': '未设置',
 			'member.name.placeholder': '运行时名字',
 			'member.prompt': '提示词',
@@ -3665,6 +3677,10 @@ window.__ModuleLoader__.load({
 			'member.error.tooLarge': '压缩后仍超过 48KB，请换更小的图片'
 		};
 		const en = {
+            'member.save': "Save",
+            'member.cancel': "Cancel and reload",
+            'member.status.unsaved': "Unsaved; leaving this page discards edits",
+            'member.status.conflict': "Settings changed in another page. Cancel and reload before editing.",
 			'team.stale': 'Team state could not be read. Members and tasks below may show the last successful snapshot.',
 			'tab.title': 'Cabinet',
 			'guide.title': 'Cabinet',
@@ -3693,12 +3709,12 @@ window.__ModuleLoader__.load({
 			'member.nav': 'Cabinet members',
 			'member.title': 'Cabinet members',
 			'member.desc': 'Names, avatars and prompts for the five members. Unconfigured keeps the factory behaviour; avatars are normalized to 96×96 PNG, at most 48KB each.',
-			'member.lead': 'Lead',
-			'member.hanlin': 'Hanlin compiler',
-			'member.works': 'Works minister',
-			'member.dali': 'Dali reviewer',
-			'member.yushi': 'Censor',
-			'member.name': 'Display name (empty keeps the runtime name)',
+			'member.lead': '内阁首辅',
+			'member.hanlin': '翰林院编修',
+			'member.works': '工部尚书',
+			'member.dali': '大理寺卿',
+			'member.yushi': '左都御史',
+			'member.name': 'Display name (empty keeps office and original ID)',
 			'member.name.unset': 'unset',
 			'member.name.placeholder': 'runtime name',
 			'member.prompt': 'Prompt',
@@ -3781,18 +3797,16 @@ window.__ModuleLoader__.load({
 					const sync = () => {
 						try {
 							const snapshot = form.getSnapshot();
-							if (snapshot !== undefined && snapshot.value !== undefined) setMemberConfig(snapshot.value);
+							setMemberConfig(snapshot?.status === 'ready' ? snapshot.value : undefined);
 						} catch (error) {
 							try { console.warn('[cabinet-ui] member settings unavailable:', error); } catch (ignored) { /* console may be unavailable */ }
 						}
 					};
 					sync();
-					return form.subscribe(sync);
+					const unsubscribe = form.subscribe(sync);
+					return () => { unsubscribe(); if (memberWriter === form) { memberWriter = null; setMemberConfig(undefined); } };
 				}, 'cabinet-member: settings mirror');
-				memberWriter = {
-					setMembers: (list) => form.set('members', list),
-					setAvatar: (key, url) => form.set(MEMBER_AVATAR_FIELDS[key], url)
-				};
+				memberWriter = form;
 				scope.effect(() => scope.slots.inject('settings.section', () => scope.slots.register({
 					name: 'settings.section',
 					id: 'cabinet',

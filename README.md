@@ -17,14 +17,13 @@ a research-team preset modeled on the Great Ming Research Bureau cabinet
 to research before touching code, and must never fabricate sources.
 
 The package ships a host half (`index.js`, which declares the 「内阁成员」
-settings schema and injects each member's prompt block at assembly time) and a
-browser half
+settings schema and provides the Cabinet-only member prompt injected at each
+assembly) and a browser half
 (`client.js`, the right-Sidebar **Cabinet** panel plus the DSH settings page's
 「内阁成员」 section) with the five member avatars and an unranked fallback portrait
 embedded as 128px data URLs (square sources in `docs/images/avatars/`,
 downscaled by `src/build_avatars.py`); it also keeps the optional Node.js
-fallback scripts (`scripts/*.mjs`). It has **no third-party runtime
-dependencies** — React and friends come from the DSH client module table, with no
+fallback scripts (`scripts/*.mjs`). It uses `@deepseek-ai/schemastery` for the host settings schema. React and friends come from the DSH client module table, with no
 bundled duplicate and no CDN.
 
 It declares **two rows** — `preset-cabinet` (one `@deepseek-ai/dsh-agent-preset`
@@ -40,6 +39,35 @@ This bundle declares **no hard DSH version gate**: no `engines.dsh`, no DSH
 `peerDependencies`, no install-time version check. It was tested on DSH
 **0.2.1-rc.3**; other DSH versions that provide the declarative preset mechanism
 may work, but are **not verified** (see [DSH-side constraints](#dsh-side-constraints)).
+
+## Cabinet member settings
+
+After a bundle install, open **Settings → Cabinet members (内阁成员)**. The five
+office groups have a display name (40 characters), portrait and prompt (4000
+characters). Names remain accompanied by the original member ID in Cabinet cards
+and Owner labels. Task ownership and native roster names never change.
+
+Edit, then click **Save**. **Cancel and reload** discards edits and reads the latest
+saved values; leaving the page discards unsaved edits. Save writes all five members
+atomically using the revision that was loaded. If another page changes settings,
+cancel/reload before editing again; a stale draft cannot overwrite it. Editing is
+disabled until settings have loaded. Changes apply to the next prompt assembly.
+
+Upload PNG/JPEG/WebP up to 2 MB; the browser crops it to a 96×96 PNG (at most
+48 KB data URL). Saved portraits apply to Cabinet cards and native team avatars.
+Restore default resets that office's name, portrait and factory prompt; Reset all
+resets all five in the draft. Both require Save. Clearing a prompt disables that
+office's added block; an empty custom prompt also stays empty. Factory mode restores
+the Lead's 御下术 and the four office duty prompts. These extra sections apply only
+to agents actually composed with the **cabinet** preset; other modes are unchanged.
+The existing static persona is unchanged in this release.
+
+Settings live in the **DSH_HOME/profile** configuration (the cabinet-ui namespace),
+not a browser account. Browsers connected to the same profile share settings and
+all Cabinet sessions in it use them; use separate profiles/DSH_HOME for isolation.
+Invalid fields fall back to defaults. The preset-only fallback installation does
+not install this settings UI or runtime prompt section; use the market bundle.
+
 
 ## The cabinet at a glance
 
@@ -103,101 +131,6 @@ See [costume references, role settings and generation prompts](docs/images/avata
 The panel reads two existing data channels only — per-session running status
 (`api-session/status`) and the `agentTeam` session projection (roster and task
 board). It adds no service and no protocol.
-
-## Cabinet member settings
-
-Besides the Sidebar panel, this package adds a **Cabinet members** section to the
-**DSH settings page** (the official `settings.section` slot, section id
-`cabinet`). The five members' names, avatars and prompts are edited there; the
-values are written into this machine's DSH user settings and **take effect on the
-next model assembly — no restart**.
-
-**Where**: the **Settings** button at the bottom of the Sidebar → **Cabinet
-members** in the left-hand navigation.
-
-**What you can change**
-
-| Item | Limits | After clearing / resetting |
-|---|---|---|
-| Display name | ≤ 40 characters | falls back to the runtime name (`lead` / `hanlin` / `works` / `dali` / `yushi`), exactly the 0.2.0 rendering |
-| Avatar | source file PNG / JPEG / WebP, ≤ 2MB; centre-cropped in the browser and normalized to **96×96 PNG**; one data URL ≤ **48KB**; the five built-in avatars stay one click away | returns to that member's built-in bureau avatar |
-| Prompt | ≤ 4000 characters | empty = **nothing is injected** for that member (see the Lead below) |
-
-**Saving**: there is no Save button — edits are written automatically. Text
-edits land after a ~0.4 s debounce; avatar uploads and **Restore default / Reset
-all** are written immediately. The status line reports **Saved / Save failed, try
-again**.
-
-**Where it is stored**: through the official DSH settings channel (`configForms`
-namespace `cabinet-ui`, i.e. this package's profile-root Loader row), persisted in
-this machine's user settings file
-`$DSH_HOME/profiles/<profile>/cordis.patch.yml` (default `~/.dsh`). **One copy per
-machine and per user**; every authenticated browser on that machine shares the
-same copy — that is existing DSH settings semantics, not behaviour this plugin
-adds.
-
-**Clear / restore / reset**
-
-- Clearing a prompt box = **nothing injected** for that member.
-- **Use built-in** (or the built-in avatar strip) = drop the custom avatar and go
-  back to the built-in one.
-- **Restore default** on one card = clear that member's display name and avatar and
-  empty its prompt; on the Lead's card the prompt box goes back to the factory
-  御下术 text.
-- **Reset all** in the header = all five go back to factory: no display names, no
-  custom avatars, and the Lead's 御下术 back on.
-
-**The Lead's 御下术 (default prompt content, Lead only)**
-
-From 0.3.0 the Lead (`role === 'lead'`) also receives a ten-point **御下术**
-("art of command"): establish authority, paint the prize, apply deadlines, attack
-the work not the person, compare against the strongest sibling, alternate
-pressure and relief, pit reviewer against censor, pin defects to a name, counter
-hand-waving, and only claim closure when it is closed — followed by a **red line**
-that overrides every tactic (pressure only ever applies to AI ministers, never to
-the user; no fabricated evidence, no deleted evidence, no faked green runs; no
-personal abuse; no pressure traded for unauthorized actions; every threat must
-land on a checkable time, deliverable or criterion). It is injected into the
-Lead's system prompt only — **teammates never get it**.
-
-To turn it off: clear the Lead's prompt box (= off, nothing injected), or replace
-it with your own text (= your text replaces the factory draft). **Restore
-default** on the Lead's card brings the factory text back.
-
-> This is a **change to default prompt content**: a deployment upgraded from 0.2.0
-> gets this extra text in the Lead's system prompt even if nobody ever opens the
-> settings page. See [CHANGELOG](CHANGELOG.md).
-
-**Damaged or unexpected configuration**
-
-Stored values are read generously and ignored when unreadable: `members` not an
-array, an unknown member key, an over-long name or prompt (clamped to 40 / 4000),
-an avatar that is not a `data:image/` URL or exceeds 48KB — each is ignored and
-rendering falls back to factory output; a bad value cannot break the panel. When
-the browser half cannot reach the `configForms` service the settings page does not
-appear and the panel keeps its 0.2.0 behaviour; when the Host has no
-`cabinet-ui` entry (for example a Method B fallback install), the page still
-appears but no value reaches a Host entry and nothing is ever injected.
-
-**Known limitations**
-
-- **The native team roster only gets avatars, not names**: the roster's name text
-  stays the runtime name. A configured display name applies to the **Cabinet
-  panel** (member cards and task owner labels) only.
-- **Renaming does not change identity**: runtime phrases such as
-  `You are teammate "<name>".` are untouched; a display name is a presentation
-  layer.
-- **The upload limits are hard**: ≤ 2MB source, ≤ 48KB after normalization. A
-  busy image can still exceed the limit after compression and is rejected — pick a
-  smaller original.
-- **The settings entry ships only with Method A (bundle)**: the Method B fallback
-  install writes the preset insert only, so it has no `cabinet-ui` row, no
-  settings page and no runtime injection — behaviour identical to 0.2.0.
-- **Settings are host-level, not browser-level**: every authenticated browser on
-  the same machine sees the same member configuration.
-- The section depends on DSH's `settings.section` slot and `configForms` channel;
-  this repository checked the interface signatures against DSH 0.2.1-rc.5 only, so
-  other versions are **unverified**.
 
 ## How it takes effect
 
@@ -309,7 +242,7 @@ On failure, show the exact error. For $.format must be 1, replace the webpage so
 Use this only when the market is unavailable or for local development. Fully quit desktop DSH first to release the profile lock, then install the release bundle:
 
 ```sh
-dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.2.7/dsh-cabinet-mode-0.2.7.tgz
+dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.3.0/dsh-cabinet-mode-0.3.0.tgz
 dsh plugin --profile desktop list
 ```
 
@@ -370,7 +303,7 @@ on DSH 0.2.1-rc.5.
 | Method | Windows | Linux | macOS | Notes |
 |---|---|---|---|---|
 | **Plugin market** (index source): see [Install from the plugin market](#install-from-the-plugin-market-recommended) | ✅ **Windows rc.5 web client install verified** (isolated profile, 2026-11-05) | ❌ **not tested** | ❌ **not tested** | Same npm bundle install through DSH's plugin market; the npm publish and the `market-index` branch now exist. |
-| **A. DSH plugin manager** (fallback): plugin page "Add plugin -> local directory/package", or `dsh plugin --profile <profile> add <absolute path / .tgz / release URL>` | ✅ tested locally on 2026-10-29: local-directory install **and GitHub Release asset URL install**; `dsh plugin --profile desktop list` = 3 packages; composition check passed | ⚙️ code-level inference, **not tested on this machine** | ⚙️ code-level inference, **not tested on this machine** | Pure YAML bundle: no build, no dependencies, no OS-specific code. See [docs/cross-platform.md](docs/cross-platform.md). |
+| **A. DSH plugin manager** (fallback): plugin page "Add plugin -> local directory/package", or `dsh plugin --profile <profile> add <absolute path / .tgz / release URL>` | ✅ tested locally on 2026-10-29: local-directory install **and GitHub Release asset URL install**; `dsh plugin --profile desktop list` = 3 packages; composition check passed | ⚙️ code-level inference, **not tested on this machine** | ⚙️ code-level inference, **not tested on this machine** | Declarative preset plus host/browser JavaScript: no build step. See [docs/cross-platform.md](docs/cross-platform.md). |
 | **B. Fallback node scripts** (no plugin manager): `node scripts/install.mjs --profile <profile>` then `--apply`; writes the profile `cordis.patch.yml` | ✅ scripts tested on Windows (dry-run + temp copies) | ⚙️ code-level inference, **not tested** | ⚙️ code-level inference, **not tested** | Same file layout on all platforms: `<DSH_HOME>/profiles/<profile>/cordis.patch.yml`. |
 
 **Method A and Method B are mutually exclusive.** Both create the preset
@@ -495,9 +428,9 @@ long-lived npm token — creates the GitHub Release, and then refreshes the
 `market-index` branch that the plugin market reads.
 
 ```sh
-# package.json version and the matching CHANGELOG section must both be 0.3.0
-git tag v0.3.0
-git push origin v0.3.0
+# package.json version and the matching CHANGELOG section must both be 0.2.0
+git tag v0.2.0
+git push origin v0.2.0
 ```
 
 One-time setup on npmjs.com (a maintainer action; it cannot be done from this

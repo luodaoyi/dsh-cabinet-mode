@@ -102,9 +102,9 @@ if (pkg) {
   if (Array.isArray(pkg.files) && !pkg.files.includes('icon.svg')) problems.push('files does not include icon.svg');
   if (!/>=?\s*20/.test(String(pkg.engines?.node ?? ''))) problems.push('engines.node is not >=20');
   if (pkg.dsh?.bundle?.patch !== './cordis.patch.yml') problems.push('dsh.bundle.patch is not ./cordis.patch.yml');
-  if (Object.keys(pkg.dependencies ?? {}).length > 0) problems.push('runtime dependencies are not empty');
+  if (!pkg.dependencies?.['@deepseek-ai/schemastery']) problems.push('missing runtime schema dependency');
   if (pkg.main || pkg.types) problems.push('main/types entry present; the browser half must ship through exports."./client" + dsh.client, not a main/types entry');
-  if (problems.length === 0) ok('package.json fields (npm + DSH bundle, no runtime deps, no main/types entry; exports + dsh.client allowed)');
+  if (problems.length === 0) ok('package.json fields (npm + DSH bundle, declared schema dependency, no main/types entry; exports + dsh.client allowed)');
   else bad('package.json fields', problems.join('; '));
 
   // No DSH version gate: docs claim the bundle declares no DSH version dependency.
@@ -187,8 +187,8 @@ if (pkg) {
   if (injectUi) ok('package.json dsh.client.inject includes @deepseek-ai/dsh-client-ui-settings');
   else bad('package.json dsh.client.inject', 'missing @deepseek-ai/dsh-client-ui-settings');
 
-  if (Object.keys(pkg?.dependencies ?? {}).length === 0) ok('runtime dependencies stay empty (settings base comes from the Host)');
-  else bad('runtime dependencies', 'dependencies must stay empty');
+  if (pkg.dependencies?.['@deepseek-ai/schemastery'] && pkg.devDependencies?.['@deepseek-ai/dsh-plugin-market-index']) ok('schema runtime dependency and official market test dependency declared');
+  else bad('dependencies', 'schema or market parser missing');
 
   // G1: the Lead's factory prompt is product copy and must exist byte-identically
   // in both halves; scripts/verify.mjs owns the cross-file equality check.
@@ -364,7 +364,7 @@ if (existsSync(PATCH_PATH)) {
 }
 
 // ---------- fallback scripts ----------
-for (const test of ['test-install.mjs', 'test-client.mjs', 'test-avatars.mjs', 'test-roster.mjs']) {
+for (const test of ['test-member-settings.mjs', 'test-install.mjs', 'test-client.mjs', 'test-avatars.mjs', 'test-roster.mjs']) {
   const result = spawnSync(process.execPath, [join(ROOT, 'scripts', test)], {
     encoding: 'utf8', timeout: 30000, windowsHide: true,
   });

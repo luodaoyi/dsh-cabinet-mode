@@ -13,11 +13,35 @@
 
 模式设定取自大明科研司·内阁：首辅（Lead）统摄，阁臣（成员）分曹——翰林院编修主调研、工部尚书主执行、大理寺卿主核验、左都御史主验收；默认只调研不改码，不编造数据来源。
 
-本包含 host 半部 `index.js`（声明「内阁成员」配置 schema，并在每次模型装配时按角色注入对应提示段）与浏览器半部 `client.js`（右栏「内阁」面板 + DSH 设置页「内阁成员」分区），面板内嵌五张成员头像与一张无官阶回退头像（128px data URL；源图在 `docs/images/avatars/`，由 `src/build_avatars.py` 缩放生成）；另随包提供可选的 Node.js 回退脚本（`scripts/*.mjs`）。本包**无第三方运行时依赖**，React 等经 DSH 客户端模块表取用，不自带重复依赖或 CDN。
+本包含 host 半部 `index.js`（声明「内阁成员」配置 schema，提供仅限内阁模式的成员提示词并在每次模型装配时注入）与浏览器半部 `client.js`（右栏「内阁」面板 + DSH 设置页「内阁成员」分区），面板内嵌五张成员头像与一张无官阶回退头像（128px data URL；源图在 `docs/images/avatars/`，由 `src/build_avatars.py` 缩放生成）；另随包提供可选的 Node.js 回退脚本（`scripts/*.mjs`）。本包使用 `@deepseek-ai/schemastery` 作为配置 schema 运行时依赖，React 等经 DSH 客户端模块表取用，不自带重复依赖或 CDN。
 
 它声明**两行**——`preset-cabinet`（一条 `@deepseek-ai/dsh-agent-preset` 声明）与 `cabinet-ui`（载入本包 JavaScript 的 Loader 行）——并复用 DSH **标准模式**（Standard Mode）出厂的 22 行插件清单，因此工具与标准模式一致；与出厂模式的差异是 persona，并另加右栏「内阁」面板。团队工具（`spawn_teammate`、`team_task_*` 等）由 profile 层的 `@deepseek-ai/dsh-experimental-agent-team-profile` 提供，**本 preset 未内置**。
 
 本包声明 **无 DSH 版本硬限制**：没有 `engines.dsh`、没有 DSH `peerDependencies`、安装时不做版本检查。本机在 DSH **0.2.1-rc.3** 实测；其他提供声明式 preset 机制的 DSH 版本可尝试安装，但**未经验证**（见 [DSH 侧限制与说明](#dsh-侧限制与说明)）。
+
+## 内阁成员配置
+
+通过商店安装 bundle 后，打开 **设置 → 内阁成员**。五个官职组分别支持显示名
+（40 字符）、头像和提示词（4000 字符）。内阁卡片与 Owner 标签保留原始成员 ID，
+不会改动任务归属或原生成员列表中的运行时名称。
+
+编辑后点击 **保存**；**取消并重新读取** 丢弃草稿并读取最新配置，离开页面也会
+丢弃未保存修改。保存按加载时的修订号原子写入五员配置；其他页面已修改时会提示
+冲突，须取消重读后再编辑，不会用旧草稿覆盖。配置尚未加载时禁止编辑。
+保存的提示词在下一次提示词装配时生效。
+
+可上传不超过 2 MB 的 PNG/JPEG/WebP；浏览器居中裁成 96×96 PNG，data URL 不超过
+48 KB。保存后头像同时用于内阁面板和原生团队列表。**恢复默认** 将该官职组的
+显示名、头像、提示词恢复出厂状态；**重置全部** 重置五员草稿，二者都须再点保存。
+清空提示词关闭该官职新增的整段；空 custom 文本也保持为空。默认模式启用首辅的
+御下术和四员职责提示。新增提示段只作用于实时绑定 **cabinet** preset 的 Agent，
+其他模式不受影响。本次发布不改变既有静态 persona。
+
+配置隔离边界是 **DSH_HOME/profile** 的 cabinet-ui 命名空间，并非浏览器登录账号。
+连接同一 profile 的浏览器共享设置，该 profile 下的内阁会话共用配置；需要隔离时
+使用独立 profile/DSH_HOME。坏字段按默认值处理。只安装 preset 的回退方法没有成员
+设置页和运行时提示段，请优先使用商店 bundle。
+
 
 ## 团队结构一览
 
@@ -59,52 +83,6 @@
 | ![首辅：鹤补](src/avatars/lead.png) | ![编修：鸂鶒补](src/avatars/hanlin.png) | ![工部尚书：锦鸡补](src/avatars/works.png) | ![大理寺卿：孔雀补](src/avatars/dali.png) | ![左都御史：獬豸补](src/avatars/yushi.png) |
 
 面板只读取两条既有数据通道：成员运行状态（`api-session/status`）与会话投影 `agentTeam`（成员名册与任务板），不新增服务、不新增协议。
-
-## 内阁成员配置
-
-右栏面板之外，本包还在 **DSH 设置页**新增「内阁成员」分区（官方 `settings.section` 槽，分区 id `cabinet`）：五员的名字、头像与提示词都在这里改，改动写进本机 DSH 的用户设置，**下一次模型装配即生效，不需要重启**。
-
-**入口**：侧栏底部的**设置**按钮 → 左侧导航里的**内阁成员**。
-
-**可改三件东西**
-
-| 项 | 约束 | 留空 / 重置之后 |
-|---|---|---|
-| 显示名 | ≤ 40 字符 | 回落到运行时名字（`lead` / `hanlin` / `works` / `dali` / `yushi`），与 0.2.0 的渲染一致 |
-| 头像 | 源文件 PNG / JPEG / WebP，≤ 2MB；浏览器端居中裁切并归一为 **96×96 PNG**；单张 data URL ≤ **48KB**；另有内置五张可一键选回 | 回到该员的内置衙门头像 |
-| 提示词 | ≤ 4000 字符 | 空 = 该员这一段**不注入**（首辅见下节） |
-
-**保存**：没有「保存」按钮，改动自动写入——文本类改动约 0.4 秒防抖后落盘，头像上传与「恢复默认 / 重置全部」立即写。状态行会显示「已保存 / 保存失败，请重试」。
-
-**写到哪里**：走 DSH 官方 settings 通道（`configForms` 命名空间 `cabinet-ui`，即本包在 profile 根级的那条 Loader 行），最终落在你本机的用户设置文件 `$DSH_HOME/profiles/<profile>/cordis.patch.yml`（默认 `~/.dsh`）。**每台机器、每个用户各自一份**；同一台机器上的多个浏览器共用同一份——这是 DSH settings 的既有语义，不是本插件的行为。
-
-**清空 / 恢复 / 重置的语义**
-
-- 提示词框清空 = 该员这一段**不注入**。
-- 「恢复内置」（或点内置头像排）= 丢弃自定义头像，回到内置头像。
-- 每张卡上的**恢复默认** = 清掉该员的显示名与头像，并清空其提示词；首辅那张卡会把提示词框还原成出厂御下术文本。
-- 页头的**重置全部** = 五员全部回出厂：无显示名、无自定义头像、首辅御下术回到出厂并重新注入。
-
-**首辅「御下术」（默认提示内容，仅首辅注入）**
-
-0.3.0 起，首辅（`role === 'lead'`）默认额外注入一段 10 条的**御下术**——立威、画饼、施压、打压对事不对人、拉踩对比、情绪收放、牵制互查、责任到人、反制糊弄、收束，末尾附一条压过全部话术的**红线**（只对 AI 阁臣施压、对陛下只有敬；不许逼造假 / 删证据 / 凑绿；不许人身侮辱辱骂；不许以施压换取越权操作；施压必须落在可核验的时间、交付物与判据上）。这段只进首辅的系统提示，**阁臣不注入**。
-
-关闭有两种方式：把首辅提示词框**清空**（= 关闭，什么都不注入），或改成你自己的文本（= 用你的替换出厂稿）。想复原就点首辅那张卡的**恢复默认**。
-
-> 这是**默认提示内容的变更**：从 0.2.0 升级上来、一次都没打开过配置页的部署，首辅的系统提示同样会多出这段。详见 [CHANGELOG](CHANGELOG.md)。
-
-**损坏 / 异常配置的回退**
-
-设置值是「能读就读，读不懂就忽略」：`members` 不是数组、成员 key 不认识、名字或提示词超长（按 40 / 4000 截断）、头像不是 `data:image/` 开头或超 48KB——一律忽略该字段并回退出厂渲染，不会让面板渲染中断。客户端拿不到 `configForms` 服务时，配置页不出现、面板保持 0.2.0 行为；宿主没有 `cabinet-ui` 这个条目（例如只做了下面的方式 B 回退安装）时，页面仍会出现，但配置写不进任何条目、也不会有运行时注入。
-
-**已知限制**
-
-- **原生团队浮层（roster）只换头像，不换名字**：浮层里的名字文本仍是运行时名字；配置的显示名只作用于「内阁」面板（成员卡与任务 owner 标签）。
-- **改显示名不改身份**：运行时身份短语（`You are teammate "<name>".`）照旧，改名只作用于显示层。
-- **上传上限是硬的**：源文件 ≤ 2MB、归一后 ≤ 48KB。细节多的图可能压完仍超限而被拒收，请换更小的原图。
-- **配置入口只在方式 A（bundle）**：回退安装（方式 B，只往 profile patch 写 preset insert）不含 `cabinet-ui` 行，因此没有配置页、也没有运行时注入，行为与 0.2.0 一致。
-- **设置是主机级、不是浏览器级**：同一台机器上所有已认证浏览器看到同一份成员配置。
-- 设置页分区依赖 DSH 的 `settings.section` 槽与 `configForms` 通道；本仓库只按 DSH 0.2.1-rc.5 的接口签名核对过，其他版本**未验证**。
 
 ## 生效说明
 
@@ -205,7 +183,7 @@ https://raw.githubusercontent.com/luodaoyi/dsh-cabinet-mode/market-index/marketp
 仅在商店不可用或本地开发时使用。先完全退出桌面 DSH，释放 profile 锁，再执行：
 
 ```sh
-dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.2.7/dsh-cabinet-mode-0.2.7.tgz
+dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.3.0/dsh-cabinet-mode-0.3.0.tgz
 dsh plugin --profile desktop list
 ```
 
@@ -321,9 +299,9 @@ node scripts/verify.mjs                             # 仓库校验 + dsh 合成�
 推送版本 tag 会触发 `.github/workflows/release.yml`：校验工作树 → 打包 tarball → 用 **Trusted Publishing（OIDC）** 发布到 npm（不使用长期 npm token）→ 创建 GitHub Release → 刷新插件市场读取的 `market-index` 分支。
 
 ```sh
-# package.json 版本与 CHANGELOG 对应章节都必须是 0.3.0
-git tag v0.3.0
-git push origin v0.3.0
+# package.json 版本与 CHANGELOG 对应章节都必须是 0.2.0
+git tag v0.2.0
+git push origin v0.2.0
 ```
 
 npmjs.com 侧的一次性配置（维护者在网页上完成，无法从本仓库完成）。为该包添加 GitHub Actions trusted publisher：

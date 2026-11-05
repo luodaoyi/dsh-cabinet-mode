@@ -30,14 +30,22 @@ All notable changes to this project are documented in this file.
   text may contain `{{…}}`) and an unconfigured deployment renders an empty
   section, which the prompt registry drops.
 - `@deepseek-ai/dsh-client-ui-settings` added to `dsh.client.inject`;
-  `@deepseek-ai/schemastery` declared in `devDependencies` and resolved by the
-  Host at runtime (a Host without it still loads the bundle: no settings page,
+  `@deepseek-ai/schemastery` declared in `dependencies` as the configuration
+  schema runtime (a Host without it still loads the bundle: no settings page,
   panel keeps v0.2.0 rendering).
 - **README (zh/en)** gained a full 「内阁成员配置」/ "Cabinet member settings"
   section: entry path, editable fields and their limits, storage location,
   clear / restore / reset semantics, the Lead's default 御下术 and how to turn it
   off, damaged-configuration fallback, and the known limitations below.
 - **Lead directive: dispatch scale cap (anti-death-loop).** Each subtask must carry a single deliverable and one write scope, with a difficulty-tiered call budget written into the task brief — ≤30 tool calls for simple single-file tasks, ≤100 for multi-file merge/conflict/field-debugging work — and ≤2 retries on the same failure; task briefs must state the budget and stop conditions (report "failed/unverified" at the limit), no unbounded polling or third retry.
+
+- Profile-wide Cabinet member settings for display names, portraits and duty prompts.
+- Explicit atomic Save/Cancel with revision checks to prevent stale tabs overwriting settings.
+- Cabinet-only runtime prompt sections. Standard and other presets remain unchanged.
+- Default Lead policy and four office duty prompts; clear disables a block and restore
+  restores its factory default. Runtime identities and task ownership remain unchanged.
+- Settings are shared by browsers connected to the same DSH_HOME/profile, not isolated
+  by browser account. Native roster names remain runtime identities.
 
 ### Changed
 

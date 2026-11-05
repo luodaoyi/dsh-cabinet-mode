@@ -75,7 +75,9 @@
     "pack:dry-run": "npm pack --dry-run"
   },
   "devDependencies": {
-    "@deepseek-ai/schemastery": "~3.18.5",
     "@deepseek-ai/dsh-plugin-market-index": "0.2.1-rc.5"
+  },
+  "dependencies": {
+    "@deepseek-ai/schemastery": "~3.18.5"
   }
 }
