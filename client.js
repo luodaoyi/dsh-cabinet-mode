@@ -3625,7 +3625,7 @@ window.__ModuleLoader__.load({
 						]),
 						avatars[key] ? h('button', { key: 'clear', type: 'button', style: { fontSize: 11, cursor: 'pointer' }, onClick: () => writeAvatar(key, '') }, t('member.avatar.clear')) : null
 					]),
-					errors[key] ? h('div', { key: 'e', style: { fontSize: 11, color: '#f25a5a', marginBottom: 4 } }, errors[key]) : null,
+					errors[key] ? h('div', { key: 'e', style: { fontSize: 11, color: '#f25a5a', marginBottom: 4 } }, errors[key] === 'member.error.model' ? t(errors[key]) : errors[key]) : null,
 					h('label', { key: 'name', style: { display: 'block', fontSize: 11, color: INK2, marginBottom: 2 } }, t('member.name')),
 					h('input', {
 						key: 'ni',
@@ -3660,7 +3660,7 @@ window.__ModuleLoader__.load({
 							style: inputStyle,
 							onChange: (event) => update(key, { model: event?.target?.value ?? '' })
 						}),
-					modelOptions.length === 0 ? h('div', { key: 'mh', style: { fontSize: 11, color: INK3, marginTop: 4 } }, t('member.model.unavailable')) : null,
+					modelCatalog !== undefined && modelOptions.length === 0 ? h('div', { key: 'mh', style: { fontSize: 11, color: INK3, marginTop: 4 } }, t('member.model.unavailable')) : null,
 					h('div', { key: 'mhint', style: { fontSize: 11, color: INK3, marginTop: 4 } }, t('member.model.hint')),
 					h('label', { key: 'prompt', style: { display: 'block', fontSize: 11, color: INK2, margin: '8px 0 2px' } }, t('member.prompt')),
 					h('textarea', {
