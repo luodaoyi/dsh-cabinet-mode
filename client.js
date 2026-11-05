@@ -2383,6 +2383,7 @@ window.__ModuleLoader__.load({
 		// an unmatched name gets a neutral "unassigned" mark instead of a bureau
 		// avatar, so a stranger is never mistakable for the Lead.
 		const AVATAR_KEYS = ['lead', 'hanlin', 'works', 'dali', 'yushi'];
+		const ROLE_PREFIXES = { lead: ['首辅', '内阁首辅'], hanlin: ['翰林院', '编修'], works: ['工部', '主事'], dali: ['大理寺', '评事'], yushi: ['都察院', '御史'] };
 		const NEUTRAL_CACHE = new Map();
 		function neutralAvatar(name) {
 			const text = typeof name === 'string' ? name.trim() : '';
@@ -2400,8 +2401,8 @@ window.__ModuleLoader__.load({
 			return url;
 		}
 		function avatarFor(name) {
-			const text = typeof name === 'string' ? name : '';
-			for (const key of AVATAR_KEYS) if (text.startsWith(key)) return AVATARS[key];
+			const text = typeof name === 'string' ? name.trim() : '';
+			for (const key of AVATAR_KEYS) if (text.startsWith(key) || ROLE_PREFIXES[key].some((prefix) => text.startsWith(prefix))) return AVATARS[key];
 			return neutralAvatar(text);
 		}
 		function isPlaceholder(name) {
@@ -2948,6 +2949,10 @@ window.__ModuleLoader__.load({
 			// Styles live in one shared <style id="dsh-cabinet-ui-styles"> mounted by
 			// apply(); the panel itself renders no <style> element.
 			const body = [];
+			if (team?.failure) body.push(h('div', {
+				key: 'failure', role: 'alert', className: 'cabinet-status-failed',
+				style: { marginBottom: 10 }
+			}, tt('team.stale')));
 
 			const members = team?.members ?? [];
 			const tasks = (team?.tasks ?? []).filter((task) => task.status !== 'deleted');
@@ -3129,6 +3134,7 @@ window.__ModuleLoader__.load({
 
 		// ---------- copy -----------------------------------------------------
 		const zh = {
+			'team.stale': '团队状态读取失败：以下成员和任务可能是上次成功读取的数据。',
 			'tab.title': '内阁',
 			'guide.title': '内阁',
 			'guide.desc': '首辅、阁臣与派活状态',
@@ -3154,6 +3160,7 @@ window.__ModuleLoader__.load({
 			'empty.hint': '尚无内阁数据：请在已建团队板的首辅会话中打开本页。'
 		};
 		const en = {
+			'team.stale': 'Team state could not be read. Members and tasks below may show the last successful snapshot.',
 			'tab.title': 'Cabinet',
 			'guide.title': 'Cabinet',
 			'guide.desc': 'Lead, ministers, and dispatch state',

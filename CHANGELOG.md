@@ -2,7 +2,7 @@
 
 All notable changes to this project are documented in this file.
 
-## [0.2.0] - 2026-11-04
+## [0.2.0] - 2026-11-05
 
 ### Added
 
@@ -29,8 +29,7 @@ All notable changes to this project are documented in this file.
   declaration has no `exports."./client"` (`dsh-client-modules`).
 - **`cordis.patch.yml`**: appends the Loader row `cabinet-ui` →
   `dsh-cabinet-mode` so the host scans the package as a client plugin. The
-  `preset-cabinet` declaration, the 22-row plugin list and the persona prefix are
-  unchanged.
+  `preset-cabinet` declaration, and the 22-row plugin list are retained; persona rules change as described below.
 - **persona**: the Lead's rules are enforced — mandatory decomposition and
   delegation (`spawn_teammate` plus a `team_task_*` board) before any hands-on
   work, the single-user-facing interface (only the Lead talks to the user;
@@ -38,13 +37,21 @@ All notable changes to this project are documented in this file.
 - **`scripts/verify.mjs`**: the package-fields check now allows `exports` and
   `dsh.client` while still rejecting `main` / `types` entries.
 
+### Fixed
+
+- The fallback installer writes only the persona preset, without referring to an
+  uninstalled UI package. Regression tests cover dry runs, backups, install and
+  uninstall, duplicate prevention and existing bundle guards.
+- Composition verification installs the current checkout into a temporary
+  DSH_HOME, avoiding stale installed versions and changes to the user profile.
+- Chinese bureau and role names resolve to the matching member avatars.
+- Team read failures warn that retained members/tasks may be stale.
+
 ### Notes
 
-- **Browser rendering is pending a restart test**: the panel renders in the
-  browser (`client.js`) and has not yet been exercised in a real session after a
-  DSH restart.
-- README release links still point at `v0.1.6` until `v0.2.0` is tagged, so the
-  release-URL check in `scripts/verify.mjs` fails by design until the release.
+- The full panel requires a bundle install and a DSH restart; the fallback path
+  installs only the persona preset.
+- README links target v0.2.0 and become available when that release is published.
 
 ## [0.1.6] - 2026-11-03
 

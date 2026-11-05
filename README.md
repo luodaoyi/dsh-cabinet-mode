@@ -278,6 +278,9 @@ on Windows with DSH 0.2.1-rc.3 (2026-10-29); the URL install completed in about
 
 ### B. Fallback: write the profile patch layer (no plugin manager)
 
+This installs the persona preset only. The Cabinet panel and member avatars require
+Method A, which installs the runtime package into the profile.
+
 Requires Node.js >= 20. The scripts are cross-platform and dry-run by default.
 
 ```sh

@@ -16,7 +16,8 @@
  *    CHANGELOG section for package.version
  *
  * Composition check (only when `dsh` is on PATH):
- *  - `dsh --profile web --patch ./cordis.patch.yml --dump-config`
+ *  - Install this checkout in a temporary DSH_HOME, then run
+ *    `dsh --profile web --dump-config` (never uses the user profile).
  *    must exit 0, contain exactly one `preset-cabinet`, and keep the four shipped
  *    presets (standard/ptc/minimal/cordis) exactly once each.
  *  - The DSH version is printed informationally only. This repository declares no
@@ -26,13 +27,13 @@
  * Exit codes: 0 = all checks pass, 1 = failures.
  */
 
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, mkdtempSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
-const HOME = process.env.HOME || process.env.USERPROFILE || '';
 const PATCH_PATH = join(ROOT, 'cordis.patch.yml');
 const PACKAGE_PATH = join(ROOT, 'package.json');
 const TESTS_ON = '0.2.1-rc.3';
@@ -242,6 +243,13 @@ if (existsSync(PATCH_PATH)) {
 }
 
 // ---------- fallback scripts ----------
+for (const test of ['test-install.mjs', 'test-client.mjs']) {
+  const result = spawnSync(process.execPath, [join(ROOT, 'scripts', test)], {
+    encoding: 'utf8', timeout: 30000, windowsHide: true,
+  });
+  if (result.status === 0) ok(test);
+  else bad(test, result.stderr || result.stdout || String(result.error));
+}
 const scripts = ['install.mjs', 'uninstall.mjs', 'verify.mjs'];
 const scriptProblems = [];
 for (const script of scripts) {
@@ -324,35 +332,18 @@ if (!dshVersion) {
   } else {
     warning('dsh version differs from the tested reference', `${TESTS_ON} tested, running ${dshVersion}; informational only, no version gate and no failure`);
   }
-  // The bundle already ships this patch through `dsh.bundle.patch`, so a profile
-  // that installs dsh-cabinet-mode applies it once on its own. Passing --patch
-  // as well would apply the same patch twice and report two preset-cabinet rows,
-  // so only overlay it when the active profile does not install this package.
-  const patchArg = PATCH_PATH.includes(' ') ? `"${PATCH_PATH}"` : PATCH_PATH;
-  const profileInstallsBundle = (() => {
-    const profilePackage = join(HOME, '.dsh', 'profiles', 'web', 'package.json');
-    if (!existsSync(profilePackage)) return false;
-    try {
-      const parsed = JSON.parse(readFileSync(profilePackage, 'utf8'));
-      const deps = { ...(parsed.dependencies ?? {}), ...(parsed.devDependencies ?? {}) };
-      return Boolean(deps['dsh-cabinet-mode']);
-    } catch {
-      return false;
-    }
-  })();
-  const command = profileInstallsBundle
-    ? 'dsh --profile web --dump-config'
-    : `dsh --profile web --patch ${patchArg} --dump-config`;
-  if (profileInstallsBundle) {
-    console.log('  profile web already installs dsh-cabinet-mode: bundle patch applied once, --patch not re-applied');
-  }
-  const result = spawnSync(command, {
-    shell: true,
-    encoding: 'utf8',
-    timeout: 180000,
-    windowsHide: true,
+  // Install this checkout into an isolated profile: existing profiles can contain
+  // older bundles, and dump-config can write to them.
+  const testHome = mkdtempSync(join(tmpdir(), 'cabinet-compose-'));
+  console.log('  isolated DSH_HOME: ' + testHome);
+  const runDsh = (command) => spawnSync(command, {
+    shell: true, cwd: ROOT, env: { ...process.env, DSH_HOME: testHome },
+    encoding: 'utf8', timeout: 180000, windowsHide: true,
     maxBuffer: 64 * 1024 * 1024,
   });
+  let result = runDsh('dsh --profile web --dump-config');
+  if (result.status === 0) result = runDsh('dsh plugin --profile web add .');
+  if (result.status === 0) result = runDsh('dsh --profile web --dump-config');
   if (result.status !== 0) {
     bad('dump-config composition', `exit=${result.status} ${(result.stderr ?? '').slice(0, 500)}`);
   } else {
@@ -360,6 +351,8 @@ if (!dshVersion) {
     const count = countOccurrences(output, '- id: preset-cabinet');
     if (count === 1) ok('dump-config composition inserts preset-cabinet exactly once');
     else bad('dump-config composition', `preset-cabinet entries: ${count}`);
+    if (countOccurrences(output, '- id: cabinet-ui') === 1) ok('dump-config loads cabinet-ui exactly once');
+    else bad('dump-config cabinet-ui declaration');
     const shipped = ['preset-standard', 'preset-ptc', 'preset-minimal', 'preset-cordis'];
     const missingShipped = shipped.filter((id) => countOccurrences(output, `- id: ${id}`) !== 1);
     if (missingShipped.length === 0) ok('dump-config keeps the four shipped presets');

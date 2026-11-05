@@ -149,7 +149,12 @@ const write = opts.apply && !opts.dryRun;
 
 try {
   if (!existsSync(PATCH_FILE)) abort(`package patch file is missing: ${PATCH_FILE}`);
-  const patchText = readFileSync(PATCH_FILE, 'utf8').trimEnd();
+  // The fallback does not install this package in the profile. Copy only the
+  // preset operation; the cabinet-ui loader requires a full bundle install.
+  const presetOperations = readFileSync(PATCH_FILE, 'utf8').split(/(?=^- )/m)
+    .filter((operation) => /^- insert:\r?\n    - id: preset-cabinet\r?\n/.test(operation));
+  if (presetOperations.length !== 1) abort('expected exactly one standalone preset-cabinet insert');
+  const patchText = presetOperations[0].replace(/\r\n/g, '\n').trimEnd();
   if (patchText.length === 0) abort(`package patch file is empty: ${PATCH_FILE}`);
   if (!patchText.includes('preset-cabinet')) abort('package patch file does not mention preset-cabinet');
   if (!/^- insert:/m.test(patchText)) abort("package patch file has no top-level '- insert:' list");
@@ -219,6 +224,7 @@ try {
   const backupPath = `${target}.bak-${stamp}-${suffix}`;
 
   console.log('== dsh-cabinet-mode fallback installer ==');
+  console.log('  Preset only: install the bundle through the plugin manager for the Cabinet panel and avatars.');
   console.log(`  mode       : ${write ? 'APPLY (writes the profile patch)' : 'DRY RUN (default; nothing is written)'}`);
   console.log(`  write style: ${mode}`);
   console.log(`  dsh home   : ${dshHome}`);
