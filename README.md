@@ -112,11 +112,11 @@ https://raw.githubusercontent.com/luodaoyi/dsh-cabinet-mode/market-index/marketp
 1. Open **Plugins → Experimental plugins → More** if needed, then enable **Custom plugin market** (自定义插件市场).
 2. Return to **Plugins → Discover** (发现), open **Index sources** (索引源), paste the raw URL above and click **Add**.
 3. Wait for **Cabinet Mode / 内阁模式** to appear. Click **Install**, check the package `dsh-cabinet-mode@<version>` and registry `https://registry.npmjs.org/`, then confirm installation.
-4. Check that DSH reports **Installed** and displays the version. Fully quit and restart DSH, create a new session, and select **内阁模式** (`cabinet`). Open the Cabinet tab with **+** in the right sidebar if needed.
+4. Check that DSH reports **Installed** and displays the version. Click **Enable now** (立即启用), or turn on the plugin switch on **Installed**. Installation can leave a plugin disabled; restarting alone does not enable it. Then fully quit and restart DSH, create a new session, and select **内阁模式** (`cabinet`). Open the Cabinet tab with **+** in the right sidebar if needed.
 
 Do **not** paste a GitHub `blob` or `tree` webpage URL. DSH does not convert those pages into an index: `$.format must be 1` was reproduced with a blob URL. Remove the invalid source and add the raw URL instead. This rule applies to Respire and other markets too.
 
-**Verification scope:** the raw source loaded and installed version 0.2.0 through the real DSH 0.2.1-rc.5 web client on Windows in an isolated profile (2026-11-05). Other DSH versions and Linux/macOS market UI flows are unverified. The index format is also tested with the official rc.5 parser. Live agent-team behavior is a separate test.
+**Verification scope:** the raw source loaded and installed version 0.2.0 through the real DSH 0.2.1-rc.5 web client on Windows in an isolated profile (2026-11-05). Uninstalling the old version, refreshing the source and installing 0.2.2 were also exercised, including the separate enable step. Other DSH versions and Linux/macOS market UI flows are unverified. The index format is also tested with the official rc.5 parser. Live agent-team behavior is a separate test.
 
 ## Install with an AI agent (copy this prompt)
 
@@ -126,7 +126,7 @@ https://raw.githubusercontent.com/luodaoyi/dsh-cabinet-mode/market-index/marketp
 
 1. Identify my DSH version and intended profile. Use the existing UI to enable Custom plugin market, then Plugins → Discover → Index sources.
 2. Add the exact raw JSON URL above. Do not use GitHub blob/tree URLs, edit the index, or invent a command to add a market source.
-3. Install Cabinet Mode from that source. Verify the confirmation shows dsh-cabinet-mode@<version> from https://registry.npmjs.org/, then verify the Installed result and version.
+3. Install Cabinet Mode from that source. Verify the confirmation shows dsh-cabinet-mode@<version> from https://registry.npmjs.org/, then verify the Installed result and version. Click Enable now or turn on the plugin switch on Installed, and verify it is enabled.
 4. If browser/UI control is unavailable, give me those short UI steps. Use the release tarball or local-directory fallback only when the market is unavailable or I choose it; explain the specific reason first.
 5. Do not also append cordis.patch.yml to my profile: installing both ways duplicates the preset. Preserve my existing profile and plugins.
 6. Tell me to fully quit and restart DSH, create a new session and choose 内阁模式 (preset id cabinet). Do not claim success until the installed version is verified; do not claim untested team behavior works.
@@ -139,7 +139,7 @@ On failure, show the exact error. For $.format must be 1, replace the webpage so
 Use this only when the market is unavailable or for local development. Fully quit desktop DSH first to release the profile lock, then install the release bundle:
 
 ```sh
-dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.2.2/dsh-cabinet-mode-0.2.2.tgz
+dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.2.3/dsh-cabinet-mode-0.2.3.tgz
 dsh plugin --profile desktop list
 ```
 
@@ -154,7 +154,7 @@ the same install command with the new version URL (or pick the new `.tgz` in the
 plugin page), then fully quit and restart DeepSeek Harness:
 
 ```sh
-dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.2.2/dsh-cabinet-mode-0.2.2.tgz
+dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.2.3/dsh-cabinet-mode-0.2.3.tgz
 ```
 
 `dsh plugin --profile desktop list` should report the new version. Upgrades were
@@ -390,7 +390,7 @@ These were **not** tested on this machine and must not be presented as verified:
 - Whether `config.id` syntax rules reject unusual ids (this id is `cabinet`).
 - HMR behavior for preset declarations, and private-registry/proxied tarball
   installs.
-- **Market updates and other clients.** Raw-source addition and installation of 0.2.0 were verified in the Windows rc.5 web client. The uninstall/reinstall update flow and other DSH versions/platforms remain unverified.
+- **Market updates and other clients.** Raw-source addition, installation of 0.2.0, and uninstalling/reinstalling through the market to 0.2.2 were verified in the Windows rc.5 web client. Other DSH versions/platforms remain unverified.
 
 ## Known limitations
 
