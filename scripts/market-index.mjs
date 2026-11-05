@@ -284,8 +284,8 @@ const index = {
       name: MANIFEST.name,
       title: { en: 'Cabinet Mode', zh: '内阁模式' },
       description: {
-        en: 'Adds the “内阁模式” preset: one persona shared by the Lead and the bureau members (翰林院 / 工部 / 大理寺 / 都察院), research-first rules, and evidence-anchored reporting. Includes the Cabinet sidebar and member avatars, with no third-party runtime dependencies.',
-        zh: '新增「内阁模式」preset：首辅与阁臣（翰林院 / 工部 / 大理寺 / 都察院）共享同一段 persona，默认只调研不改码、结论必须锚定证据。包含内阁侧边栏与成员头像，无第三方运行时依赖。',
+        en: 'Adds the “内阁模式” preset: one persona shared by the Lead and the bureau members (翰林院 / 工部 / 大理寺 / 都察院), research-first rules, and evidence-anchored reporting. Includes the Cabinet sidebar, member avatars and profile-wide settings; version 0.3.0 uses @deepseek-ai/schemastery for its settings schema.',
+        zh: '新增「内阁模式」preset：首辅与阁臣（翰林院 / 工部 / 大理寺 / 都察院）共享同一段 persona，默认只调研不改码、结论必须锚定证据。包含内阁侧边栏、成员头像与 profile 共享设置；0.3.0 使用 @deepseek-ai/schemastery 作为设置 schema 依赖。',
       },
       icon: './icon.svg',
       author: MANIFEST.author,
