@@ -2201,9 +2201,11 @@ window.__ModuleLoader__.load({
 		function displayName(name) {
 			const bureau = bureauOf(name);
 			if (!bureau.matched) return bureau.label;
-			if (/^\d+$/.test(bureau.suffix)) return bureau.label + bureau.suffix;
-			if (bureau.suffix !== '') return bureau.label + '（' + bureau.suffix.slice(1) + '）';
-			return bureau.label;
+			let label = bureau.label;
+			if (/^\d+$/.test(bureau.suffix)) label += bureau.suffix;
+			else if (bureau.suffix !== '') label += '（' + bureau.suffix.slice(1) + '）';
+			// Different aliases can name different teammates; keep the exact identity visible.
+			return label === name ? label : label + ' · ' + name;
 		}
 		const NEUTRAL_CACHE = new Map();
 		function neutralAvatar(name) {
@@ -2469,8 +2471,9 @@ window.__ModuleLoader__.load({
 			]);
 		}
 
-		function Tag({ background, color, children }) {
+		function Tag({ background, color, title, children }) {
 			return h('span', {
+				title,
 				style: { fontSize: 10, padding: '0 5px', borderRadius: 4, color, background, flex: 'none' }
 			}, children);
 		}
@@ -2490,6 +2493,7 @@ window.__ModuleLoader__.load({
 					h(Avatar, { key: 'avatar', name: member.name, size: size || 22, live: status === 'running' }),
 					h('span', {
 						key: 'n',
+						title: displayName(member.name),
 						style: { fontSize: 13, fontWeight: 600, color: INK, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }
 					}, displayName(member.name)),
 					lead ? h('span', { key: 'lead', className: 'cabinet-badge-lead' }, tt('lead.tag')) : null,
@@ -2542,7 +2546,7 @@ window.__ModuleLoader__.load({
 			if (!task.ownerName) {
 				parts.push(h(Tag, { key: 'own', background: 'rgba(127,127,127,.18)', color: INK2 }, t('task.unassigned')));
 			} else {
-				parts.push(h(Tag, { key: 'owner', background: 'rgba(127,127,127,.16)', color: INK2 }, 'Owner: ' + displayName(task.ownerName)));
+				parts.push(h(Tag, { key: 'owner', title: displayName(task.ownerName), background: 'rgba(127,127,127,.16)', color: INK2 }, 'Owner: ' + displayName(task.ownerName)));
 			}
 			parts.push(h('span', {
 				key: 'id',
@@ -2915,7 +2919,7 @@ window.__ModuleLoader__.load({
 					} else {
 						content = h('div', { className: 'cabinet-card', style: { position: 'relative', zIndex: 1 } }, [
 							h('div', { key: 'head', style: { display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 } }, [
-								h('span', { key: 'title', style: { fontSize: 12, fontWeight: 600, color: INK, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, cell.title),
+								h('span', { key: 'title', title: cell.title, style: { fontSize: 12, fontWeight: 600, color: INK, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, cell.title),
 								h('span', { key: 'count', style: { fontSize: 11, color: INK3, flex: 'none' } }, '(' + cell.tasks.length + ')')
 							]),
 							h(RailList, { key: 'tasks', style: { marginTop: 4 } }, cell.tasks.map((task) => h(TaskLine, {
