@@ -2,6 +2,22 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.3.1] - 2026-11-05
+
+### Changed
+
+- Add a new Cabinet dispatch-budget policy: one deliverable/write scope per
+  subtask, up to 30 tool calls for simple single-file work or 100 for multi-file
+  merge/conflict/integration work, and at most two retries of the same failure.
+  Task briefs must specify stop conditions; exhausted budgets require an honest
+  failed/unverified report. Existing authorization and evidence rules remain.
+- This is prompt-level guidance, not a runtime counter or enforced tool quota.
+  It intentionally introduces a policy omitted from 0.3.0 during review, rather
+  than restoring content supposedly lost in a merge conflict.
+- Keep the existing explicit Save/Cancel settings behavior, canonical runtime
+  identities, custom portrait precedence and neutral fallback unchanged.
+- Clarify the policy in both READMEs while preserving market-first installation.
+
 ## [0.3.0] - 2026-11-05
 
 ### Added

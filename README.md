@@ -57,7 +57,16 @@ resets all five in the draft. Both require Save. Clearing a prompt disables that
 office's added block; an empty custom prompt also stays empty. Factory mode restores
 the Lead's 御下术 and the four office duty prompts. These extra sections apply only
 to agents actually composed with the **cabinet** preset; other modes are unchanged.
-The existing static persona is unchanged in this release.
+Version 0.3.1 adds a dispatch-budget policy to the Cabinet static persona:
+one deliverable and one write scope per subtask; up to 30 tool calls for simple
+single-file tasks, up to 100 for multi-file merges/conflict resolution/integration,
+and up to two retries of the same failure. Task briefs must name the budget and
+stop conditions; at the limit report failed/unverified, never fabricate completion.
+This is prompt-level guidance, not a runtime counter or guaranteed enforcement.
+The static persona is shared with teammates; its Lead-only heading is a semantic
+instruction, not programmatic removal from teammate prompts. Customizing or turning
+off a member prompt does not remove this static policy.
+It is a new policy in 0.3.1; 0.3.0 deliberately kept the static persona unchanged.
 
 Settings live in the **DSH_HOME/profile** configuration (the cabinet-ui namespace),
 not a browser account. Browsers connected to the same profile share settings and
@@ -184,7 +193,7 @@ On failure, show the exact error. For $.format must be 1, replace the webpage so
 Use this only when the market is unavailable or for local development. Fully quit desktop DSH first to release the profile lock, then install the release bundle:
 
 ```sh
-dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.3.0/dsh-cabinet-mode-0.3.0.tgz
+dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.3.1/dsh-cabinet-mode-0.3.1.tgz
 dsh plugin --profile desktop list
 ```
 
@@ -199,7 +208,7 @@ the same install command with the new version URL (or pick the new `.tgz` in the
 plugin page), then fully quit and restart DeepSeek Harness:
 
 ```sh
-dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.3.0/dsh-cabinet-mode-0.3.0.tgz
+dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.3.1/dsh-cabinet-mode-0.3.1.tgz
 ```
 
 `dsh plugin --profile desktop list` should report the new version. Upgrades were

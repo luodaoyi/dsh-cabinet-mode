@@ -35,7 +35,14 @@
 显示名、头像、提示词恢复出厂状态；**重置全部** 重置五员草稿，二者都须再点保存。
 清空提示词关闭该官职新增的整段；空 custom 文本也保持为空。默认模式启用首辅的
 御下术和四员职责提示。新增提示段只作用于实时绑定 **cabinet** preset 的 Agent，
-其他模式不受影响。本次发布不改变既有静态 persona。
+其他模式不受影响。0.3.1 在内阁静态 persona 中新增分派预算约定：
+每个子任务一个交付物、一份写入范围；简单单文件任务最多 30 次工具调用，
+多文件合并/解冲突/实机联调最多 100 次，同一失败最多重试 2 次。任务书须写明
+预算与停止条件，到限回报「失败/未验证」，不得虚报完成。这只是提示词层面的
+约束，没有运行时计数器或强制执行保证。静态 persona 也出现在阁臣的提示词中，靠「仅首辅适用」标题限定语义，并非程序
+从阁臣提示词中删除该段。自定义或关闭成员提示词不会删除这条静态策略。
+该策略是 0.3.1 的新增行为；0.3.0 曾明确
+保持静态 persona 不变，并非解决冲突时意外丢失。
 
 配置隔离边界是 **DSH_HOME/profile** 的 cabinet-ui 命名空间，并非浏览器登录账号。
 连接同一 profile 的浏览器共享设置，该 profile 下的内阁会话共用配置；需要隔离时
@@ -133,7 +140,7 @@ https://raw.githubusercontent.com/luodaoyi/dsh-cabinet-mode/market-index/marketp
 仅在商店不可用或本地开发时使用。先完全退出桌面 DSH，释放 profile 锁，再执行：
 
 ```sh
-dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.3.0/dsh-cabinet-mode-0.3.0.tgz
+dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.3.1/dsh-cabinet-mode-0.3.1.tgz
 dsh plugin --profile desktop list
 ```
 
@@ -144,7 +151,7 @@ dsh plugin --profile desktop list
 若通过插件市场安装：刷新市场，先在**已安装**页卸载旧版本，再从**插件市场**安装新版本，然后重启——没有 tgz URL 要换，也没有一键更新。否则用同一条安装命令换新版本 URL（或在插件页选新 `.tgz`），然后完全退出并重启 DeepSeek Harness：
 
 ```sh
-dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.3.0/dsh-cabinet-mode-0.3.0.tgz
+dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.3.1/dsh-cabinet-mode-0.3.1.tgz
 ```
 
 `dsh plugin --profile desktop list` 应显示新版本。升级已在 Windows 实测：
