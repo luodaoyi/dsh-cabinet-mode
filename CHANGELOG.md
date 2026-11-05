@@ -37,7 +37,7 @@ All notable changes to this project are documented in this file.
   section: entry path, editable fields and their limits, storage location,
   clear / restore / reset semantics, the Lead's default 御下术 and how to turn it
   off, damaged-configuration fallback, and the known limitations below.
-- **Lead directive: dispatch scale cap (anti-death-loop).** Each subtask must carry a single deliverable and one write scope, ≤15 tool calls, ≤2 retries on the same failure; task briefs must state the call budget and stop conditions (report "failed/unverified" at the limit), no unbounded polling or third retry.
+- **Lead directive: dispatch scale cap (anti-death-loop).** Each subtask must carry a single deliverable and one write scope, with a difficulty-tiered call budget written into the task brief — ≤30 tool calls for simple single-file tasks, ≤100 for multi-file merge/conflict/field-debugging work — and ≤2 retries on the same failure; task briefs must state the budget and stop conditions (report "failed/unverified" at the limit), no unbounded polling or third retry.
 
 ### Changed
 
