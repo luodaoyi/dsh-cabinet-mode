@@ -4,7 +4,7 @@ import vm from 'node:vm';
 import { AVATARS, PLACEHOLDERS } from '../src/avatars.js';
 
 const root = new URL('../', import.meta.url);
-const keys = ['lead', 'hanlin', 'works', 'dali', 'yushi'];
+const keys = ['lead', 'hanlin', 'works', 'dali', 'yushi', 'neutral'];
 const client = readFileSync(new URL('client.js', root), 'utf8');
 const region = client.slice(client.indexOf('// #region avatars'), client.indexOf('// #endregion avatars'));
 const embedded = vm.runInNewContext(`${region}\n({ AVATARS, AVATAR_PLACEHOLDERS })`);
@@ -24,4 +24,4 @@ for (const key of keys) {
   }
   assert.equal(bytes.readUInt32BE(16), 128);
 }
-console.log('Five distinct avatars: source dimensions, PNG bytes and both embedded modules agree.');
+console.log('Six distinct avatars: source dimensions, PNG bytes and both embedded modules agree.');
