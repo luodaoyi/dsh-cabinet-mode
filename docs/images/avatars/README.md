@@ -6,11 +6,11 @@ These are original AI-generated chibi illustrations. The requested reference is 
 
 | Key | Role / 官职设定 | Rank and badge / 品级与补纹 |
 | --- | --- | --- |
-| lead | 首辅，以加一品衔大学士作艺术设定 | 鹤 / crane; 首辅本身不是固定品阶 |
+| lead | 内阁首辅，以加一品衔大学士作艺术设定 | 鹤 / crane; 首辅本身不是固定品阶 |
 | hanlin | 翰林院编修 | 正七品，鸂鶒 / ornamental duck |
 | works | 工部主事 | 正六品，鹭鸶 / egret |
 | dali | 大理寺评事 | 正七品，鸂鶒 / ornamental duck |
-| yushi | 监察御史（界面保留“都察院御史”） | 正七品，风宪官獬豸 / xiezhi |
+| yushi | 监察御史（旧名“都察院御史”继续作为兼容别名） | 正七品，风宪官獬豸 / xiezhi |
 
 Sources: [《明史》卷六十七·舆服三](https://zh.wikisource.org/wiki/明史/卷67), [卷七十二·职官一](https://zh.wikisource.org/wiki/明史/卷72), [卷七十三·职官二](https://zh.wikisource.org/wiki/明史/卷73). The five-to-seven-rank blue rule concerns 公服; the chosen burgundy, teal, rust, slate and plum palette is artistic, not a claim about mandatory 常服 colours. 大理寺评事 is not assigned the censor's xiezhi badge.
 

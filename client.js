@@ -2058,11 +2058,11 @@ window.__ModuleLoader__.load({
 		// 大理寺/评事, 都察院/御史). One alias table answers both questions: which
 		// avatar to draw and how to label the member in Chinese.
 		const BUREAUX = [
-			{ key: 'lead', aliases: ['lead', 'shoufu', '首辅', '内阁首辅'], label: '首辅' },
+			{ key: 'lead', aliases: ['lead', 'shoufu', '首辅', '内阁首辅'], label: '内阁首辅' },
 			{ key: 'hanlin', aliases: ['hanlin', 'bianxiu', '翰林院', '翰林', '编修'], label: '翰林院编修' },
 			{ key: 'works', aliases: ['gongbu', 'works', 'zhushi', '工部', '主事'], label: '工部主事' },
 			{ key: 'dali', aliases: ['dali', 'pingshi', '大理寺', '大理', '评事'], label: '大理寺评事' },
-			{ key: 'yushi', aliases: ['yushi', 'censor', '都察院', '御史'], label: '都察院御史' }
+			{ key: 'yushi', aliases: ['yushi', 'censor', '都察院', '御史', '都察院御史'], label: '监察御史' }
 		];
 		const AVATAR_KEYS = BUREAUX.map((bureau) => bureau.key);
 		// Longest alias first, so a full office name ("翰林院编修") wins over its
@@ -2859,7 +2859,7 @@ window.__ModuleLoader__.load({
 			'header.subtitle': '首辅 · 阁臣 · 派活',
 			'summary.members': '成员',
 			'section.roster': '首辅与阁臣 · 派活与任务',
-			'lead.tag': '首辅',
+			'lead.tag': '内阁首辅',
 			'current': '当前',
 			'status.running': '干活中',
 			'status.inactive': '空闲',
@@ -2885,7 +2885,7 @@ window.__ModuleLoader__.load({
 			'header.subtitle': 'Lead · ministers · dispatch',
 			'summary.members': 'Members',
 			'section.roster': 'Lead and ministers · dispatch',
-			'lead.tag': 'LEAD',
+			'lead.tag': '内阁首辅',
 			'current': 'current',
 			'status.running': 'working',
 			'status.inactive': 'idle',
