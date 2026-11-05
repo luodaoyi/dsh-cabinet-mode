@@ -11,7 +11,7 @@
 
 一个 **DSH bundle**：给 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 增加 **内阁模式**（`config.id: cabinet`）。安装本 bundle、重启 DSH，新建会话时在模式选择器里选「内阁模式」即可。
 
-模式设定取自大明科研司·内阁：首辅（Lead）统摄，阁臣（成员）分曹——翰林院编修主调研、工部主事主执行、大理寺评事主核验、监察御史主验收；默认只调研不改码，不编造数据来源。
+模式设定取自大明科研司·内阁：首辅（Lead）统摄，阁臣（成员）分曹——翰林院编修主调研、工部尚书主执行、大理寺卿主核验、左都御史主验收；默认只调研不改码，不编造数据来源。
 
 本包含 host 半部 `index.js`（空 `apply`）与浏览器半部 `client.js`（右栏「内阁」面板），面板内嵌五张成员头像（128px data URL；源图在 `docs/images/avatars/`，由 `src/build_avatars.py` 缩放生成）；另随包提供可选的 Node.js 回退脚本（`scripts/*.mjs`）。本包**无第三方运行时依赖**，React 等经 DSH 客户端模块表取用，不自带重复依赖或 CDN。
 
@@ -36,13 +36,13 @@
 - **任务三色**：待办灰、进行中蓝、已完成绿（面板底部附图例）。
 - **成员形象**：每行包含圆形头像、中文称谓与成员原名、状态文字和当前模型。别名共享衙门头像，成员卡片、Owner 标签和不在册分组保留原名以区分身份；截断文字提供完整提示，未匹配名称使用中性头像。
 
-五张原创 Q 版头像采用明代乌纱帽、圆领袍与方形胸补。首辅用酒红袍、鹤补（明确采用“加一品衔大学士”的艺术设定）；翰林院编修与大理寺评事用七品鸂鶒补，工部主事用六品鹭鸶补，都察院角色具体按监察御史设定，使用獬豸补。袍色用于区分角色，不宣称是各品级常服的固定颜色。
+五张原创 Q 版头像采用明代乌纱帽、圆领袍与方形胸补。首辅用酒红袍、鹤补（明确采用“加一品衔大学士”的艺术设定）；翰林院编修为正七品，用鸂鶒补；工部尚书为正二品，用锦鸡补；大理寺卿为正三品，用孔雀补；左都御史为正二品，使用风宪官獬豸补。袍色用于区分角色，不宣称是各品级常服的固定颜色。
 
 详见[衣冠依据、角色设定与生成提示词](docs/images/avatars/README.md)。1254px 正方形源图经 `src/build_avatars.py` 缩放为 128px PNG 并内嵌到 `client.js`；界面实际显示 22–24px，身份辨认仍以角色文字为准。
 
-| 内阁首辅 | 翰林院编修 | 工部主事 | 大理寺评事 | 监察御史 |
+| 内阁首辅 | 翰林院编修 | 工部尚书 | 大理寺卿 | 左都御史 |
 | --- | --- | --- | --- | --- |
-| ![首辅：鹤补](src/avatars/lead.png) | ![编修：鸂鶒补](src/avatars/hanlin.png) | ![主事：鹭鸶补](src/avatars/works.png) | ![评事：鸂鶒补](src/avatars/dali.png) | ![监察御史：獬豸补](src/avatars/yushi.png) |
+| ![首辅：鹤补](src/avatars/lead.png) | ![编修：鸂鶒补](src/avatars/hanlin.png) | ![工部尚书：锦鸡补](src/avatars/works.png) | ![大理寺卿：孔雀补](src/avatars/dali.png) | ![左都御史：獬豸补](src/avatars/yushi.png) |
 
 面板只读取两条既有数据通道：成员运行状态（`api-session/status`）与会话投影 `agentTeam`（成员名册与任务板），不新增服务、不新增协议。
 
@@ -95,7 +95,7 @@ https://raw.githubusercontent.com/luodaoyi/dsh-cabinet-mode/market-index/marketp
 仅在商店不可用或本地开发时使用。先完全退出桌面 DSH，释放 profile 锁，再执行：
 
 ```sh
-dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.2.5/dsh-cabinet-mode-0.2.5.tgz
+dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.2.6/dsh-cabinet-mode-0.2.6.tgz
 dsh plugin --profile desktop list
 ```
 
@@ -106,7 +106,7 @@ dsh plugin --profile desktop list
 若通过插件市场安装：刷新市场，先在**已安装**页卸载旧版本，再从**插件市场**安装新版本，然后重启——没有 tgz URL 要换，也没有一键更新。否则用同一条安装命令换新版本 URL（或在插件页选新 `.tgz`），然后完全退出并重启 DeepSeek Harness：
 
 ```sh
-dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.2.5/dsh-cabinet-mode-0.2.5.tgz
+dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.2.6/dsh-cabinet-mode-0.2.6.tgz
 ```
 
 `dsh plugin --profile desktop list` 应显示新版本。升级已在 Windows 实测：
@@ -120,7 +120,7 @@ v0.1.2 → v0.1.3 走内嵌 pnpm（DSH 0.2.1-rc.5）。
 | | |
 |---|---|
 | 模式 | 内阁模式（**Cabinet Mode**），preset id `cabinet`，order 5 |
-| 身份 | 同一段 persona 由首辅与所有阁臣共享：首辅（Lead）审题、拟旨拆解、分派、裁断、汇总、闭环；阁臣（翰林院编修/工部主事/大理寺评事/监察御史）按衙门办事，禁止自称首辅。 |
+| 身份 | 同一段 persona 由首辅与所有阁臣共享：首辅（Lead）审题、拟旨拆解、分派、裁断、汇总、闭环；阁臣（翰林院编修/工部尚书/大理寺卿/左都御史）按衙门办事，禁止自称首辅。 |
 | 默认姿态 | 默认只调研不改码；每条结论锚定路径、行号、命令输出或原文；不确定处标「未验证」；不编造数据来源。 |
 | 工具 | 与 0.2.1-rc.3 实测参照的标准模式相同的 22 行插件（shell、文件系统、后台任务、定时、技能、目标、计划模式、压缩、委派/工作流、ask-user、todo、web、present）。 |
 | 平台 | 跨平台：`tool-bash` 在 Linux/macOS 启用、`tool-pwsh` 在 Windows 启用，与标准模式一致；无绝对路径、无 shell 专用安装步骤、无构建步骤。 |
