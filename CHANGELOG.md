@@ -37,6 +37,7 @@ All notable changes to this project are documented in this file.
   section: entry path, editable fields and their limits, storage location,
   clear / restore / reset semantics, the Lead's default 御下术 and how to turn it
   off, damaged-configuration fallback, and the known limitations below.
+- **Lead directive: dispatch scale cap (anti-death-loop).** Each subtask must carry a single deliverable and one write scope, ≤15 tool calls, ≤2 retries on the same failure; task briefs must state the call budget and stop conditions (report "failed/unverified" at the limit), no unbounded polling or third retry.
 
 ### Changed
 
