@@ -2,42 +2,25 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.3.1] - 2026-11-05
+
+### Changed
+
+- Add a new Cabinet dispatch-budget policy: one deliverable/write scope per
+  subtask, up to 30 tool calls for simple single-file work or 100 for multi-file
+  merge/conflict/integration work, and at most two retries of the same failure.
+  Task briefs must specify stop conditions; exhausted budgets require an honest
+  failed/unverified report. Existing authorization and evidence rules remain.
+- This is prompt-level guidance, not a runtime counter or enforced tool quota.
+  It intentionally introduces a policy omitted from 0.3.0 during review, rather
+  than restoring content supposedly lost in a merge conflict.
+- Keep the existing explicit Save/Cancel settings behavior, canonical runtime
+  identities, custom portrait precedence and neutral fallback unchanged.
+- Clarify the policy in both READMEs while preserving market-first installation.
+
 ## [0.3.0] - 2026-11-05
 
 ### Added
-
-- **「内阁成员」settings section in the DSH settings page.** `client.js` now
-  registers a page through the official `settings.section` slot (section id
-  `cabinet`, label 「内阁成员」/ "Cabinet members"), mounted only while the
-  browser half can reach the `configForms` service:
-  - **Display name** per member, ≤ 40 characters; empty keeps the runtime name
-    (`lead` / `hanlin` / …), i.e. the 0.2.0 rendering.
-  - **Avatar** per member: source PNG / JPEG / WebP ≤ 2MB, centre-cropped in the
-    browser and normalized to a 96×96 PNG whose data URL must stay ≤ 48KB; the
-    five built-in bureau avatars stay one click away.
-  - **Prompt** per member, ≤ 4000 characters; clearing the box injects nothing
-    for that member.
-  - Per-member **Restore default**, page-level **Reset all**, and
-    autosave (text edits debounce ~0.4 s; avatar uploads and resets write
-    immediately) with a saved / failed status line.
-- **Host half `index.js` owns the configuration and the prompt injection.** The
-  profile-root `cabinet-ui` row declares a fully volatile `Config` (`members`
-  carries the small text fields, each avatar is its own top-level `avatar*`
-  field) and registers one prompt section `cabinet:member` whose text provider
-  runs on every assembly and resolves the current member through
-  `ctx.agentTeams.tryMembership(agent)` — so a saved setting applies on the next
-  turn without remounting the plugin. The section uses `interpolate: false` (user
-  text may contain `{{…}}`) and an unconfigured deployment renders an empty
-  section, which the prompt registry drops.
-- `@deepseek-ai/dsh-client-ui-settings` added to `dsh.client.inject`;
-  `@deepseek-ai/schemastery` declared in `dependencies` as the configuration
-  schema runtime (a Host without it still loads the bundle: no settings page,
-  panel keeps v0.2.0 rendering).
-- **README (zh/en)** gained a full 「内阁成员配置」/ "Cabinet member settings"
-  section: entry path, editable fields and their limits, storage location,
-  clear / restore / reset semantics, the Lead's default 御下术 and how to turn it
-  off, damaged-configuration fallback, and the known limitations below.
-- **Lead directive: dispatch scale cap (anti-death-loop).** Each subtask must carry a single deliverable and one write scope, with a difficulty-tiered call budget written into the task brief — ≤30 tool calls for simple single-file tasks, ≤100 for multi-file merge/conflict/field-debugging work — and ≤2 retries on the same failure; task briefs must state the budget and stop conditions (report "failed/unverified" at the limit), no unbounded polling or third retry.
 
 - Profile-wide Cabinet member settings for display names, portraits and duty prompts.
 - Explicit atomic Save/Cancel with revision checks to prevent stale tabs overwriting settings.
@@ -46,29 +29,6 @@ All notable changes to this project are documented in this file.
   restores its factory default. Runtime identities and task ownership remain unchanged.
 - Settings are shared by browsers connected to the same DSH_HOME/profile, not isolated
   by browser account. Native roster names remain runtime identities.
-
-### Changed
-
-- **Default prompt content changed: the Lead now receives 御下术 (Lead only).**
-  The Lead's system prompt gains a ten-point 御下术 plus one red line that
-  overrides every tactic; teammates never receive it. This applies even to a
-  deployment upgraded from 0.2.0 that never opens the settings page. Clearing the
-  Lead's prompt box turns it off (nothing injected); **Restore default** brings
-  the factory text back.
-- **Version `0.2.0` → `0.3.0`**, and the README release links now target
-  `v0.3.0` (`scripts/verify.mjs` pins README links to `package.json`'s version).
-
-### Notes
-
-- The settings page, the stored values and the prompt injection all hang off the
-  profile-root `cabinet-ui` Loader row, which only a **bundle install (Method A)**
-  creates. The Method B fallback installer still writes the preset insert only,
-  so it has no settings page and no injection — behaviour identical to 0.2.0.
-- The native team roster still only receives **avatars**; a configured display
-  name applies to the Cabinet panel (member cards and task owner labels), while
-  the roster keeps the runtime name, and runtime identity phrases
-  (`You are teammate "<name>".`) are untouched.
-- README links target v0.3.0 and become available when that release is published.
 
 ## [0.2.7] - 2026-11-05
 

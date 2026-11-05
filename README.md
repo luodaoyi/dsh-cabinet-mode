@@ -16,11 +16,8 @@ a research-team preset modeled on the Great Ming Research Bureau cabinet
 (大明科研司·内阁): a Lead (内阁首辅) directs members (阁臣) of four bureaus, defaults
 to research before touching code, and must never fabricate sources.
 
-The package ships a host half (`index.js`, which declares the 「内阁成员」
-settings schema and provides the Cabinet-only member prompt injected at each
-assembly) and a browser half
-(`client.js`, the right-Sidebar **Cabinet** panel plus the DSH settings page's
-「内阁成员」 section) with the five member avatars and an unranked fallback portrait
+The package ships a host half (`index.js`, the member schema and Cabinet-only prompt provider) and a browser half
+(`client.js`, the right-Sidebar **Cabinet** panel) with five role portraits and an unranked fallback portrait
 embedded as 128px data URLs (square sources in `docs/images/avatars/`,
 downscaled by `src/build_avatars.py`); it also keeps the optional Node.js
 fallback scripts (`scripts/*.mjs`). It uses `@deepseek-ai/schemastery` for the host settings schema. React and friends come from the DSH client module table, with no
@@ -60,7 +57,16 @@ resets all five in the draft. Both require Save. Clearing a prompt disables that
 office's added block; an empty custom prompt also stays empty. Factory mode restores
 the Lead's 御下术 and the four office duty prompts. These extra sections apply only
 to agents actually composed with the **cabinet** preset; other modes are unchanged.
-The existing static persona is unchanged in this release.
+Version 0.3.1 adds a dispatch-budget policy to the Cabinet static persona:
+one deliverable and one write scope per subtask; up to 30 tool calls for simple
+single-file tasks, up to 100 for multi-file merges/conflict resolution/integration,
+and up to two retries of the same failure. Task briefs must name the budget and
+stop conditions; at the limit report failed/unverified, never fabricate completion.
+This is prompt-level guidance, not a runtime counter or guaranteed enforcement.
+The static persona is shared with teammates; its Lead-only heading is a semantic
+instruction, not programmatic removal from teammate prompts. Customizing or turning
+off a member prompt does not remove this static policy.
+It is a new policy in 0.3.1; 0.3.0 deliberately kept the static persona unchanged.
 
 Settings live in the **DSH_HOME/profile** configuration (the cabinet-ui namespace),
 not a browser account. Browsers connected to the same profile share settings and
@@ -151,9 +157,7 @@ board). It adds no service and no protocol.
 
 **For users and AI assistants, prefer the DSH plugin market.** It installs the published npm bundle into the active profile; you do not need a checkout, a manually edited patch or a tarball URL.
 
-The bundle is also listed in a DeepSeek Harness plugin market index that is
-generated from the npm registry, so DSH can install and update it without a tarball
-URL or a local checkout. Copy this **raw JSON index URL**:
+Copy this **raw JSON index URL**:
 
 ```text
 https://raw.githubusercontent.com/luodaoyi/dsh-cabinet-mode/market-index/marketplace.json
@@ -167,59 +171,6 @@ https://raw.githubusercontent.com/luodaoyi/dsh-cabinet-mode/market-index/marketp
 Do **not** paste a GitHub `blob` or `tree` webpage URL. DSH does not convert those pages into an index: `$.format must be 1` was reproduced with a blob URL. Remove the invalid source and add the raw URL instead. This rule applies to Respire and other markets too.
 
 **Verification scope:** the raw source loaded and installed version 0.2.0 through the real DSH 0.2.1-rc.5 web client on Windows in an isolated profile (2026-11-05). Uninstalling the old version, refreshing the source and installing 0.2.2 were also exercised, including the separate enable step. Other DSH versions and Linux/macOS market UI flows are unverified. The index format is also tested with the official rc.5 parser. Live agent-team behavior is a separate test.
-
-## Install with an AI agent (local install)
-
-```text
-Install the "Cabinet Mode" (内阁模式) DSH bundle for me.
-
-1. Run `dsh --version` and tell me the version. 0.2.1-rc.3 is the tested reference;
-   this bundle declares no hard DSH version gate, but other DSH versions are not verified.
-2. Install the bundle into my DSH profile:
-   dsh plugin --profile desktop add <absolute path to the dsh-cabinet-mode checkout or .tgz>
-   (You can also use the GitHub Release tarball URL instead of a local path.)
-   If the `dsh` CLI is unavailable, open DSH Settings -> Plugins -> Add plugin and
-   choose "local directory" with the absolute path of the dsh-cabinet-mode checkout.
-3. Run `dsh plugin --profile desktop list` and confirm `dsh-cabinet-mode` is installed.
-4. Do NOT also append cordis.patch.yml to my profile patch: the two installation
-   methods are mutually exclusive and duplicate preset ids fail to load.
-5. Tell me to fully quit and restart DSH, then create a new session and choose
-   "内阁模式" (preset id: cabinet) in the mode picker.
-
-If any step fails, show the exact error and stop. Do not retry more than once.
-```
-
-## Manual install (3 lines)
-
-```sh
-dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.3.0/dsh-cabinet-mode-0.3.0.tgz
-# fully quit and restart DeepSeek Harness
-# New session -> mode picker -> 内阁模式
-```
-
-For a local checkout, replace the tarball URL with the absolute path of this
-repository. On Windows the CLI is `dsh` (runs through `dsh.cmd`); the same
-commands work on Linux and macOS.
-
-> **DSH 0.2.1-rc.5 desktop notes (tested 2026-10-31):**
->
-> - The `dsh` CLI that ships with the desktop app runs `dsh plugin --profile
->   desktop list/add ...` fine (exit 0). On first use it may ask you to initialize
->   the profile ("Open DeepSeek Harness Desktop once … then fully quit it") and may
->   wait up to 120 s on a profile lock — so **fully quit DeepSeek Harness before
->   installing or upgrading**.
-> - What a desktop profile does reject is `dsh --profile desktop --dump-config`
->   ("managed exclusively by the Electron application"); run composition checks
->   against the `web` profile instead.
-> - Fallbacks: the plugin page (Settings → Plugins → Add plugin → local directory /
->   tarball URL), or the pnpm shipped inside DeepSeek Harness (keeps
->   `dsh-cabinet-mode` in `dsh.profile.bundles`):
->
-> ```sh
-> node "<DeepSeek Harness install>\resources\runtime\primary-runtime\dependencies\pnpm\bin\pnpm.mjs" --dir "%USERPROFILE%\.dsh\profiles\desktop" add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.3.0/dsh-cabinet-mode-0.3.0.tgz
-> ```
->
-> Back up the profile's `package.json` / `pnpm-lock.yaml` first.
 
 ## Install with an AI agent (copy this prompt)
 
@@ -242,7 +193,7 @@ On failure, show the exact error. For $.format must be 1, replace the webpage so
 Use this only when the market is unavailable or for local development. Fully quit desktop DSH first to release the profile lock, then install the release bundle:
 
 ```sh
-dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.3.0/dsh-cabinet-mode-0.3.0.tgz
+dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.3.1/dsh-cabinet-mode-0.3.1.tgz
 dsh plugin --profile desktop list
 ```
 
@@ -257,7 +208,7 @@ the same install command with the new version URL (or pick the new `.tgz` in the
 plugin page), then fully quit and restart DeepSeek Harness:
 
 ```sh
-dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.3.0/dsh-cabinet-mode-0.3.0.tgz
+dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.3.1/dsh-cabinet-mode-0.3.1.tgz
 ```
 
 `dsh plugin --profile desktop list` should report the new version. Upgrades were

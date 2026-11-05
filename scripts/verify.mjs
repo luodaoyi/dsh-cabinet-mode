@@ -338,6 +338,11 @@ if (existsSync(PATCH_PATH)) {
     ['Lead duties: close loop', '闭环'],
     ['research-only default', '默认只调研不改码'],
     ['no fabricated sources', '不编造数据来源'],
+    ['dispatch budget is prompt-only', '分派预算约定（提示词约束，非运行时计数器）'],
+    ['single-file budget', '≤30 次工具调用'],
+    ['integration budget', '≤100 次'],
+    ['retry budget', '同一失败重试 ≤2 次'],
+    ['budget exhaustion disclosure', '到限未完成就交「失败 / 未验证」'],
   ];
   const personaMissing = personaChecks.filter(([, needle]) => !patchText.includes(needle)).map(([label]) => label);
   if (personaMissing.length === 0) ok('dual-identity persona keywords');
@@ -478,6 +483,8 @@ if (!dshVersion) {
     const missingShipped = shipped.filter((id) => countOccurrences(output, `- id: ${id}`) !== 1);
     if (missingShipped.length === 0) ok('dump-config keeps the four shipped presets');
     else bad('dump-config shipped presets', missingShipped.join(', '));
+    if (output.includes('分派预算约定（提示词约束，非运行时计数器）') && output.includes('≤30 次工具调用') && output.includes('≤100 次') && /同一失败重试\s+≤2\s+次/.test(output)) ok('dump-config contains the new prompt-only dispatch budgets');
+    else bad('dump-config dispatch budgets');
     if (output.includes('内阁模式')) ok('dump-config contains the Cabinet Mode display name');
     else bad('dump-config contains 内阁模式');
   }
