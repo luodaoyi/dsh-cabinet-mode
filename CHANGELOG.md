@@ -2,6 +2,19 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.2.7] - 2026-11-05
+
+### Fixed
+
+- Cover composite and legacy official names including dalisi-pingshi and
+  jiancha-yushi, separator variants, full pinyin bureaus and numeric suffixes.
+  Preserve exact member/Owner identity and reject unrelated prefix lookalikes.
+- Refresh native roster avatars when a row is reused or its text node changes,
+  without observing injected attributes or repeatedly rewriting image sources.
+- Replace dark initial-letter fallback blocks with a light, unranked portrait
+  for unknown members. Add all-alias, panel and native DOM lifecycle regressions
+  plus documented canonical spawn names. Existing README screenshots remain.
+
 ## [0.2.6] - 2026-11-05
 
 ### Changed

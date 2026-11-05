@@ -14,7 +14,7 @@ const React = {
   useLayoutEffect: () => {}, useEffect: () => {},
 };
 runInNewContext(source.replace(exportPoint,
-  'return { inject, apply, avatarFor, displayName, CabinetPanel, MemberCard, TaskLine, zh, en };'), {
+  'return { inject, apply, avatarFor, displayName, CabinetPanel, MemberCard, TaskLine, zh, en, BUREAUX, AVATARS };'), {
   window: { __ModuleLoader__: { load: ({ factory }) => {
     client = factory((name) => { assert.equal(name, 'react'); return React; });
   } } },
@@ -23,8 +23,8 @@ for (const [english, chinese] of [
   ['lead', '首辅'], ['lead', '内阁首辅'], ['hanlin', '翰林院编修'],
   ['works', '工部尚书'], ['dali', '大理寺卿'], ['yushi', '都察院御史'],
 ]) assert.equal(client.avatarFor(english), client.avatarFor(' ' + chinese + '-一 '));
-assert.match(client.avatarFor('unknown'), /^data:image\/svg\+xml/);
-assert.match(client.avatarFor(null), /^data:image\/svg\+xml/);
+assert.equal(client.avatarFor('unknown'), client.AVATARS.neutral);
+assert.equal(client.avatarFor(null), client.AVATARS.neutral);
 for (const [name, expected] of [
   ['gongbu2', '工部尚书2 · gongbu2'],
   ['works-ui', '工部尚书（ui） · works-ui'],
@@ -34,7 +34,21 @@ for (const [name, expected] of [
   ['工部尚书', '工部尚书'],
   ['hanlinx', 'hanlinx'], ['works-', 'works-'], ['gongbu2x', 'gongbu2x'],
 ]) assert.equal(client.displayName(name), expected);
-for (const name of ['hanlinx', 'works-', 'gongbu2x']) assert.match(client.avatarFor(name), /^data:image\/svg\+xml/);
+for (const name of ['hanlinx', 'works-', 'gongbu2x', 'jiancha-yushix', 'dalisiX', 'x-dalisi']) {
+  assert.equal(client.avatarFor(name), client.AVATARS.neutral, name);
+  assert.equal(client.displayName(name), name);
+}
+for (const bureau of client.BUREAUX) for (const alias of [bureau.label, ...bureau.aliases]) {
+  for (const name of [alias, alias.toUpperCase(), ' ' + alias + ' ', alias + '2', alias + '2-ui',
+    alias + '-一', alias.replaceAll('-', '_'), alias.replaceAll('-', '.'), alias.replaceAll('-', ' ')]) {
+    assert.equal(client.avatarFor(name), client.AVATARS[bureau.key], name);
+    assert.ok(client.displayName(name).includes(name.trim()), 'raw identity: ' + name);
+  }
+}
+for (const [name, key] of [['dalisi-pingshi','dali'], ['dalisi-qing','dali'], ['dalisi2','dali'],
+  ['jiancha-yushi','yushi'], ['jiancha_yushi','yushi'], ['jiancha.yushi','yushi'],
+  ['jianchayushi','yushi'], ['hanlinyuan-bianxiu','hanlin'], ['duchayuan-yushi','yushi'],
+  ['zuoduyushi','yushi'], ['zuodu-yushi','yushi']]) assert.equal(client.avatarFor(name), client.AVATARS[key]);
 assert.equal(client.avatarFor('gongbu2'), client.avatarFor('works'));
 // Display Chinese offices without changing the original runtime identity.
 for (const [key, title] of [
@@ -105,5 +119,10 @@ assert.equal(groups.length, names.length);
 for (const [i, group] of groups.entries()) {
   assert.equal(group.children[0], labels[i]);
   assert.equal(group.props.title, labels[i]);
+}
+// The actual panel leaf renderer uses the same asset for every supported alias.
+for (const name of ['lead', 'hanlin-bianxiu', 'gongbu-zhushi', 'dalisi-pingshi', 'jiancha-yushi', 'unknown-person']) {
+  const card = elements(client.MemberCard({member:{name,phase:'active'},statusLabel:s=>s}));
+  assert.ok(card.some(n=>n.type==='img' && n.props.src===client.avatarFor(name)), name);
 }
 console.log('PASS: avatars, stale-team warnings, and distinct member/owner/group identities; mocked React, not browser E2E');

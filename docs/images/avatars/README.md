@@ -11,6 +11,7 @@ These are original AI-generated chibi illustrations. The requested reference is 
 | works | 工部尚书 | 正二品，锦鸡 / golden pheasant |
 | dali | 大理寺卿 | 正三品，孔雀 / peacock |
 | yushi | 左都御史 | 正二品，风宪官獬豸 / xiezhi |
+| neutral | 未识别成员 / unidentified member | 无官阶、无补纹；浅色普通人物 / unranked portrait |
 
 Sources: [《明史》卷六十七·舆服三](https://zh.wikisource.org/wiki/明史/卷67), [卷七十二·职官一](https://zh.wikisource.org/wiki/明史/卷72), [卷七十三·职官二](https://zh.wikisource.org/wiki/明史/卷73). The five-to-seven-rank blue rule concerns 公服; the chosen burgundy, teal, rust, slate and plum palette is artistic, not a claim about mandatory 常服 colours. 大理寺卿 is not assigned the censor's xiezhi badge.
 
@@ -19,3 +20,5 @@ The original PNGs are 1254×1254. Run `python3 src/build_avatars.py` from the re
 Full-size and 128px artwork are visually reviewed; automated tests only check PNG dimensions and byte parity between files and embedded modules. At 22–24px, embroidery details are not reliably readable: use the adjacent role and member labels, not colour or badge alone, to identify a member.
 
 Version 0.2.6 raises the three requested offices and redraws Works and Dali badges accordingly. The approved faces, palette and style are retained; the censor badge remains xiezhi. Old 主事、评事、监察御史 aliases remain compatible, with original member names visible. The edit prompts reference the Works and Dali originals at tag v0.2.5.
+
+Version 0.2.7 adds a sixth, unranked portrait for unknown names. It is deliberately not assigned an official identity. See [aliases and naming](aliases.md); both the Cabinet panel and native roster share this mapping. Native rows refresh their image when their displayed name changes.

@@ -37,9 +37,10 @@ AVATARS_JS = PKG / "src" / "avatars.js"
 CLIENT_JS = PKG / "client.js"
 
 SIZE = 128
-KEYS = ["lead", "hanlin", "works", "dali", "yushi"]
+KEYS = ["lead", "hanlin", "works", "dali", "yushi", "neutral"]
 # 首辅明黄 / 编修青 / 主事赤 / 评事玄 / 御史绯
 PLACEHOLDER_COLOR = {
+    "neutral": "#DCE7CA",
     "lead": "#F5C518",
     "hanlin": "#12A5A5",
     "works": "#D93A2B",

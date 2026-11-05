@@ -17,7 +17,7 @@ a research-team preset modeled on the Great Ming Research Bureau cabinet
 to research before touching code, and must never fabricate sources.
 
 The package ships a host half (`index.js`, an empty `apply`) and a browser half
-(`client.js`, the right-Sidebar **Cabinet** panel) with the five member avatars
+(`client.js`, the right-Sidebar **Cabinet** panel) with five role portraits and an unranked fallback portrait
 embedded as 128px data URLs (square sources in `docs/images/avatars/`,
 downscaled by `src/build_avatars.py`); it also keeps the optional Node.js
 fallback scripts (`scripts/*.mjs`). It has **no third-party runtime
@@ -85,7 +85,9 @@ preset declaration:
   the Chinese role and original member name, a status label and the current model.
   Aliases share a bureau avatar, while original names keep members distinguishable
   in cards, Owner tags and off-roster groups. Truncated labels have full tooltips;
-  unmatched names use a neutral avatar.
+  unmatched names retain their original identity and use a light, unranked portrait.
+  [Supported names and naming convention](docs/images/avatars/aliases.md) cover
+  composite pinyin names, Chinese titles, separators and numeric suffixes.
 
 The five original chibi portraits use Ming-style black winged hats, round-collar robes and square rank badges. The Lead wears burgundy with a crane badge (an artistic setting of a grand secretary with an additional first-rank title); Hanlin editor wears a seventh-rank duck badge, the Minister of Works a second-rank golden pheasant, the Chief Minister of the Court of Judicial Review a third-rank peacock, and the Left Censor-in-Chief a second-rank censor’s xiezhi badge. Robe colours distinguish roles and are not presented as mandatory rank colours.
 
@@ -154,7 +156,7 @@ On failure, show the exact error. For $.format must be 1, replace the webpage so
 Use this only when the market is unavailable or for local development. Fully quit desktop DSH first to release the profile lock, then install the release bundle:
 
 ```sh
-dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.2.6/dsh-cabinet-mode-0.2.6.tgz
+dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.2.7/dsh-cabinet-mode-0.2.7.tgz
 dsh plugin --profile desktop list
 ```
 
@@ -169,7 +171,7 @@ the same install command with the new version URL (or pick the new `.tgz` in the
 plugin page), then fully quit and restart DeepSeek Harness:
 
 ```sh
-dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.2.6/dsh-cabinet-mode-0.2.6.tgz
+dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.2.7/dsh-cabinet-mode-0.2.7.tgz
 ```
 
 `dsh plugin --profile desktop list` should report the new version. Upgrades were

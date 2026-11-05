@@ -13,7 +13,7 @@
 
 模式设定取自大明科研司·内阁：首辅（Lead）统摄，阁臣（成员）分曹——翰林院编修主调研、工部尚书主执行、大理寺卿主核验、左都御史主验收；默认只调研不改码，不编造数据来源。
 
-本包含 host 半部 `index.js`（空 `apply`）与浏览器半部 `client.js`（右栏「内阁」面板），面板内嵌五张成员头像（128px data URL；源图在 `docs/images/avatars/`，由 `src/build_avatars.py` 缩放生成）；另随包提供可选的 Node.js 回退脚本（`scripts/*.mjs`）。本包**无第三方运行时依赖**，React 等经 DSH 客户端模块表取用，不自带重复依赖或 CDN。
+本包含 host 半部 `index.js`（空 `apply`）与浏览器半部 `client.js`（右栏「内阁」面板），面板内嵌五张官职头像与一张无官阶回退头像（128px data URL；源图在 `docs/images/avatars/`，由 `src/build_avatars.py` 缩放生成）；另随包提供可选的 Node.js 回退脚本（`scripts/*.mjs`）。本包**无第三方运行时依赖**，React 等经 DSH 客户端模块表取用，不自带重复依赖或 CDN。
 
 它声明**两行**——`preset-cabinet`（一条 `@deepseek-ai/dsh-agent-preset` 声明）与 `cabinet-ui`（载入本包 JavaScript 的 Loader 行）——并复用 DSH **标准模式**（Standard Mode）出厂的 22 行插件清单，因此工具与标准模式一致；与出厂模式的差异是 persona，并另加右栏「内阁」面板。团队工具（`spawn_teammate`、`team_task_*` 等）由 profile 层的 `@deepseek-ai/dsh-experimental-agent-team-profile` 提供，**本 preset 未内置**。
 
@@ -48,7 +48,7 @@
 - **派活树**：首辅行在顶，任务按 `ownerName` 缩进挂到对应阁臣名下，`blockedBy` 依赖以标签挂在任务下方——首辅给谁派了什么活、被哪条任务卡住，一眼可见。
 - **谁在干活**：成员 running 时整行浅绿高亮、状态点持续脉冲；空闲 / 启动中 / 失败分别用灰 / 琥珀 / 红点区分，首辅行同样参与高亮。
 - **任务三色**：待办灰、进行中蓝、已完成绿（面板底部附图例）。
-- **成员形象**：每行包含圆形头像、中文称谓与成员原名、状态文字和当前模型。别名共享衙门头像，成员卡片、Owner 标签和不在册分组保留原名以区分身份；截断文字提供完整提示，未匹配名称使用中性头像。
+- **成员形象**：每行包含圆形头像、中文称谓与成员原名、状态文字和当前模型。别名共享衙门头像，成员卡片、Owner 标签和不在册分组保留原名以区分身份；截断文字提供完整提示，未匹配名称保留原始身份，使用浅色、无官阶补纹的人物头像，不再显示暗色字母占位。详见[支持的名称与命名约定](docs/images/avatars/aliases.md)，覆盖复合拼音、中文官名、分隔符和数字后缀。
 
 五张原创 Q 版头像采用明代乌纱帽、圆领袍与方形胸补。首辅用酒红袍、鹤补（明确采用“加一品衔大学士”的艺术设定）；翰林院编修为正七品，用鸂鶒补；工部尚书为正二品，用锦鸡补；大理寺卿为正三品，用孔雀补；左都御史为正二品，使用风宪官獬豸补。袍色用于区分角色，不宣称是各品级常服的固定颜色。
 
@@ -109,7 +109,7 @@ https://raw.githubusercontent.com/luodaoyi/dsh-cabinet-mode/market-index/marketp
 仅在商店不可用或本地开发时使用。先完全退出桌面 DSH，释放 profile 锁，再执行：
 
 ```sh
-dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.2.6/dsh-cabinet-mode-0.2.6.tgz
+dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.2.7/dsh-cabinet-mode-0.2.7.tgz
 dsh plugin --profile desktop list
 ```
 
@@ -120,7 +120,7 @@ dsh plugin --profile desktop list
 若通过插件市场安装：刷新市场，先在**已安装**页卸载旧版本，再从**插件市场**安装新版本，然后重启——没有 tgz URL 要换，也没有一键更新。否则用同一条安装命令换新版本 URL（或在插件页选新 `.tgz`），然后完全退出并重启 DeepSeek Harness：
 
 ```sh
-dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.2.6/dsh-cabinet-mode-0.2.6.tgz
+dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.2.7/dsh-cabinet-mode-0.2.7.tgz
 ```
 
 `dsh plugin --profile desktop list` 应显示新版本。升级已在 Windows 实测：
