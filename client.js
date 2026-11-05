@@ -2401,10 +2401,17 @@ window.__ModuleLoader__.load({
 			return url;
 		}
 		function avatarFor(name) {
-			const custom = configuredAvatar(name);
-			if (custom !== '') return custom;
+			const key = bureauOfName(name);
+			if (key !== '') {
+				const custom = memberConfig.avatars.get(key) || '';
+				if (custom !== '') return custom;
+				// A saved display name has no office prefix, so the built-in lookup
+				// below would miss it; fall back to this member's built-in portrait.
+				const text = typeof name === 'string' ? name.trim() : '';
+				if (text !== '' && !text.startsWith(key) && !ROLE_PREFIXES[key].some((prefix) => text.startsWith(prefix))) return AVATARS[key];
+			}
 			const text = typeof name === 'string' ? name.trim() : '';
-			for (const key of AVATAR_KEYS) if (text.startsWith(key) || ROLE_PREFIXES[key].some((prefix) => text.startsWith(prefix))) return AVATARS[key];
+			for (const k of AVATAR_KEYS) if (text.startsWith(k) || ROLE_PREFIXES[k].some((prefix) => text.startsWith(prefix))) return AVATARS[k];
 			return neutralAvatar(text);
 		}
 		function isPlaceholder(name) {
@@ -2477,6 +2484,7 @@ window.__ModuleLoader__.load({
 		/** Runtime member name -> bureau key, mirroring the host half's matching. */
 		function bureauOfName(name) {
 			const text = typeof name === 'string' ? name.trim() : '';
+			if (text === '') return '';
 			const lower = text.toLowerCase();
 			for (const key of AVATAR_KEYS) {
 				for (const alias of MEMBER_ALIASES[key]) {
@@ -2485,6 +2493,11 @@ window.__ModuleLoader__.load({
 					if (rest !== '' && !/^\d+$/.test(rest) && !/^[-_.].+$/.test(rest)) continue;
 					return key;
 				}
+			}
+			// A saved display name may carry no office prefix (`张翰林`); fall back
+			// to an exact reverse lookup so the configured avatar still applies.
+			for (const key of AVATAR_KEYS) {
+				if (memberConfig.names.get(key) === text) return key;
 			}
 			return '';
 		}
