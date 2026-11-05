@@ -42,6 +42,52 @@
 
 面板只读取两条既有数据通道：成员运行状态（`api-session/status`）与会话投影 `agentTeam`（成员名册与任务板），不新增服务、不新增协议。
 
+## 内阁成员配置
+
+右栏面板之外，本包还在 **DSH 设置页**新增「内阁成员」分区（官方 `settings.section` 槽，分区 id `cabinet`）：五员的名字、头像与提示词都在这里改，改动写进本机 DSH 的用户设置，**下一次模型装配即生效，不需要重启**。
+
+**入口**：侧栏底部的**设置**按钮 → 左侧导航里的**内阁成员**。
+
+**可改三件东西**
+
+| 项 | 约束 | 留空 / 重置之后 |
+|---|---|---|
+| 显示名 | ≤ 40 字符 | 回落到运行时名字（`lead` / `hanlin` / `works` / `dali` / `yushi`），与 0.2.0 的渲染一致 |
+| 头像 | 源文件 PNG / JPEG / WebP，≤ 2MB；浏览器端居中裁切并归一为 **96×96 PNG**；单张 data URL ≤ **48KB**；另有内置五张可一键选回 | 回到该员的内置衙门头像 |
+| 提示词 | ≤ 4000 字符 | 空 = 该员这一段**不注入**（首辅见下节） |
+
+**保存**：没有「保存」按钮，改动自动写入——文本类改动约 0.4 秒防抖后落盘，头像上传与「恢复默认 / 重置全部」立即写。状态行会显示「已保存 / 保存失败，请重试」。
+
+**写到哪里**：走 DSH 官方 settings 通道（`configForms` 命名空间 `cabinet-ui`，即本包在 profile 根级的那条 Loader 行），最终落在你本机的用户设置文件 `$DSH_HOME/profiles/<profile>/cordis.patch.yml`（默认 `~/.dsh`）。**每台机器、每个用户各自一份**；同一台机器上的多个浏览器共用同一份——这是 DSH settings 的既有语义，不是本插件的行为。
+
+**清空 / 恢复 / 重置的语义**
+
+- 提示词框清空 = 该员这一段**不注入**。
+- 「恢复内置」（或点内置头像排）= 丢弃自定义头像，回到内置头像。
+- 每张卡上的**恢复默认** = 清掉该员的显示名与头像，并清空其提示词；首辅那张卡会把提示词框还原成出厂御下术文本。
+- 页头的**重置全部** = 五员全部回出厂：无显示名、无自定义头像、首辅御下术回到出厂并重新注入。
+
+**首辅「御下术」（默认提示内容，仅首辅注入）**
+
+0.3.0 起，首辅（`role === 'lead'`）默认额外注入一段 10 条的**御下术**——立威、画饼、施压、打压对事不对人、拉踩对比、情绪收放、牵制互查、责任到人、反制糊弄、收束，末尾附一条压过全部话术的**红线**（只对 AI 阁臣施压、对陛下只有敬；不许逼造假 / 删证据 / 凑绿；不许人身侮辱辱骂；不许以施压换取越权操作；施压必须落在可核验的时间、交付物与判据上）。这段只进首辅的系统提示，**阁臣不注入**。
+
+关闭有两种方式：把首辅提示词框**清空**（= 关闭，什么都不注入），或改成你自己的文本（= 用你的替换出厂稿）。想复原就点首辅那张卡的**恢复默认**。
+
+> 这是**默认提示内容的变更**：从 0.2.0 升级上来、一次都没打开过配置页的部署，首辅的系统提示同样会多出这段。详见 [CHANGELOG](CHANGELOG.md)。
+
+**损坏 / 异常配置的回退**
+
+设置值是「能读就读，读不懂就忽略」：`members` 不是数组、成员 key 不认识、名字或提示词超长（按 40 / 4000 截断）、头像不是 `data:image/` 开头或超 48KB——一律忽略该字段并回退出厂渲染，不会让面板渲染中断。客户端拿不到 `configForms` 服务时，配置页不出现、面板保持 0.2.0 行为；宿主没有 `cabinet-ui` 这个条目（例如只做了下面的方式 B 回退安装）时，页面仍会出现，但配置写不进任何条目、也不会有运行时注入。
+
+**已知限制**
+
+- **原生团队浮层（roster）只换头像，不换名字**：浮层里的名字文本仍是运行时名字；配置的显示名只作用于「内阁」面板（成员卡与任务 owner 标签）。
+- **改显示名不改身份**：运行时身份短语（`You are teammate "<name>".`）照旧，改名只作用于显示层。
+- **上传上限是硬的**：源文件 ≤ 2MB、归一后 ≤ 48KB。细节多的图可能压完仍超限而被拒收，请换更小的原图。
+- **配置入口只在方式 A（bundle）**：回退安装（方式 B，只往 profile patch 写 preset insert）不含 `cabinet-ui` 行，因此没有配置页、也没有运行时注入，行为与 0.2.0 一致。
+- **设置是主机级、不是浏览器级**：同一台机器上所有已认证浏览器看到同一份成员配置。
+- 设置页分区依赖 DSH 的 `settings.section` 槽与 `configForms` 通道；本仓库只按 DSH 0.2.1-rc.5 的接口签名核对过，其他版本**未验证**。
+
 ## 生效说明
 
 - **安装或更新后必须完全退出并重启 DSH**：preset 声明与 client 插件都只在启动时装配，重启前改动不生效。
@@ -75,7 +121,7 @@
 ## 手动安装（3 行）
 
 ```sh
-dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.2.0/dsh-cabinet-mode-0.2.0.tgz
+dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.3.0/dsh-cabinet-mode-0.3.0.tgz
 # 完全退出并重启 DeepSeek Harness
 # 新建任务 -> 模式选择器 -> 内阁模式
 ```
@@ -96,7 +142,7 @@ dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/re
 >   `dsh.profile.bundles` 里保留了 `dsh-cabinet-mode`：
 >
 > ```sh
-> node "<DeepSeek Harness 安装目录>\resources\runtime\primary-runtime\dependencies\pnpm\bin\pnpm.mjs" --dir "%USERPROFILE%\.dsh\profiles\desktop" add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.2.0/dsh-cabinet-mode-0.2.0.tgz
+> node "<DeepSeek Harness 安装目录>\resources\runtime\primary-runtime\dependencies\pnpm\bin\pnpm.mjs" --dir "%USERPROFILE%\.dsh\profiles\desktop" add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.3.0/dsh-cabinet-mode-0.3.0.tgz
 > ```
 >
 > 操作前先备份该 profile 的 `package.json` / `pnpm-lock.yaml`。
@@ -127,7 +173,7 @@ https://raw.githubusercontent.com/luodaoyi/dsh-cabinet-mode/market-index/marketp
 若通过插件市场安装：刷新市场，先在**已安装**页卸载旧版本，再从**插件市场**安装新版本，然后重启——没有 tgz URL 要换，也没有一键更新。否则用同一条安装命令换新版本 URL（或在插件页选新 `.tgz`），然后完全退出并重启 DeepSeek Harness：
 
 ```sh
-dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.2.0/dsh-cabinet-mode-0.2.0.tgz
+dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.3.0/dsh-cabinet-mode-0.3.0.tgz
 ```
 
 `dsh plugin --profile desktop list` 应显示新版本。升级已在 Windows 实测：
@@ -232,9 +278,9 @@ node scripts/verify.mjs                             # 仓库校验 + dsh 合成�
 推送版本 tag 会触发 `.github/workflows/release.yml`：校验工作树 → 打包 tarball → 用 **Trusted Publishing（OIDC）** 发布到 npm（不使用长期 npm token）→ 创建 GitHub Release → 刷新插件市场读取的 `market-index` 分支。
 
 ```sh
-# package.json 版本与 CHANGELOG 对应章节都必须是 0.2.0
-git tag v0.2.0
-git push origin v0.2.0
+# package.json 版本与 CHANGELOG 对应章节都必须是 0.3.0
+git tag v0.3.0
+git push origin v0.3.0
 ```
 
 npmjs.com 侧的一次性配置（维护者在网页上完成，无法从本仓库完成）。为该包添加 GitHub Actions trusted publisher：

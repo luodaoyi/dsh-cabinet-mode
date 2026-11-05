@@ -2,6 +2,65 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.3.0] - 2026-11-05
+
+### Added
+
+- **「内阁成员」settings section in the DSH settings page.** `client.js` now
+  registers a page through the official `settings.section` slot (section id
+  `cabinet`, label 「内阁成员」/ "Cabinet members"), mounted only while the
+  browser half can reach the `configForms` service:
+  - **Display name** per member, ≤ 40 characters; empty keeps the runtime name
+    (`lead` / `hanlin` / …), i.e. the 0.2.0 rendering.
+  - **Avatar** per member: source PNG / JPEG / WebP ≤ 2MB, centre-cropped in the
+    browser and normalized to a 96×96 PNG whose data URL must stay ≤ 48KB; the
+    five built-in bureau avatars stay one click away.
+  - **Prompt** per member, ≤ 4000 characters; clearing the box injects nothing
+    for that member.
+  - Per-member **Restore default**, page-level **Reset all**, and
+    autosave (text edits debounce ~0.4 s; avatar uploads and resets write
+    immediately) with a saved / failed status line.
+- **Host half `index.js` owns the configuration and the prompt injection.** The
+  profile-root `cabinet-ui` row declares a fully volatile `Config` (`members`
+  carries the small text fields, each avatar is its own top-level `avatar*`
+  field) and registers one prompt section `cabinet:member` whose text provider
+  runs on every assembly and resolves the current member through
+  `ctx.agentTeams.tryMembership(agent)` — so a saved setting applies on the next
+  turn without remounting the plugin. The section uses `interpolate: false` (user
+  text may contain `{{…}}`) and an unconfigured deployment renders an empty
+  section, which the prompt registry drops.
+- `@deepseek-ai/dsh-client-ui-settings` added to `dsh.client.inject`;
+  `@deepseek-ai/schemastery` declared in `devDependencies` and resolved by the
+  Host at runtime (a Host without it still loads the bundle: no settings page,
+  panel keeps v0.2.0 rendering).
+- **README (zh/en)** gained a full 「内阁成员配置」/ "Cabinet member settings"
+  section: entry path, editable fields and their limits, storage location,
+  clear / restore / reset semantics, the Lead's default 御下术 and how to turn it
+  off, damaged-configuration fallback, and the known limitations below.
+
+### Changed
+
+- **Default prompt content changed: the Lead now receives 御下术 (Lead only).**
+  The Lead's system prompt gains a ten-point 御下术 plus one red line that
+  overrides every tactic; teammates never receive it. This applies even to a
+  deployment upgraded from 0.2.0 that never opens the settings page. Clearing the
+  Lead's prompt box turns it off (nothing injected); **Restore default** brings
+  the factory text back.
+- **Version `0.2.0` → `0.3.0`**, and the README release links now target
+  `v0.3.0` (`scripts/verify.mjs` pins README links to `package.json`'s version).
+
+### Notes
+
+- The settings page, the stored values and the prompt injection all hang off the
+  profile-root `cabinet-ui` Loader row, which only a **bundle install (Method A)**
+  creates. The Method B fallback installer still writes the preset insert only,
+  so it has no settings page and no injection — behaviour identical to 0.2.0.
+- The native team roster still only receives **avatars**; a configured display
+  name applies to the Cabinet panel (member cards and task owner labels), while
+  the roster keeps the runtime name, and runtime identity phrases
+  (`You are teammate "<name>".`) are untouched.
+- README links target v0.3.0 and become available when that release is published.
+
 ## [0.2.0] - 2026-11-05
 
 ### Added

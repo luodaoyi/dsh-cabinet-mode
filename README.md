@@ -81,6 +81,101 @@ The panel reads two existing data channels only — per-session running status
 (`api-session/status`) and the `agentTeam` session projection (roster and task
 board). It adds no service and no protocol.
 
+## Cabinet member settings
+
+Besides the Sidebar panel, this package adds a **Cabinet members** section to the
+**DSH settings page** (the official `settings.section` slot, section id
+`cabinet`). The five members' names, avatars and prompts are edited there; the
+values are written into this machine's DSH user settings and **take effect on the
+next model assembly — no restart**.
+
+**Where**: the **Settings** button at the bottom of the Sidebar → **Cabinet
+members** in the left-hand navigation.
+
+**What you can change**
+
+| Item | Limits | After clearing / resetting |
+|---|---|---|
+| Display name | ≤ 40 characters | falls back to the runtime name (`lead` / `hanlin` / `works` / `dali` / `yushi`), exactly the 0.2.0 rendering |
+| Avatar | source file PNG / JPEG / WebP, ≤ 2MB; centre-cropped in the browser and normalized to **96×96 PNG**; one data URL ≤ **48KB**; the five built-in avatars stay one click away | returns to that member's built-in bureau avatar |
+| Prompt | ≤ 4000 characters | empty = **nothing is injected** for that member (see the Lead below) |
+
+**Saving**: there is no Save button — edits are written automatically. Text
+edits land after a ~0.4 s debounce; avatar uploads and **Restore default / Reset
+all** are written immediately. The status line reports **Saved / Save failed, try
+again**.
+
+**Where it is stored**: through the official DSH settings channel (`configForms`
+namespace `cabinet-ui`, i.e. this package's profile-root Loader row), persisted in
+this machine's user settings file
+`$DSH_HOME/profiles/<profile>/cordis.patch.yml` (default `~/.dsh`). **One copy per
+machine and per user**; every authenticated browser on that machine shares the
+same copy — that is existing DSH settings semantics, not behaviour this plugin
+adds.
+
+**Clear / restore / reset**
+
+- Clearing a prompt box = **nothing injected** for that member.
+- **Use built-in** (or the built-in avatar strip) = drop the custom avatar and go
+  back to the built-in one.
+- **Restore default** on one card = clear that member's display name and avatar and
+  empty its prompt; on the Lead's card the prompt box goes back to the factory
+  御下术 text.
+- **Reset all** in the header = all five go back to factory: no display names, no
+  custom avatars, and the Lead's 御下术 back on.
+
+**The Lead's 御下术 (default prompt content, Lead only)**
+
+From 0.3.0 the Lead (`role === 'lead'`) also receives a ten-point **御下术**
+("art of command"): establish authority, paint the prize, apply deadlines, attack
+the work not the person, compare against the strongest sibling, alternate
+pressure and relief, pit reviewer against censor, pin defects to a name, counter
+hand-waving, and only claim closure when it is closed — followed by a **red line**
+that overrides every tactic (pressure only ever applies to AI ministers, never to
+the user; no fabricated evidence, no deleted evidence, no faked green runs; no
+personal abuse; no pressure traded for unauthorized actions; every threat must
+land on a checkable time, deliverable or criterion). It is injected into the
+Lead's system prompt only — **teammates never get it**.
+
+To turn it off: clear the Lead's prompt box (= off, nothing injected), or replace
+it with your own text (= your text replaces the factory draft). **Restore
+default** on the Lead's card brings the factory text back.
+
+> This is a **change to default prompt content**: a deployment upgraded from 0.2.0
+> gets this extra text in the Lead's system prompt even if nobody ever opens the
+> settings page. See [CHANGELOG](CHANGELOG.md).
+
+**Damaged or unexpected configuration**
+
+Stored values are read generously and ignored when unreadable: `members` not an
+array, an unknown member key, an over-long name or prompt (clamped to 40 / 4000),
+an avatar that is not a `data:image/` URL or exceeds 48KB — each is ignored and
+rendering falls back to factory output; a bad value cannot break the panel. When
+the browser half cannot reach the `configForms` service the settings page does not
+appear and the panel keeps its 0.2.0 behaviour; when the Host has no
+`cabinet-ui` entry (for example a Method B fallback install), the page still
+appears but no value reaches a Host entry and nothing is ever injected.
+
+**Known limitations**
+
+- **The native team roster only gets avatars, not names**: the roster's name text
+  stays the runtime name. A configured display name applies to the **Cabinet
+  panel** (member cards and task owner labels) only.
+- **Renaming does not change identity**: runtime phrases such as
+  `You are teammate "<name>".` are untouched; a display name is a presentation
+  layer.
+- **The upload limits are hard**: ≤ 2MB source, ≤ 48KB after normalization. A
+  busy image can still exceed the limit after compression and is rejected — pick a
+  smaller original.
+- **The settings entry ships only with Method A (bundle)**: the Method B fallback
+  install writes the preset insert only, so it has no `cabinet-ui` row, no
+  settings page and no runtime injection — behaviour identical to 0.2.0.
+- **Settings are host-level, not browser-level**: every authenticated browser on
+  the same machine sees the same member configuration.
+- The section depends on DSH's `settings.section` slot and `configForms` channel;
+  this repository checked the interface signatures against DSH 0.2.1-rc.5 only, so
+  other versions are **unverified**.
+
 ## How it takes effect
 
 - **Fully quit and restart DSH after installing or updating**: the preset
@@ -119,7 +214,7 @@ If any step fails, show the exact error and stop. Do not retry more than once.
 ## Manual install (3 lines)
 
 ```sh
-dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.2.0/dsh-cabinet-mode-0.2.0.tgz
+dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.3.0/dsh-cabinet-mode-0.3.0.tgz
 # fully quit and restart DeepSeek Harness
 # New session -> mode picker -> 内阁模式
 ```
@@ -143,7 +238,7 @@ commands work on Linux and macOS.
 >   `dsh-cabinet-mode` in `dsh.profile.bundles`):
 >
 > ```sh
-> node "<DeepSeek Harness install>\resources\runtime\primary-runtime\dependencies\pnpm\bin\pnpm.mjs" --dir "%USERPROFILE%\.dsh\profiles\desktop" add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.2.0/dsh-cabinet-mode-0.2.0.tgz
+> node "<DeepSeek Harness install>\resources\runtime\primary-runtime\dependencies\pnpm\bin\pnpm.mjs" --dir "%USERPROFILE%\.dsh\profiles\desktop" add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.3.0/dsh-cabinet-mode-0.3.0.tgz
 > ```
 >
 > Back up the profile's `package.json` / `pnpm-lock.yaml` first.
@@ -207,7 +302,7 @@ the same install command with the new version URL (or pick the new `.tgz` in the
 plugin page), then fully quit and restart DeepSeek Harness:
 
 ```sh
-dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.2.0/dsh-cabinet-mode-0.2.0.tgz
+dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.3.0/dsh-cabinet-mode-0.3.0.tgz
 ```
 
 `dsh plugin --profile desktop list` should report the new version. Upgrades were
@@ -378,9 +473,9 @@ long-lived npm token — creates the GitHub Release, and then refreshes the
 `market-index` branch that the plugin market reads.
 
 ```sh
-# package.json version and the matching CHANGELOG section must both be 0.2.0
-git tag v0.2.0
-git push origin v0.2.0
+# package.json version and the matching CHANGELOG section must both be 0.3.0
+git tag v0.3.0
+git push origin v0.3.0
 ```
 
 One-time setup on npmjs.com (a maintainer action; it cannot be done from this
