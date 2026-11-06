@@ -101,6 +101,22 @@
 - **任务三色**：待办灰、进行中蓝、已完成绿（面板底部附图例）。
 - **成员形象**：每行包含圆形头像、中文称谓与成员原名、状态文字和当前模型。别名共享衙门头像，成员卡片、Owner 标签和不在册分组保留原名以区分身份；截断文字提供完整提示，未匹配名称保留原始身份，使用浅色、无官阶补纹的人物头像，不再显示暗色字母占位。详见[支持的名称与命名约定](docs/images/avatars/aliases.md)，覆盖复合拼音、中文官名、分隔符和数字后缀。
 
+### 任务依赖连线
+
+跨成员依赖（`blockedBy`）在内阁面板内用手写 SVG 连起来：每条依赖一条贝塞尔曲线，
+从被阻塞任务行连到 blocker 任务行，末端圆点落在 blocker 一侧——像工作流一样把
+「翰林院编修先调研、工部再动手」这类先后关系画出来。三态取 blocker 任务的状态：
+
+- **已完成**：绿色实线，依赖已解除；
+- **进行中**：蓝色虚线沿连线向 blocker 方向流动（依赖正在推进），blocker 的
+  owner 真在干活时流速更快、颜色更亮；
+- **待办**：灰色静态虚线，仍在等待。
+
+blocker 缺失或任务已删则不画线。连线只是面板内对既有 `team.tasks.blockedBy`
+数据的可视化，不新增数据通道与协议；`prefers-reduced-motion` 下流动动画停止、保留静态线。
+
+曲线在卡片正文后方遮挡，避免横穿任务文字，端点圆点仍可见；同列连线从右侧间隙绕行，颜色适配浅色与深色主题。曲线重叠或被其他卡片部分遮挡时，原有依赖标签仍提供明确的文字对应关系。
+
 五张原创 Q 版头像采用明代乌纱帽、圆领袍与方形胸补。首辅用酒红袍、鹤补（明确采用“加一品衔大学士”的艺术设定）；翰林院编修为正七品，用鸂鶒补；工部尚书为正二品，用锦鸡补；大理寺卿为正三品，用孔雀补；左都御史为正二品，使用风宪官獬豸补。袍色用于区分角色，不宣称是各品级常服的固定颜色。
 
 详见[衣冠依据、角色设定与生成提示词](docs/images/avatars/README.md)。1254px 正方形源图经 `src/build_avatars.py` 缩放为 128px PNG 并内嵌到 `client.js`；界面实际显示 22–24px，身份辨认仍以角色文字为准。
@@ -160,7 +176,7 @@ https://raw.githubusercontent.com/luodaoyi/dsh-cabinet-mode/market-index/marketp
 仅在商店不可用或本地开发时使用。先完全退出桌面 DSH，释放 profile 锁，再执行：
 
 ```sh
-dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.4.1/dsh-cabinet-mode-0.4.1.tgz
+dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.5.0/dsh-cabinet-mode-0.5.0.tgz
 dsh plugin --profile desktop list
 ```
 
@@ -171,7 +187,7 @@ dsh plugin --profile desktop list
 若通过插件市场安装：刷新市场，先在**已安装**页卸载旧版本，再从**插件市场**安装新版本，然后重启——没有 tgz URL 要换，也没有一键更新。否则用同一条安装命令换新版本 URL（或在插件页选新 `.tgz`），然后完全退出并重启 DeepSeek Harness：
 
 ```sh
-dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.4.1/dsh-cabinet-mode-0.4.1.tgz
+dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.5.0/dsh-cabinet-mode-0.5.0.tgz
 ```
 
 `dsh plugin --profile desktop list` 应显示新版本。升级已在 Windows 实测：

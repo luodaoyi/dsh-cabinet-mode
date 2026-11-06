@@ -7,6 +7,7 @@ const source = readFileSync(new URL('../client.js', import.meta.url), 'utf8');
 const exportPoint = 'return { inject, apply };';
 assert.equal(source.split(exportPoint).length, 2);
 const React = {
+  useId: () => 'test-mask',
   createElement: (type, props, ...children) => ({ type, props, children }),
   useRef: () => ({ current: null }),
   useState: (initial) => [initial, () => {}],
@@ -14,7 +15,7 @@ const React = {
   useLayoutEffect: () => {}, useEffect: () => {},
 };
 runInNewContext(source.replace(exportPoint,
-  'return { inject, apply, avatarFor, displayName, CabinetPanel, MemberCard, TaskLine, zh, en, BUREAUX, AVATARS, setMemberConfig, memberLabel, configuredAvatar, configuredPrompt, factoryPromptFor, DEFAULT_MEMBER_PROMPTS, DEFAULT_LEAD_PROMPT };'), {
+  'return { inject, apply, avatarFor, displayName, CabinetPanel, MemberCard, TaskLine, TaskEdgeLayer, buildTaskEdges, taskEdgesEqual, zh, en, BUREAUX, AVATARS, setMemberConfig, memberLabel, configuredAvatar, configuredPrompt, factoryPromptFor, DEFAULT_MEMBER_PROMPTS, DEFAULT_LEAD_PROMPT };'), {
   window: { __ModuleLoader__: { load: ({ factory }) => {
     client = factory((name) => { assert.equal(name, 'react'); return React; });
   } } },
@@ -157,4 +158,136 @@ for (const name of ['lead', 'hanlin-bianxiu', 'gongbu-zhushi', 'dalisi-pingshi',
   const card = elements(client.MemberCard({member:{name,phase:'active'},statusLabel:s=>s}));
   assert.ok(card.some(n=>n.type==='img' && n.props.src===client.avatarFor(name)), name);
 }
+// --- task dependency edges: cross-member blockedBy wires with three states ---
+const edgeRect = (left, top) => ({ left, top, right: left + 140, bottom: top + 26, width: 140, height: 26 });
+const edgeRects = new Map([
+  ['t-research', edgeRect(20, 200)], // hanlin, completed blocker
+  ['t-build', edgeRect(300, 60)],    // works, in_progress blocker (owner running)
+  ['t-audit', edgeRect(300, 200)],   // dali, pending blocker
+  ['t-extra', edgeRect(20, 60)],     // yushi
+  ['t-report', edgeRect(560, 60)],   // cross-row source sharing both endpoints
+]);
+const edgeTasks = [
+  { id: 't-research', subject: '调研', ownerName: 'hanlin', status: 'completed' },
+  { id: 't-build', subject: '实现', ownerName: 'works', status: 'in_progress', blockedBy: ['t-research', 't-ghost'] },
+  { id: 't-audit', subject: '审核', ownerName: 'dali', status: 'pending', blockedBy: ['t-build'] },
+  { id: 't-extra', subject: '归档', ownerName: 'yushi', status: 'pending', blockedBy: ['t-audit'] },
+  { id: 't-report', subject: '复核', ownerName: 'hanlin', status: 'pending', blockedBy: ['t-research', 't-audit'] },
+];
+const edgeBase = { left: 0, top: 0, width: 800, height: 400 };
+const edgeRectOf = (id) => edgeRects.get(id) || null;
+const built = client.buildTaskEdges(edgeBase, edgeTasks, edgeRectOf, (id) => id === 't-build');
+assert.equal(built.length, 5, 'one edge per resolvable blocker; t-ghost is missing and draws nothing');
+assert.deepEqual(Array.from(built, (edge) => edge.key).sort(), [
+  't-audit->t-build', 't-build->t-research', 't-extra->t-audit', 't-report->t-audit', 't-report->t-research',
+], 'edges come from the vm realm; compare as host arrays');
+const stateByKey = Object.fromEntries(built.map((edge) => [edge.key, edge.state]));
+assert.equal(stateByKey['t-build->t-research'], 'done', 'completed blocker → done');
+assert.equal(stateByKey['t-audit->t-build'], 'active', 'in_progress blocker → active');
+assert.equal(stateByKey['t-extra->t-audit'], 'pending', 'pending blocker → pending');
+const liveByKey = Object.fromEntries(built.map((edge) => [edge.key, edge.live]));
+assert.equal(liveByKey['t-audit->t-build'], true, "blocker's owner running lights the flow edge");
+assert.equal(liveByKey['t-build->t-research'], false, 'done edges never animate');
+for (const edge of built) {
+  assert.match(edge.d, /^M -?[\d.]+ -?[\d.]+ C -?[\d.]+ -?[\d.]+ -?[\d.]+ -?[\d.]+ -?[\d.]+ -?[\d.]+$/, edge.key);
+  assert.equal(typeof edge.ex, 'number', edge.key);
+  assert.equal(typeof edge.ey, 'number', edge.key);
+}
+// hidden panel (zero-size base) keeps the last drawing, like the org connectors
+assert.equal(client.buildTaskEdges({ left: 0, top: 0, width: 0, height: 0 }, edgeTasks, edgeRectOf, () => false), null);
+// a task removed from the board leaves no dangling edge to or from it
+const withoutAudit = edgeTasks.filter((task) => task.id !== 't-audit');
+const orphaned = client.buildTaskEdges(edgeBase, withoutAudit, edgeRectOf, () => false);
+assert.equal(orphaned.length, 2, 'blocker rows that no longer exist are skipped, not crashed on');
+assert.ok(orphaned.every((edge) => !edge.key.includes('t-audit->') && edge.key !== 't-extra->t-audit' && edge.key !== 't-report->t-audit'));
+// duplicated blocker ids inside one task collapse into a single edge
+const dup = client.buildTaskEdges(edgeBase,
+  [{ id: 'a', subject: 'a', ownerName: 'hanlin', status: 'pending', blockedBy: ['b', 'b'] },
+   { id: 'b', subject: 'b', ownerName: 'works', status: 'completed' }],
+  (id) => edgeRects.get(id === 'a' ? 't-extra' : 't-build') || null, () => false);
+assert.equal(dup.length, 1, 'duplicate blockedBy entries draw once');
+// geometry freshness: <0.5px is noise, a real move or a state flip redraws
+const rebuilt = client.buildTaskEdges(edgeBase, edgeTasks, edgeRectOf, (id) => id === 't-build');
+assert.ok(client.taskEdgesEqual(built, rebuilt), 'identical rects need no redraw');
+const nudgedRects = new Map(edgeRects);
+nudgedRects.set('t-build', edgeRect(300.3, 60.2));
+const nudged = client.buildTaskEdges(edgeBase, edgeTasks, (id) => nudgedRects.get(id) || null, (id) => id === 't-build');
+assert.ok(client.taskEdgesEqual(built, nudged), 'a <0.5px rect change must not redraw');
+const shiftedRects = new Map(edgeRects);
+shiftedRects.set('t-build', edgeRect(340, 60));
+const shifted = client.buildTaskEdges(edgeBase, edgeTasks, (id) => shiftedRects.get(id) || null, (id) => id === 't-build');
+assert.ok(!client.taskEdgesEqual(built, shifted), 'a real move must trigger a redraw');
+const progressed = edgeTasks.map((task) => (task.id === 't-audit' ? { ...task, status: 'in_progress' } : task));
+const progressedEdges = client.buildTaskEdges(edgeBase, progressed, edgeRectOf, () => false);
+assert.ok(!client.taskEdgesEqual(built, progressedEdges), 'a blocker status change must switch the edge state');
+// rendered overlay: one path + one dot per edge, data attribute and state class
+const layerEls = elements(client.TaskEdgeLayer({ edges: built }));
+const edgePaths = layerEls.filter((node) => node.type === 'path');
+assert.equal(edgePaths.length, 5, 'one path per dependency edge');
+for (const path of edgePaths) {
+  assert.match(path.props['data-cabinet-edge'], /^[^\s]+->[^\s]+$/, 'data-cabinet-edge is "<blockedId>-><blockerId>"');
+  assert.ok(/^cabinet-edge cabinet-edge-(pending|active|done)\b/.test(path.props.className), path.props.className);
+}
+const classByKey = Object.fromEntries(edgePaths.map((path) => [path.props['data-cabinet-edge'], path.props.className]));
+assert.ok(classByKey['t-build->t-research'].includes('cabinet-edge-done'), classByKey['t-build->t-research']);
+assert.ok(classByKey['t-audit->t-build'].includes('cabinet-edge-active'), classByKey['t-audit->t-build']);
+assert.ok(classByKey['t-audit->t-build'].includes('cabinet-edge-live'), 'running-owner flow edge is distinguishable');
+assert.ok(classByKey['t-extra->t-audit'].includes('cabinet-edge-pending'), classByKey['t-extra->t-audit']);
+const edgeDots = layerEls.filter((node) => node.type === 'circle');
+assert.equal(edgeDots.length, 5, 'every edge ends in a dot on the blocker side');
+assert.ok(edgeDots.every((dot) => dot.props['data-cabinet-edge-dot'].includes('->')));
+assert.equal(client.TaskEdgeLayer({ edges: [] }), null, 'no edges → no overlay layer');
+// panel render: cross-member tasks all expose measurement anchors, no premature edges
+const depTeam = {
+  members: [
+    { id: 'm-lead', name: 'lead', role: 'lead', phase: 'active' },
+    { id: 'm-hanlin', name: 'hanlin', role: 'mate', phase: 'active' },
+    { id: 'm-works', name: 'works', role: 'mate', phase: 'active' },
+  ],
+  tasks: edgeTasks,
+};
+const depEls = elements(render(depTeam, client.zh));
+const anchored = depEls.filter((node) => node.props && 'data-cabinet-task' in node.props);
+assert.equal(anchored.length, edgeTasks.length, 'every task row carries a data-cabinet-task anchor');
+assert.deepEqual(anchored.map((node) => node.props['data-cabinet-task']).sort(), edgeTasks.map((task) => task.id).sort());
+assert.ok(!depEls.some((node) => node.props && 'data-cabinet-edge' in node.props),
+  'edges are drawn only after measurement, never from stale render state');
+// TaskLine forwards the anchor id through Row onto the row element
+const depLine = client.TaskLine({
+  task: edgeTasks[1],
+  blockerOf: (id) => edgeTasks.find((task) => task.id === id),
+  t: (key) => key,
+  taskLabel: (status) => status,
+});
+const rowEl = elements(depLine).find((node) => node.props && 'data-cabinet-task' in node.props);
+assert.equal(rowEl.props['data-cabinet-task'], 't-build');
+// reduced-motion + palette: CSS keeps the static line, kills only the flow
+const reducedLines = source.split('\n').filter((line) => line.includes('prefers-reduced-motion'));
+const reducedMedia = reducedLines.find((line) => line.includes('@media'));
+assert.ok(reducedMedia, 'a prefers-reduced-motion media query must exist');
+assert.ok(reducedMedia.includes('.cabinet-edge-active') && reducedMedia.includes('animation:none'),
+  'flow animation stands still under prefers-reduced-motion while the dashed line stays');
+assert.ok(source.includes('.cabinet-edge-done{stroke:light-dark(#15803d,#4ade80)}'), 'done edge has theme-specific green contrast');
+assert.ok(source.includes('.cabinet-edge-pending{stroke:light-dark(#6b7280,#9ca3af)'), 'pending edge is static grey');
+assert.ok(source.includes('cabinetEdgeFlow'), 'active edge gets the dash-offset flow');
 console.log('PASS: avatars, stale-team warnings, and distinct member/owner/group identities; mocked React, not browser E2E');
+console.log('PASS: task dependency edges — data attributes, three states, missing-blocker tolerance, reduced-motion CSS, geometry refresh gate');
+
+// IDs are opaque; delimiter-bearing pairs must not collide or inject markup.
+const special = client.buildTaskEdges(edgeBase, [
+  {id:'a->b',blockedBy:['c','c']}, {id:'a',blockedBy:['b->c']},
+  {id:'c'}, {id:'b->c'}, null, {id:'deleted',status:'deleted',blockedBy:['c']},
+  {id:'self',blockedBy:['self']}
+], () => edgeRect(20,20));
+assert.equal(special.length,2);
+assert.equal(new Set(special.map(e=>e.key)).size,2);
+assert.equal(client.buildTaskEdges(edgeBase,[{id:'\ud800',blockedBy:['c']},{id:'c'}],()=>edgeRect(20,20)).length,1);
+const masked = elements(client.TaskEdgeLayer({edges:built,cards:[{left:300,top:200,width:140,height:26}]}));
+assert.ok(masked.filter(e=>e.type==='path').every(e=>e.props.mask==='url(#test-mask)'));
+assert.ok(masked.some(e=>e.type==='rect' && e.props.fill==='black' && e.props.x===300));
+console.log('PASS: opaque IDs, malformed/deleted/self dependency filtering and card-content masks');
+
+const adjacent=client.buildTaskEdges(edgeBase,[{id:'top'},{id:'bottom',blockedBy:['top']}],id=>edgeRect(20,id==='top'?100:126));
+assert.equal(adjacent.length,1);assert.notEqual(adjacent[0].s[1],adjacent[0].e[1]);
+assert.ok(adjacent[0].c1[0]>adjacent[0].s[0]);
+console.log('PASS: adjacent same-column rows retain a nonzero gutter curve');
