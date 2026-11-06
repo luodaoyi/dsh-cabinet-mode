@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 230" fill="none">
+  <!-- Paired hairline cloud scrolls, based on the supplied second reference. -->
+  <g stroke="#8a6d3b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M48 36H480C510 36 510 84 480 84H206C176 84 176 132 206 132H680"/>
+    <path d="M64 42H468C494 42 494 78 468 78H218C192 78 192 126 218 126H704"/>
+    <path d="M20 160H430C460 160 460 208 430 208H132C102 208 102 160 132 160H156"/>
+    <path d="M44 166H418C444 166 444 202 418 202H144C118 202 118 166 144 166"/>
+  </g>
+</svg>

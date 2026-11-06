@@ -7,9 +7,10 @@
   <meta name="description" content="Cabinet Mode (内阁模式) is a declarative DSH bundle for DeepSeek Harness: a grand-secretary Lead directs members of four bureaus, research comes first, and every conclusion must cite a source. Ships with a right-sidebar dispatch panel and member customization.">
   <link rel="icon" type="image/png" href="../assets/img/lead.png">
   <!-- assets v=N is a site revision: bump N whenever CSS/JS changes -->
-  <link rel="stylesheet" href="../assets/css/style.css?v=2">
+  <link rel="stylesheet" href="../assets/css/style.css?v=11">
 </head>
 <body data-page-lang="en" data-root="../">
+  <div class="page-frame" aria-hidden="true"></div>
 
   <header class="site-header">
     <div class="container">
@@ -29,10 +30,11 @@
 
   <main>
     <section class="hero">
+      <div class="hero-cloud" aria-hidden="true"><img src="../assets/img/cloud-scroll.svg?v=9" alt=""></div>
       <div class="container">
-        <div>
-          <p class="hero-kicker">DEEPSEEK HARNESS · DSH BUNDLE</p>
-          <h1>内阁模式<br><span class="en-name">Cabinet Mode</span></h1>
+        <div class="hero-copy">
+          <p class="hero-kicker"><span>大明科研司</span> DEEPSEEK HARNESS · DSH BUNDLE</p>
+          <h1>内阁<span class="title-seal" aria-hidden="true">协理<br>研务</span><br><span class="en-name">Cabinet Mode</span></h1>
           <p class="tagline">
             A declarative DSH bundle that adds <b>Cabinet Mode</b> to DeepSeek Harness:
             a grand-secretary Lead directs members of four bureaus of the Great Ming
@@ -55,7 +57,13 @@
           </div>
         </div>
         <figure class="hero-figure">
-          <img src="../assets/img/cabinet-portrait.jpg" alt="Grand-secretary portrait shipped with the bundle">
+          <div class="portrait-mount">
+            <span class="portrait-label">文渊阁 · 首辅</span>
+            <div class="portrait-inner">
+              <img src="../assets/img/cabinet-portrait.jpg" alt="Grand-secretary portrait shipped with the bundle">
+            </div>
+            <span class="portrait-seal" aria-hidden="true">科研</span>
+          </div>
           <figcaption class="hero-edict" lang="zh-CN">
             <span>「臣谨领圣谕。」</span>
             <span>「臣谨遵圣谕，夙夜匪懈。」</span>
@@ -67,6 +75,7 @@
     </section>
 
     <section class="block alt" id="features">
+      <div class="section-ornament" aria-hidden="true"></div>
       <div class="container">
         <h2>Features</h2>
         <p class="lead-note">The README is the source of truth; tested scope is documented under "Unverified items" in the repository.</p>
@@ -226,6 +235,6 @@ dsh plugin --profile desktop list</pre>
     </div>
   </footer>
 
-  <script src="../assets/js/lang.js?v=2"></script>
+  <script src="../assets/js/lang.js?v=11"></script>
 </body>
 </html>
