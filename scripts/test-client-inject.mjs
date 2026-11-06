@@ -7,8 +7,8 @@ import { runInNewContext } from 'node:vm';
 // undeclared service access silently takes the whole browser boot down. This
 // test replays apply() against a context that mirrors cordis's guard: looking
 // up a service the entry did not declare throws, and a ctx.inject([...]) scope
-// exposes only the dependencies it listed. The original 0.3.1 crash failed
-// exactly this way, and no other check in verify.mjs could see it.
+// exposes only the dependencies it listed. The unmerged PR #16 implementation failed this way during review;
+// it was fixed before 0.4.0 shipped. This is a contract double, not browser E2E.
 
 let client;
 const source = readFileSync(new URL('../client.js', import.meta.url), 'utf8');
@@ -28,12 +28,16 @@ const React = {
   Fragment: 'fragment',
 };
 
-runInNewContext(source, {
+function load(text) {
+runInNewContext(text.replace(exportPoint, 'return { inject, apply, remoteForTest: () => memberRemote };'), {
   window: { __ModuleLoader__: { load: ({ factory }) => {
     client = factory((name) => { assert.equal(name, 'react'); return React; });
   } } },
   console,
 });
+return client;
+}
+load(source);
 
 assert.ok(client && typeof client.apply === 'function', 'client module did not load');
 assert.ok(Array.isArray(client.inject) && client.inject.length > 0, 'client entry declares no services');
@@ -66,14 +70,15 @@ function service(name) {
 }
 
 /** A context whose service lookups fail the way cordis fails an undeclared access. */
-function makeContext(declared) {
+function makeContext(declared, absent = new Set()) {
+  const cleanup = [];
   const allowed = new Set(declared);
   const context = new Proxy({}, {
     get(_target, property) {
       if (typeof property === 'symbol' || property === 'then') return undefined;
       if (property === 'effect') {
         // Cordis runs the effect body during activation; a throw here fails the entry.
-        return (callback, label) => { callback(); return () => {}; };
+        return (callback, label) => { const dispose = callback(); if (typeof dispose === "function") cleanup.push(dispose); return () => {}; };
       }
       if (property === 'on' || property === 'once') return () => () => {};
       if (property === 'get') {
@@ -83,7 +88,9 @@ function makeContext(declared) {
         return (dependencies, callback, label) => {
           assert.ok(Array.isArray(dependencies) && dependencies.every((entry) => typeof entry === 'string'),
             `ctx.inject: ${label || 'unnamed'} needs string dependencies`);
-          const scope = makeContext([...allowed, ...dependencies]);
+          if (dependencies.some(name => absent.has(name))) return () => {};
+          const scope = makeContext([...allowed, ...dependencies], absent);
+          cleanup.push(scope.dispose);
           if (typeof callback === 'function') callback(scope.context);
           return () => {};
         };
@@ -97,17 +104,19 @@ function makeContext(declared) {
     },
     set() { return true; },
   });
-  return { context };
+  return { context, dispose() { for (const fn of cleanup.splice(0).reverse()) fn(); } };
 }
 
-// The shipped entry activates without touching a service it never declared.
-const shipped = makeContext(client.inject);
-client.apply(shipped.context);
+// Keep every real declaration; inject only the original erroneous top-level access.
+const marker = 'function apply(ctx) {';
+assert.equal(source.split(marker).length,2);
+const broken=load(source.replace(marker,marker+'\n ctx.remote;'));
+assert.throws(()=>broken.apply(makeContext(broken.inject).context),/cannot get property "remote" without inject/);
 
-// Strictness proof: with nothing declared the first service lookup throws, so
-// an undeclared `ctx.remote` — the bug that broke the boot — cannot pass here.
-const bare = makeContext([]);
-assert.throws(() => client.apply(bare.context), /without inject/,
-  'harness must reject undeclared service access');
-
-console.log('test-client-inject: ok');
+for (const missing of [[],['remote'],['remote.session']]) {
+ const entry=load(source), scope=makeContext(entry.inject,new Set(missing));
+ entry.apply(scope.context);
+ assert.equal(entry.remoteForTest()===null,missing.length>0,'optional Remote activates only when all dependencies exist');
+ scope.dispose();assert.equal(entry.remoteForTest(),null,'disposal releases the shared Remote handle');
+}
+console.log('PASS client injection contract double: targeted remote negative with real declarations, optional service absence/presence, disposal');
