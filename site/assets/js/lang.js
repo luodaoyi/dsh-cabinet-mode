@@ -93,6 +93,21 @@
     });
   });
 
+  /* --- hero edict carousel --- */
+  var edictLines = document.querySelectorAll(".hero-edict span");
+  if (edictLines.length > 0) {
+    edictLines[0].classList.add("is-active");
+    var reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (edictLines.length > 1 && !reduceMotion) {
+      var edictIdx = 0;
+      setInterval(function () {
+        edictLines[edictIdx].classList.remove("is-active");
+        edictIdx = (edictIdx + 1) % edictLines.length;
+        edictLines[edictIdx].classList.add("is-active");
+      }, 3500);
+    }
+  }
+
   /* --- lightbox for screenshots --- */
   var box = document.createElement("div");
   box.className = "lightbox";
