@@ -161,7 +161,7 @@ blocked task row to the blocker task row, ending in a small dot on the blocker
 side — a workflow line linking, for example, the Hanlin research task to the
 Works task it gates. Three states, mirrored from the blocker's status:
 
-- **completed** — solid green (the completed-task colour): the dependency is cleared;
+- **completed** — solid green: the dependency is cleared;
 - **in_progress** — dashes flowing toward the blocker ("the dependency is progressing"),
   faster and brighter while the blocker's owner is actually running;
 - **pending** — static grey dashes: still waiting.
@@ -170,6 +170,11 @@ A missing or deleted blocker draws no line. The edges are a panel-only
 visualization of the existing `team.tasks.blockedBy` data — no new data channel
 or protocol — and the flow animation stands still under `prefers-reduced-motion`
 while the static line stays.
+
+Curves are masked behind card content so they do not cross task text; endpoint
+dots remain visible. Same-column links use the right gutter. Colours adapt to
+light and dark themes. The existing dependency chips remain the textual reference
+when curves overlap or are partially hidden by another card.
 
 The five original chibi portraits use Ming-style black winged hats, round-collar robes and square rank badges. The Lead wears burgundy with a crane badge (an artistic setting of a grand secretary with an additional first-rank title); Hanlin editor wears a seventh-rank duck badge, the Minister of Works a second-rank golden pheasant, the Chief Minister of the Court of Judicial Review a third-rank peacock, and the Left Censor-in-Chief a second-rank censor’s xiezhi badge. Robe colours distinguish roles and are not presented as mandatory rank colours.
 
@@ -238,7 +243,7 @@ On failure, show the exact error. For $.format must be 1, replace the webpage so
 Use this only when the market is unavailable or for local development. Fully quit desktop DSH first to release the profile lock, then install the release bundle:
 
 ```sh
-dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.4.1/dsh-cabinet-mode-0.4.1.tgz
+dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.5.0/dsh-cabinet-mode-0.5.0.tgz
 dsh plugin --profile desktop list
 ```
 
@@ -253,7 +258,7 @@ the same install command with the new version URL (or pick the new `.tgz` in the
 plugin page), then fully quit and restart DeepSeek Harness:
 
 ```sh
-dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.4.1/dsh-cabinet-mode-0.4.1.tgz
+dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.5.0/dsh-cabinet-mode-0.5.0.tgz
 ```
 
 `dsh plugin --profile desktop list` should report the new version. Upgrades were

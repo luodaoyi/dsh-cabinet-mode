@@ -7,6 +7,7 @@ const source = readFileSync(new URL('../client.js', import.meta.url), 'utf8');
 const exportPoint = 'return { inject, apply };';
 assert.equal(source.split(exportPoint).length, 2);
 const React = {
+  useId: () => 'test-mask',
   createElement: (type, props, ...children) => ({ type, props, children }),
   useRef: () => ({ current: null }),
   useState: (initial) => [initial, () => {}],
@@ -266,8 +267,27 @@ const reducedMedia = reducedLines.find((line) => line.includes('@media'));
 assert.ok(reducedMedia, 'a prefers-reduced-motion media query must exist');
 assert.ok(reducedMedia.includes('.cabinet-edge-active') && reducedMedia.includes('animation:none'),
   'flow animation stands still under prefers-reduced-motion while the dashed line stays');
-assert.ok(source.includes('.cabinet-edge-done{stroke:#22c55e}'), 'done edge reuses TASK_COLOR.completed green');
-assert.ok(source.includes('.cabinet-edge-pending{stroke:#9aa0a6'), 'pending edge is static grey');
+assert.ok(source.includes('.cabinet-edge-done{stroke:light-dark(#15803d,#4ade80)}'), 'done edge has theme-specific green contrast');
+assert.ok(source.includes('.cabinet-edge-pending{stroke:light-dark(#6b7280,#9ca3af)'), 'pending edge is static grey');
 assert.ok(source.includes('cabinetEdgeFlow'), 'active edge gets the dash-offset flow');
 console.log('PASS: avatars, stale-team warnings, and distinct member/owner/group identities; mocked React, not browser E2E');
 console.log('PASS: task dependency edges — data attributes, three states, missing-blocker tolerance, reduced-motion CSS, geometry refresh gate');
+
+// IDs are opaque; delimiter-bearing pairs must not collide or inject markup.
+const special = client.buildTaskEdges(edgeBase, [
+  {id:'a->b',blockedBy:['c','c']}, {id:'a',blockedBy:['b->c']},
+  {id:'c'}, {id:'b->c'}, null, {id:'deleted',status:'deleted',blockedBy:['c']},
+  {id:'self',blockedBy:['self']}
+], () => edgeRect(20,20));
+assert.equal(special.length,2);
+assert.equal(new Set(special.map(e=>e.key)).size,2);
+assert.equal(client.buildTaskEdges(edgeBase,[{id:'\ud800',blockedBy:['c']},{id:'c'}],()=>edgeRect(20,20)).length,1);
+const masked = elements(client.TaskEdgeLayer({edges:built,cards:[{left:300,top:200,width:140,height:26}]}));
+assert.ok(masked.filter(e=>e.type==='path').every(e=>e.props.mask==='url(#test-mask)'));
+assert.ok(masked.some(e=>e.type==='rect' && e.props.fill==='black' && e.props.x===300));
+console.log('PASS: opaque IDs, malformed/deleted/self dependency filtering and card-content masks');
+
+const adjacent=client.buildTaskEdges(edgeBase,[{id:'top'},{id:'bottom',blockedBy:['top']}],id=>edgeRect(20,id==='top'?100:126));
+assert.equal(adjacent.length,1);assert.notEqual(adjacent[0].s[1],adjacent[0].e[1]);
+assert.ok(adjacent[0].c1[0]>adjacent[0].s[0]);
+console.log('PASS: adjacent same-column rows retain a nonzero gutter curve');

@@ -17,7 +17,7 @@ Last updated: 2026-11-06
 - Product: Cabinet Mode / 内阁模式
 - Type: declarative DSH bundle and agent-team preset
 - Preset id: cabinet
-- Version: 0.4.1
+- Version: 0.5.0
 - License: MIT
 - Price: free
 - Publisher: Respire (https://rsrs.rs/)
@@ -56,7 +56,7 @@ Use the GitHub blob or tree page URL only for reading; DSH needs the raw JSON UR
 Fallback release tarball:
 
 ```sh
-dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.4.1/dsh-cabinet-mode-0.4.1.tgz
+dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.5.0/dsh-cabinet-mode-0.5.0.tgz
 dsh plugin --profile desktop list
 ```
 

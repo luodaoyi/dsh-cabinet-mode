@@ -2,6 +2,19 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.5.0] - 2026-11-06
+
+### Added
+
+- Task dependency curves and blocker endpoint dots in the Cabinet panel, using
+  existing blockedBy data. Completed blockers are green, pending blockers grey,
+  and active blockers blue with flowing dashes; running owners brighten the flow.
+- Resize, scrolling, task updates and dependency-chip expansion remeasure geometry.
+  Reduced motion disables the flow animation. Card content masks prevent curves
+  crossing unrelated text; same-column dependencies use the right gutter.
+- Regression coverage for opaque IDs, duplicate dependencies, deleted/missing
+  tasks and geometry updates. No host protocol or model-routing changes.
+
 ## [0.4.1] - 2026-11-06
 
 ### Tests
@@ -24,13 +37,6 @@ All notable changes to this project are documented in this file.
 - Regression coverage with official Cordis/SystemPrompt/model-selection and
   catalog components, without external model calls. Isolated browser checks
   cover catalog selection, Save, reload, Cancel and clear.
-- Panel task-dependency edges: a self-contained hand-written SVG overlay wires
-  each `blockedBy` link as a curve from the blocked task row to its blocker
-  (solid green when the blocker is completed, flowing dashes while it is in
-  progress, static grey when pending), with rAF-throttled geometry re-measure
-  and a `prefers-reduced-motion` fallback. Caveat: the edges are a panel-only
-  visualization of the existing `team.tasks.blockedBy` data — no new data
-  channel, protocol or dependency is introduced.
 
 ### Fixed
 

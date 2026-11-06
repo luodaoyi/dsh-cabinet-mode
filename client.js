@@ -2411,14 +2411,14 @@ window.__ModuleLoader__.load({
 			// same palette as TASK_COLOR (done #22c55e / active #3b82f6 / pending #9aa0a6)
 			'@keyframes cabinetEdgeFlow{to{stroke-dashoffset:-24}}',
 			'.cabinet-edge{fill:none;stroke-width:1.5;stroke-linecap:round}',
-			'.cabinet-edge-done{stroke:#22c55e}',
-			'.cabinet-edge-pending{stroke:#9aa0a6;stroke-dasharray:4 5}',
-			'.cabinet-edge-active{stroke:#3b82f6;stroke-dasharray:6 6;animation:cabinetEdgeFlow .9s linear infinite}',
+			'.cabinet-edge-done{stroke:light-dark(#15803d,#4ade80)}',
+			'.cabinet-edge-pending{stroke:light-dark(#6b7280,#9ca3af);stroke-dasharray:4 5}',
+			'.cabinet-edge-active{stroke:light-dark(#2563eb,#60a5fa);stroke-dasharray:6 6;animation:cabinetEdgeFlow .9s linear infinite}',
 			// blocker's owner actually running: faster flow, brighter blue — the same
 			// visual language as cabinet-task-live (bar pulse on the in-progress row)
-			'.cabinet-edge-active.cabinet-edge-live{stroke:#60a5fa;animation-duration:.45s}',
+			'.cabinet-edge-active.cabinet-edge-live{stroke:light-dark(#1d4ed8,#93c5fd);animation-duration:.45s}',
 			'.cabinet-edge-dot{stroke:none}',
-			'.cabinet-edge-dot-done{fill:#22c55e}.cabinet-edge-dot-pending{fill:#9aa0a6}.cabinet-edge-dot-active{fill:#3b82f6}',
+			'.cabinet-edge-dot-done{fill:light-dark(#15803d,#4ade80)}.cabinet-edge-dot-pending{fill:light-dark(#6b7280,#9ca3af)}.cabinet-edge-dot-active{fill:light-dark(#2563eb,#60a5fa)}',
 			// accessibility: everything above stands still
 			'@media (prefers-reduced-motion:reduce){[data-cabinet-status="running"],img.cabinet-avatar-running,.cabinet-live-breathe,.cabinet-dots i,.cabinet-task-live::after{animation:none!important}.cabinet-avatar-slot.cabinet-ring-live::before{animation:none!important;opacity:.8}.cabinet-row-live{animation:none!important;background-image:none}.cabinet-edge-active,.cabinet-edge-active.cabinet-edge-live{animation:none!important}}',
 		].join('');
@@ -3043,7 +3043,7 @@ window.__ModuleLoader__.load({
 			const [openBlockers, setOpenBlockers] = React.useState(true);
 			const status = TASK_COLOR[task.status] ? task.status : 'pending';
 			const color = TASK_COLOR[status];
-			const blockers = Array.isArray(task.blockedBy) ? task.blockedBy : [];
+			const blockers = Array.isArray(task.blockedBy) ? [...new Set(task.blockedBy.filter((id) => typeof id === 'string' && id !== task.id))] : [];
 			const parts = [
 				h('span', {
 					key: 'dot',
@@ -3101,20 +3101,28 @@ window.__ModuleLoader__.load({
 		}
 
 		// Dependency-edge overlay: one cubic path + one blocker-side dot per edge,
-		// drawn above the cards (z-index 2) but pointer-transparent, so rows stay
+		// paths are masked behind card interiors; endpoint dots remain visible. The
+		// layer is pointer-transparent, so rows stay
 		// clickable. `data-cabinet-edge="<blocked>-><blocker>"` plus a
 		// cabinet-edge-pending/active/done class makes every edge assertable.
-		function TaskEdgeLayer({ edges }) {
+		function TaskEdgeLayer({ edges, cards = [] }) {
+			const maskId = React.useId();
 			if (!Array.isArray(edges) || edges.length === 0) return null;
 			return h('svg', {
 				'aria-hidden': 'true',
 				className: 'cabinet-edge-layer',
 				style: { position: 'absolute', left: 0, top: 0, width: '100%', height: '100%', pointerEvents: 'none', overflow: 'visible', zIndex: 2 }
-			}, edges.flatMap((edge) => [
+			}, [
+				h('defs', { key: 'defs' }, h('mask', { id: maskId, maskUnits: 'userSpaceOnUse', x: -20, y: -20, width: '120%', height: '120%' }, [
+					h('rect', { key: 'base', x: -20, y: -20, width: '120%', height: '120%', fill: 'white' }),
+					...cards.map((card, index) => h('rect', { key: index, x: card.left, y: card.top, width: card.width, height: card.height, fill: 'black' }))
+				])),
+				...edges.flatMap((edge) => [
 				h('path', {
 					key: 'p:' + edge.key,
 					className: 'cabinet-edge cabinet-edge-' + edge.state + (edge.live ? ' cabinet-edge-live' : ''),
 					'data-cabinet-edge': edge.key,
+					mask: 'url(#' + maskId + ')',
 					d: edge.d
 				}),
 				h('circle', {
@@ -3126,7 +3134,7 @@ window.__ModuleLoader__.load({
 					cy: edge.ey,
 					r: 3
 				})
-			]));
+			])]);
 		}
 
 		// #region connectors — pure geometry (the self-test harness extracts this)
@@ -3248,6 +3256,8 @@ window.__ModuleLoader__.load({
 			const byId = new Map();
 			for (const task of list) if (task && task.id !== undefined && task.id !== null) byId.set(task.id, task);
 			const seen = new Set();
+			// JSON escaping also handles lone UTF-16 surrogates without URIError.
+			const encodeId = (id) => encodeURIComponent(JSON.stringify(id).slice(1, -1));
 			const edges = [];
 			const rel = (rect) => ({
 				left: rect.left - base.left,
@@ -3256,10 +3266,11 @@ window.__ModuleLoader__.load({
 				bottom: rect.bottom - base.top
 			});
 			for (const task of list) {
+				if (!task || typeof task.id !== 'string' || task.status === 'deleted') continue;
 				const blockers = Array.isArray(task.blockedBy) ? task.blockedBy : [];
 				for (const blockerId of blockers) {
-					if (blockerId === undefined || blockerId === null) continue;
-					const key = task.id + '->' + blockerId;
+					if (typeof blockerId !== 'string' || blockerId === task.id) continue;
+					const key = encodeId(task.id) + '->' + encodeId(blockerId);
 					if (seen.has(key)) continue; // duplicated blocker ids draw once
 					seen.add(key);
 					const blocker = byId.get(blockerId);
@@ -3281,8 +3292,7 @@ window.__ModuleLoader__.load({
 					});
 				}
 			}
-			// Anchors: horizontal pairing leaves the row's side facing the other
-			// endpoint (>=24px apart), vertical pairing drops off the row bottom/top.
+			// Horizontal pairing faces the other row; same-column pairs use a side gutter.
 			for (const edge of edges) {
 				const f = edge.from;
 				const t = edge.to;
@@ -3302,14 +3312,12 @@ window.__ModuleLoader__.load({
 					c2x = ex - dir * span; c2y = ey;
 					edge.axis = 'x';
 				} else {
-					const dir = tcy >= fcy ? 1 : -1;
-					sx = fcx;
-					sy = dir > 0 ? f.bottom : f.top;
-					ex = tcx;
-					ey = dir > 0 ? t.top : t.bottom;
-					const span = Math.max(16, Math.abs(ey - sy) * 0.45);
-					c1x = sx; c1y = sy + dir * span;
-					c2x = ex; c2y = ey - dir * span;
+					// Adjacent rows can share a top/bottom boundary. Route through
+					// the right gutter instead of collapsing to a zero-length loop.
+					sx = f.right; sy = fcy;
+					ex = t.right; ey = tcy;
+					c1x = c2x = Math.max(f.right, t.right) + 40;
+					c1y = sy; c2y = ey;
 					edge.axis = 'y';
 				}
 				edge.s = [sx, sy];
@@ -3410,6 +3418,7 @@ window.__ModuleLoader__.load({
 			const edgeDataRef = React.useRef({ tasks: [], live: new Set() });
 			const [linkPaths, setLinkPaths] = React.useState([]);
 			const [edges, setEdges] = React.useState([]);
+			const [edgeCards, setEdgeCards] = React.useState([]);
 			const measureLinks = React.useCallback(() => {
 				const tree = treeRef.current;
 				const leadEl = leadRef.current;
@@ -3427,6 +3436,11 @@ window.__ModuleLoader__.load({
 				for (const row of tree.querySelectorAll('[data-cabinet-task]')) {
 					rectById.set(row.getAttribute('data-cabinet-task'), row.getBoundingClientRect());
 				}
+				const cards = Array.from(tree.querySelectorAll('.cabinet-card'), (card) => {
+					const rect = card.getBoundingClientRect();
+					return { left: rect.left - base.left, top: rect.top - base.top, width: rect.width, height: rect.height };
+				});
+				setEdgeCards((prev) => JSON.stringify(prev) === JSON.stringify(cards) ? prev : cards);
 				const edgeData = edgeDataRef.current;
 				const nextEdges = buildTaskEdges(base, edgeData.tasks, (id) => rectById.get(id) || null, (id) => edgeData.live.has(id));
 				if (nextEdges === null) return;
@@ -3611,7 +3625,7 @@ window.__ModuleLoader__.load({
 				}))),
 				// dependency edges paint above the cards (endpoints sit on task rows
 				// inside cards) but never take pointer events
-				h(TaskEdgeLayer, { key: 'edges', edges }),
+				h(TaskEdgeLayer, { key: 'edges', edges, cards: edgeCards }),
 				h('div', {
 					key: 'leadwrap',
 					ref: leadRef,
@@ -3645,7 +3659,7 @@ window.__ModuleLoader__.load({
 							t: tt,
 							// tasks live inside the card, elbow-connected by RailList
 							children: own.length > 0
-								? h(RailList, { style: { marginTop: 4 } }, own.map((task) => h(TaskLine, {
+								? h(RailList, { key: 'tasks', style: { marginTop: 4 } }, own.map((task) => h(TaskLine, {
 									key: task.id,
 									task,
 									blockerOf,
@@ -3653,7 +3667,7 @@ window.__ModuleLoader__.load({
 									taskLabel,
 									ownerRunning: memberRunning
 								})))
-								: h('div', { style: { fontSize: 11, color: INK3, padding: '2px 0' } }, tt('task.none'))
+								: h('div', { key: 'tasks', style: { fontSize: 11, color: INK3, padding: '2px 0' } }, tt('task.none'))
 						});
 					} else {
 						content = h('div', { className: 'cabinet-card', style: { position: 'relative', zIndex: 1 } }, [
