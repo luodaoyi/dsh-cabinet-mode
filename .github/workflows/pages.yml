@@ -1,0 +1,58 @@
+name: Pages deploy
+
+# Publishes the static intro site in `site/` to GitHub Pages as a project page
+# (https://luodaoyi.github.io/dsh-cabinet-mode/). The site is plain HTML/CSS/JS
+# with no build step, so this workflow only uploads the directory as-is.
+#
+# One-time repository setup: none needed. `configure-pages` runs with
+# `enablement: true`, so the first run creates the Pages site with
+# build_type=workflow using the workflow's own GITHUB_TOKEN; the manual
+# Settings → Pages flip is only a fallback if that API call is refused.
+#
+# The site directory is intentionally outside package.json `files`, so this
+# workflow never affects the npm bundle or the market index.
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'site/**'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy the intro site
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+        with:
+          enablement: true # create the site on the first run if missing
+
+      - name: Upload the site directory
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

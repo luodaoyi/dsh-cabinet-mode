@@ -2,6 +2,15 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.4.1] - 2026-11-06
+
+### Tests
+
+- Add a client service-injection contract regression, including the exact undeclared
+  Remote access found in unmerged PR #16, optional service presence/absence and disposal.
+- Runtime behavior is unchanged. The PR #16 boot issue was fixed before 0.4.0
+  shipped; this release strengthens tests, not a fix for a released 0.3.1 defect.
+
 ## [0.4.0] - 2026-11-05
 
 ### Added

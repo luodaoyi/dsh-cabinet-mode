@@ -1,0 +1,109 @@
+# Cabinet Mode (内阁模式)
+
+> Cabinet Mode is a free, open-source DSH bundle for DeepSeek Harness. A grand-secretary Lead directs four bureau members, research comes first, and every conclusion must cite a source. It ships with a right-sidebar dispatch panel and member customization.
+
+Last updated: 2026-11-06
+
+## Canonical pages
+
+- [Chinese introduction](https://luodaoyi.github.io/dsh-cabinet-mode/): 中文产品介绍、特性、团队结构、安装与 FAQ
+- [English introduction](https://luodaoyi.github.io/dsh-cabinet-mode/en/): English overview, features, team, install and FAQ
+- [GitHub repository](https://github.com/luodaoyi/dsh-cabinet-mode): Source code, README, issues and releases
+- [npm package](https://www.npmjs.com/package/dsh-cabinet-mode): Installable package and version metadata
+- [Changelog](https://github.com/luodaoyi/dsh-cabinet-mode/blob/main/CHANGELOG.md): Version history and release notes
+
+## Key facts
+
+- Product: Cabinet Mode / 内阁模式
+- Type: declarative DSH bundle and agent-team preset
+- Preset id: cabinet
+- Version: 0.4.1
+- License: MIT
+- Price: free
+- Publisher: Respire (https://rsrs.rs/)
+- Author: luodaoyi (https://github.com/luodaoyi)
+- Languages: Chinese and English
+- Platforms: Linux, macOS and Windows
+- Tested DSH versions: 0.2.1-rc.3 and rc.5
+- Market install verified on: Windows rc.5 web client
+- Node.js requirement for the package: >=20
+
+## What it does
+
+Cabinet Mode organizes a DeepSeek Harness session as a Ming-style research cabinet:
+
+- The Lead reads the request, decomposes it, assigns work, adjudicates, summarizes and closes the loop.
+- Four bureau members execute scoped work: Hanlin editor, Minister of Works, Dali chief minister and Left Censor-in-Chief.
+- A dual-identity persona lets the same preset act as either the Lead or a bureau member; members must not claim to be the Lead.
+- Research comes first: code changes require explicit authorization, and conclusions must cite a file path, line or command output.
+- The right-sidebar Cabinet panel shows a dispatch tree, dependencies, member states and task progress.
+- All five offices support custom display names, portraits and duty prompts; each office can select its own model.
+- The declaration reuses 22 plugin rows from Standard Mode, so tool coverage does not shrink.
+- Linux/macOS use tool-bash; Windows uses tool-pwsh.
+
+## Install
+
+Recommended path:
+
+1. Enable the custom plugin market in DSH: Plugins → Experimental plugins → More.
+2. Add this raw index URL under Plugins → Discover → Index sources:
+   https://raw.githubusercontent.com/luodaoyi/dsh-cabinet-mode/market-index/marketplace.json
+3. Install dsh-cabinet-mode, confirm the package and registry, then enable it.
+4. Fully quit and restart DSH, create a new session, and choose 内阁模式 (preset id cabinet).
+
+Use the GitHub blob or tree page URL only for reading; DSH needs the raw JSON URL. Installing the bundle and writing cordis.patch.yml are mutually exclusive because both provide the same preset id.
+
+Fallback release tarball:
+
+```sh
+dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.4.1/dsh-cabinet-mode-0.4.1.tgz
+dsh plugin --profile desktop list
+```
+
+## Verification scope
+
+- Market install was verified on the Windows rc.5 web client.
+- The bundle was tested with DSH 0.2.1-rc.3 and rc.5.
+- Linux/macOS market install and other DSH versions are not verified.
+- Team behavior has documented unverified items; see the repository's "Unverified items" section.
+- A preset is trusted configuration and can execute host code. Install only from sources you trust.
+
+## FAQ
+
+### What is Cabinet Mode?
+
+Cabinet Mode is an open-source DSH bundle for DeepSeek Harness with preset id cabinet. A grand-secretary Lead reads the request, splits and assigns work, adjudicates and summarizes; members of four bureaus execute the scoped work.
+
+### How is it different from Standard Mode?
+
+It reuses the same 22 plugin rows as Standard Mode, so tool coverage does not shrink. It adds a dual-identity persona, four bureau members, a right-sidebar dispatch panel and member customization. There is no hard DSH version gate.
+
+### How do I install it?
+
+Add the raw marketplace.json under Plugins → Discover → Index sources, install and enable dsh-cabinet-mode, then fully quit and restart DSH. Start a new session and choose Cabinet Mode. Use the release tarball only as a fallback.
+
+### What does research first mean?
+
+The default is research before code changes, and code changes require explicit authorization. Every conclusion must cite a file path, line or command output; unverified items are marked as such and sources are never fabricated.
+
+### Is it free, and which platforms are supported?
+
+It is free and open source under the MIT License. Linux and macOS use tool-bash; Windows uses tool-pwsh. Market install was verified on the Windows rc.5 web client; see the installation matrix for other versions.
+
+### Does the site collect analytics?
+
+No. The site is a static introduction page with no third-party analytics or advertising scripts. The plugin runs in the local DSH profile, and member settings live in the cabinet-ui namespace under DSH_HOME/profile.
+
+## Contact
+
+- Issues: https://github.com/luodaoyi/dsh-cabinet-mode/issues
+- Publisher: https://rsrs.rs/
+
+## More documentation
+
+- [English README](https://github.com/luodaoyi/dsh-cabinet-mode#readme): Full English documentation, requirements and limitations
+- [Chinese README](https://github.com/luodaoyi/dsh-cabinet-mode/blob/main/README.zh.md): 完整中文文档、前置条件与限制
+- [Installation matrix](https://github.com/luodaoyi/dsh-cabinet-mode#installation-matrix): Platform and DSH version support
+- [Unverified items](https://github.com/luodaoyi/dsh-cabinet-mode#unverified-items): Known gaps that are not claimed as tested
+- [Cross-platform notes](https://github.com/luodaoyi/dsh-cabinet-mode/blob/main/docs/cross-platform.md): bash and pwsh behavior by platform
+- [License](https://github.com/luodaoyi/dsh-cabinet-mode/blob/main/LICENSE): MIT License
