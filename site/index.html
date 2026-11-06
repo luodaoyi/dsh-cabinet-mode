@@ -3,38 +3,196 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>内阁模式 Cabinet Mode — DeepSeek Harness 的大明科研司内阁研究团队</title>
-  <meta name="description" content="内阁模式（Cabinet Mode）是为 DeepSeek Harness 打造的 DSH bundle：内阁首辅分派四司阁臣，研究优先、结论必带出处，附右栏派工面板与成员定制。">
+  <title>内阁模式 Cabinet Mode｜DeepSeek Harness 多智能体内阁团队</title>
+  <meta name="description" content="内阁模式（Cabinet Mode）是 DeepSeek Harness 的开源 DSH 插件：首辅统领四司阁臣，研究优先、结论必带出处，附右栏派工面板与成员定制。">
+  <meta name="author" content="luodaoyi">
+  <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1">
+  <meta name="theme-color" content="#faf6ec">
+  <link rel="canonical" href="https://luodaoyi.github.io/dsh-cabinet-mode/">
+  <link rel="alternate" hreflang="zh-CN" href="https://luodaoyi.github.io/dsh-cabinet-mode/">
+  <link rel="alternate" hreflang="en" href="https://luodaoyi.github.io/dsh-cabinet-mode/en/">
+  <link rel="alternate" hreflang="x-default" href="https://luodaoyi.github.io/dsh-cabinet-mode/">
+  <link rel="alternate" type="application/xml" title="Sitemap" href="https://luodaoyi.github.io/dsh-cabinet-mode/sitemap.xml">
+  <link rel="alternate" type="text/plain" title="llms.txt" href="https://luodaoyi.github.io/dsh-cabinet-mode/llms.txt">
+  <link rel="preload" as="image" href="assets/img/cabinet-portrait.jpg" fetchpriority="high">
+
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Cabinet Mode">
+  <meta property="og:title" content="内阁模式 Cabinet Mode｜DeepSeek Harness 多智能体内阁团队">
+  <meta property="og:description" content="内阁模式（Cabinet Mode）是 DeepSeek Harness 的开源 DSH 插件：首辅统领四司阁臣，研究优先、结论必带出处，附右栏派工面板与成员定制。">
+  <meta property="og:url" content="https://luodaoyi.github.io/dsh-cabinet-mode/">
+  <meta property="og:image" content="https://luodaoyi.github.io/dsh-cabinet-mode/assets/img/og-card.jpg">
+  <meta property="og:image:type" content="image/jpeg">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="内阁模式 Cabinet Mode：DeepSeek Harness 的内阁研究团队">
+  <meta property="og:locale" content="zh_CN">
+  <meta property="og:locale:alternate" content="en_US">
+  <meta property="og:updated_time" content="2026-11-06T00:00:00+08:00">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="内阁模式 Cabinet Mode｜DeepSeek Harness 多智能体内阁团队">
+  <meta name="twitter:description" content="内阁模式（Cabinet Mode）是 DeepSeek Harness 的开源 DSH 插件：首辅统领四司阁臣，研究优先、结论必带出处，附右栏派工面板与成员定制。">
+  <meta name="twitter:image" content="https://luodaoyi.github.io/dsh-cabinet-mode/assets/img/og-card.jpg">
+  <meta name="twitter:image:alt" content="内阁模式 Cabinet Mode：DeepSeek Harness 的内阁研究团队">
+
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "WebSite",
+        "@id": "https://luodaoyi.github.io/dsh-cabinet-mode/#website",
+        "name": "Cabinet Mode",
+        "alternateName": "内阁模式",
+        "url": "https://luodaoyi.github.io/dsh-cabinet-mode/"
+      },
+      {
+        "@type": "SoftwareApplication",
+        "@id": "https://luodaoyi.github.io/dsh-cabinet-mode/#software",
+        "name": "Cabinet Mode",
+        "alternateName": "内阁模式",
+        "description": "内阁模式是 DeepSeek Harness 的开源 DSH 插件：首辅统领四司阁臣，研究优先，结论必带出处，附右栏派工面板与成员定制。",
+        "url": "https://luodaoyi.github.io/dsh-cabinet-mode/",
+        "downloadUrl": "https://www.npmjs.com/package/dsh-cabinet-mode",
+        "softwareVersion": "0.4.1",
+        "applicationCategory": "DeveloperApplication",
+        "operatingSystem": "Linux, macOS, Windows",
+        "softwareRequirements": "DeepSeek Harness 0.2.1-rc.3 or rc.5 (tested)",
+        "license": "https://opensource.org/license/mit",
+        "isAccessibleForFree": true,
+        "offers": {"@type": "Offer", "price": "0", "priceCurrency": "USD"},
+        "featureList": [
+          "Dual-identity Lead and teammate persona",
+          "Research-first workflow with cited conclusions",
+          "Right-sidebar Cabinet dispatch panel",
+          "Customizable members and per-office models",
+          "Standard Mode plugin parity",
+          "Cross-platform tool-bash and tool-pwsh support"
+        ],
+        "author": {"@type": "Person", "name": "luodaoyi", "url": "https://github.com/luodaoyi"},
+        "sameAs": [
+          "https://github.com/luodaoyi/dsh-cabinet-mode",
+          "https://www.npmjs.com/package/dsh-cabinet-mode"
+        ]
+      },
+      {
+        "@type": "SoftwareSourceCode",
+        "@id": "https://luodaoyi.github.io/dsh-cabinet-mode/#source",
+        "name": "dsh-cabinet-mode",
+        "codeRepository": "https://github.com/luodaoyi/dsh-cabinet-mode",
+        "programmingLanguage": "JavaScript",
+        "version": "0.4.1",
+        "license": "https://opensource.org/license/mit",
+        "author": {"@type": "Person", "name": "luodaoyi", "url": "https://github.com/luodaoyi"}
+      },
+      {
+        "@type": "WebPage",
+        "@id": "https://luodaoyi.github.io/dsh-cabinet-mode/#webpage",
+        "url": "https://luodaoyi.github.io/dsh-cabinet-mode/",
+        "name": "内阁模式 Cabinet Mode｜DeepSeek Harness 多智能体内阁团队",
+        "description": "内阁模式（Cabinet Mode）是 DeepSeek Harness 的开源 DSH 插件：首辅统领四司阁臣，研究优先、结论必带出处，附右栏派工面板与成员定制。",
+        "inLanguage": "zh-CN",
+        "isPartOf": {"@id": "https://luodaoyi.github.io/dsh-cabinet-mode/#website"},
+        "about": {"@id": "https://luodaoyi.github.io/dsh-cabinet-mode/#software"},
+        "datePublished": "2026-11-06",
+        "dateModified": "2026-11-06",
+        "primaryImageOfPage": {
+          "@type": "ImageObject",
+          "url": "https://luodaoyi.github.io/dsh-cabinet-mode/assets/img/og-card.jpg",
+          "width": 1200,
+          "height": 630
+        }
+      },
+      {
+        "@type": "FAQPage",
+        "@id": "https://luodaoyi.github.io/dsh-cabinet-mode/#faq",
+        "mainEntity": [
+          {
+            "@type": "Question",
+            "name": "内阁模式是什么？",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "内阁模式（Cabinet Mode）是 DeepSeek Harness 的开源 DSH 插件，preset id 为 cabinet。首辅负责审题、拆解、派工、裁断和汇总，翰林、工部、大理寺、都察院四司阁臣分司执行。"
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "和标准模式有什么区别？",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "它复用标准模式的 22 行插件清单，工具能力不缩水；额外提供双身份 persona、四司阁臣、右栏派工面板和成员定制。声明中没有硬性 DSH 版本门禁。"
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "如何安装内阁模式？",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "在 DSH 的 Plugins → Discover → Index sources 添加 raw marketplace.json，安装并启用 dsh-cabinet-mode；完全退出并重启 DSH，新建会话后选择「内阁模式」。市场不可用时可用 Release tarball 回退。"
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "研究优先具体指什么？",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "默认先调研、后改代码，修改代码需要你的明确授权。每个结论必须锚定文件路径、行号或命令输出；未验证事项会如实标注，不编造来源。"
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "免费吗？支持哪些平台？",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "免费开源，MIT License。Linux/macOS 使用 tool-bash，Windows 使用 tool-pwsh。市场安装在 Windows rc.5 web 客户端实测通过；其他平台与 DSH 版本见安装矩阵。"
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "本站会收集访问数据吗？",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "本站是纯静态介绍页，不加载第三方统计或广告脚本。插件在本地 DSH profile 中运行，成员设置保存在 DSH_HOME/profile 的 cabinet-ui 命名空间。"
+            }
+          }
+        ]
+      }
+    ]
+  }
+  </script>
+
   <link rel="icon" type="image/png" href="assets/img/lead.png">
   <!-- assets v=N is a site revision: bump N whenever CSS/JS changes -->
-  <link rel="stylesheet" href="assets/css/style.css?v=11">
+  <link rel="stylesheet" href="assets/css/style.css?v=16">
 </head>
-<body data-page-lang="zh" data-root="./">
+<body>
   <div class="page-frame" aria-hidden="true"></div>
 
   <header class="site-header">
     <div class="container">
       <a class="brand" href="./">
-        <img src="assets/img/lead.png" alt="内阁模式图标">
+        <img src="assets/img/lead.png" width="128" height="128" alt="内阁模式图标">
         <span>内阁模式 <span class="sub">Cabinet Mode for DSH</span></span>
       </a>
-      <nav class="site-nav">
+      <nav class="site-nav" aria-label="主导航">
+        <a href="#overview">一览</a>
         <a href="#features">特性</a>
         <a href="#team">团队</a>
+        <a href="#faq">常见问题</a>
         <a href="#install">安装</a>
         <a class="repo-link" href="https://github.com/luodaoyi/dsh-cabinet-mode" target="_blank" rel="noopener">GitHub</a>
-        <a class="lang-switch" href="en/" data-set-lang="en">English</a>
+        <a class="lang-switch" href="en/" hreflang="en" lang="en">English</a>
       </nav>
     </div>
   </header>
 
   <main>
     <section class="hero">
-      <div class="hero-cloud" aria-hidden="true"><img src="assets/img/cloud-scroll.svg?v=9" alt=""></div>
+      <div class="hero-cloud" aria-hidden="true"><img src="assets/img/cloud-scroll.svg?v=9" width="760" height="230" alt=""></div>
       <div class="container">
         <div class="hero-copy">
           <p class="hero-kicker"><span>大明科研司</span> DEEPSEEK HARNESS · DSH BUNDLE</p>
-          <h1>内阁<span class="title-seal" aria-hidden="true">协理<br>研务</span><br><span class="en-name">Cabinet Mode</span></h1>
+          <h1>内阁<span class="sr-only">模式</span><span class="title-seal" aria-hidden="true">协理<br>研务</span><br><span class="en-name">Cabinet Mode</span></h1>
           <p class="tagline">
             一个声明式 DSH bundle，为 DeepSeek Harness 加上「内阁模式」：内阁首辅主政，
             翰林、工部、大理寺、都察院四司阁臣分司办事。研究优先，结论必带出处。
@@ -58,17 +216,43 @@
           <div class="portrait-mount">
             <span class="portrait-label">文渊阁 · 首辅</span>
             <div class="portrait-inner">
-              <img src="assets/img/cabinet-portrait.jpg" alt="内阁首辅画像">
+              <img src="assets/img/cabinet-portrait.jpg" width="346" height="512" fetchpriority="high" alt="内阁首辅画像">
             </div>
             <span class="portrait-seal" aria-hidden="true">科研</span>
           </div>
           <figcaption class="hero-edict">
-            <span>「臣谨领圣谕。」</span>
+            <span class="is-active">「臣谨领圣谕。」</span>
             <span>「臣谨遵圣谕，夙夜匪懈。」</span>
             <span>「容臣会同九卿，议定而后行。」</span>
             <span>「容臣票拟以闻。」</span>
           </figcaption>
         </figure>
+      </div>
+    </section>
+
+    <section class="block" id="overview">
+      <div class="container">
+        <h2>一览</h2>
+        <p class="lead-note">先看结论：内阁模式是什么，以及当前版本、平台与安装方式。</p>
+        <p class="definition">内阁模式（Cabinet Mode）是 DeepSeek Harness 的开源 DSH 插件，preset id 为 cabinet。它把会话组织成由首辅与四司阁臣组成的多智能体研究团队，默认先研究后改码，并要求结论引用路径、行号或命令输出。</p>
+        <div class="table-wrap">
+          <table>
+            <caption class="sr-only">内阁模式关键信息</caption>
+            <thead>
+              <tr><th scope="col">项目</th><th scope="col">值</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>产品</td><td>内阁模式（Cabinet Mode）</td></tr>
+              <tr><td>类型</td><td>DeepSeek Harness DSH bundle / 多智能体 preset</td></tr>
+              <tr><td>preset id</td><td><code>cabinet</code></td></tr>
+              <tr><td>版本</td><td>v0.4.1</td></tr>
+              <tr><td>许可与价格</td><td>MIT License，免费开源</td></tr>
+              <tr><td>已实测 DSH</td><td>0.2.1-rc.3 / rc.5</td></tr>
+              <tr><td>平台</td><td>Linux/macOS（<code>tool-bash</code>）、Windows（<code>tool-pwsh</code>）</td></tr>
+              <tr><td>安装</td><td>DSH 插件市场 raw 索引；Release tarball 回退</td></tr>
+            </tbody>
+          </table>
+        </div>
       </div>
     </section>
 
@@ -103,6 +287,23 @@
             <p>Linux/macOS 启用 tool-bash，Windows 启用 tool-pwsh，与标准模式一致；npm 包 + 市场索引分发，即插即用，无构建步骤。</p>
           </div>
         </div>
+
+        <h3 class="sub-h">与标准模式对比</h3>
+        <div class="table-wrap">
+          <table>
+            <caption class="sr-only">内阁模式与 DSH 标准模式对比</caption>
+            <thead>
+              <tr><th scope="col">维度</th><th scope="col">标准模式</th><th scope="col">内阁模式</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>插件清单</td><td>22 行</td><td>22 行，工具不缩水</td></tr>
+              <tr><td>persona</td><td>单一</td><td>首辅 + 四司阁臣双身份</td></tr>
+              <tr><td>派工面板</td><td>无</td><td>右栏 Cabinet 派工树</td></tr>
+              <tr><td>成员定制</td><td>无</td><td>显示名、头像、职责 prompt、每司模型</td></tr>
+              <tr><td>版本门禁</td><td>—</td><td>无硬门禁；实测 0.2.1-rc.3 / rc.5</td></tr>
+            </tbody>
+          </table>
+        </div>
       </div>
     </section>
 
@@ -111,27 +312,27 @@
         <h2>团队结构</h2>
         <p class="lead-note">首辅坐镇居上，四司阁臣各领其职；成员由 spawn_teammate 创建并继承同一 persona。</p>
         <figure class="team-diagram">
-          <img src="assets/img/cabinet-team.svg" alt="内阁模式团队结构示意图：内阁首辅统辖翰林院编修、工部尚书、大理寺卿、左都御史四司">
+          <img src="assets/img/cabinet-team.svg" width="920" height="430" loading="lazy" decoding="async" alt="内阁模式团队结构示意图：内阁首辅统辖翰林院编修、工部尚书、大理寺卿、左都御史四司">
         </figure>
         <div class="avatars">
           <figure style="--accent:#b03a2e">
-            <img src="assets/img/lead.png" alt="内阁首辅头像">
+            <img src="assets/img/lead.png" width="128" height="128" loading="lazy" decoding="async" alt="内阁首辅头像">
             <figcaption>内阁首辅<span class="badge-note">鹤补 · 一品加衔设定</span></figcaption>
           </figure>
           <figure style="--accent:#1f618d">
-            <img src="assets/img/hanlin.png" alt="翰林院编修头像">
+            <img src="assets/img/hanlin.png" width="128" height="128" loading="lazy" decoding="async" alt="翰林院编修头像">
             <figcaption>翰林院编修<span class="badge-note">鸂鶒补 · 七品</span></figcaption>
           </figure>
           <figure style="--accent:#1e8449">
-            <img src="assets/img/works.png" alt="工部尚书头像">
+            <img src="assets/img/works.png" width="128" height="128" loading="lazy" decoding="async" alt="工部尚书头像">
             <figcaption>工部尚书<span class="badge-note">锦鸡补 · 二品</span></figcaption>
           </figure>
           <figure style="--accent:#6c3483">
-            <img src="assets/img/dali.png" alt="大理寺卿头像">
+            <img src="assets/img/dali.png" width="128" height="128" loading="lazy" decoding="async" alt="大理寺卿头像">
             <figcaption>大理寺卿<span class="badge-note">孔雀补 · 三品</span></figcaption>
           </figure>
           <figure style="--accent:#b9770e">
-            <img src="assets/img/yushi.png" alt="左都御史头像">
+            <img src="assets/img/yushi.png" width="128" height="128" loading="lazy" decoding="async" alt="左都御史头像">
             <figcaption>左都御史<span class="badge-note">獬豸补 · 风宪</span></figcaption>
           </figure>
         </div>
@@ -144,11 +345,11 @@
         <p class="lead-note">右栏 Cabinet 面板在真实会话中的截图，由项目维护者提供；点击可放大。</p>
         <div class="shots">
           <figure>
-            <img src="assets/img/cabinet-runtime-light.png" alt="明亮主题下的 Cabinet 面板：首辅与成员派工树、运行与空闲成员、任务进度与依赖" data-zoom="assets/img/cabinet-runtime-light.png">
+            <img src="assets/img/cabinet-runtime-light.png" width="998" height="1172" loading="lazy" decoding="async" alt="明亮主题下的 Cabinet 面板：首辅与成员派工树、运行与空闲成员、任务进度与依赖" data-zoom="assets/img/cabinet-runtime-light.png">
             <figcaption>明亮主题：派工树、运行中的成员、任务进度与依赖</figcaption>
           </figure>
           <figure>
-            <img src="assets/img/cabinet-runtime-dark.png" alt="深色主题下的 Cabinet 面板：任务列、待派任务组与依赖 chips" data-zoom="assets/img/cabinet-runtime-dark.png">
+            <img src="assets/img/cabinet-runtime-dark.png" width="852" height="933" loading="lazy" decoding="async" alt="深色主题下的 Cabinet 面板：任务列、待派任务组与依赖 chips" data-zoom="assets/img/cabinet-runtime-dark.png">
             <figcaption>深色主题：任务列、待派任务组与依赖 chips</figcaption>
           </figure>
         </div>
@@ -219,6 +420,56 @@ dsh plugin --profile desktop list</pre>
           <li>成员设置存于 <code>DSH_HOME/profile</code> 配置（cabinet-ui 命名空间），同 profile 的多个浏览器共享。</li>
           <li>市场安装在 Windows rc.5 web 客户端实测通过；Linux/macOS 与其他 DSH 版本未经实测，详见 README 的<a href="https://github.com/luodaoyi/dsh-cabinet-mode#installation-matrix" target="_blank" rel="noopener">安装矩阵</a>与「Unverified items」。</li>
         </ul>
+
+        <h3 class="sub-h">验证范围</h3>
+        <div class="table-wrap">
+          <table>
+            <caption class="sr-only">内阁模式验证范围</caption>
+            <thead>
+              <tr><th scope="col">范围</th><th scope="col">状态</th><th scope="col">说明</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>DSH 0.2.1-rc.3 / rc.5</td><td>已验证</td><td>结构、插件清单与本地测试套件</td></tr>
+              <tr><td>Windows rc.5 web 市场安装</td><td>已验证</td><td>插件市场安装流程</td></tr>
+              <tr><td>Linux/macOS 市场安装</td><td>未验证</td><td>见 README 安装矩阵</td></tr>
+              <tr><td>其他 DSH 版本</td><td>未验证</td><td>无硬版本门禁，不保证行为</td></tr>
+              <tr><td>团队行为</td><td>部分未验证</td><td>见 README「Unverified items」</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section class="block" id="faq">
+      <div class="container">
+        <h2>常见问题</h2>
+        <p class="lead-note">关于能力边界、安装与验证范围的快速回答；更完整的说明以 README 为准。</p>
+        <div class="faq">
+          <article class="faq-item">
+            <h3>内阁模式是什么？</h3>
+            <p>内阁模式（Cabinet Mode）是 DeepSeek Harness 的开源 DSH 插件，preset id 为 cabinet。首辅负责审题、拆解、派工、裁断和汇总，翰林、工部、大理寺、都察院四司阁臣分司执行。</p>
+          </article>
+          <article class="faq-item">
+            <h3>和标准模式有什么区别？</h3>
+            <p>它复用标准模式的 22 行插件清单，工具能力不缩水；额外提供双身份 persona、四司阁臣、右栏派工面板和成员定制。声明中没有硬性 DSH 版本门禁。</p>
+          </article>
+          <article class="faq-item">
+            <h3>如何安装内阁模式？</h3>
+            <p>在 DSH 的 Plugins → Discover → Index sources 添加 raw marketplace.json，安装并启用 dsh-cabinet-mode；完全退出并重启 DSH，新建会话后选择「内阁模式」。市场不可用时可用 Release tarball 回退。</p>
+          </article>
+          <article class="faq-item">
+            <h3>研究优先具体指什么？</h3>
+            <p>默认先调研、后改代码，修改代码需要你的明确授权。每个结论必须锚定文件路径、行号或命令输出；未验证事项会如实标注，不编造来源。</p>
+          </article>
+          <article class="faq-item">
+            <h3>免费吗？支持哪些平台？</h3>
+            <p>免费开源，MIT License。Linux/macOS 使用 tool-bash，Windows 使用 tool-pwsh。市场安装在 Windows rc.5 web 客户端实测通过；其他平台与 DSH 版本见安装矩阵。</p>
+          </article>
+          <article class="faq-item">
+            <h3>本站会收集访问数据吗？</h3>
+            <p>本站是纯静态介绍页，不加载第三方统计或广告脚本。插件在本地 DSH profile 中运行，成员设置保存在 DSH_HOME/profile 的 cabinet-ui 命名空间。</p>
+          </article>
+        </div>
       </div>
     </section>
   </main>
@@ -227,12 +478,13 @@ dsh plugin --profile desktop list</pre>
     <div class="container">
       <span>内阁模式 Cabinet Mode · <a href="https://github.com/luodaoyi/dsh-cabinet-mode" target="_blank" rel="noopener">luodaoyi/dsh-cabinet-mode</a></span>
       <span>MIT License</span>
-      <span>v0.4.1 <!-- 随发版更新版本号 --></span>
+      <span>v0.4.1 · 更新于 <time datetime="2026-11-06">2026-11-06</time> <!-- 随内容更新 --></span>
       <span class="spacer"></span>
+      <span><a href="https://rsrs.rs/zh/" target="_blank" rel="noopener" hreflang="zh-CN" lang="zh-CN">Respire记忆系统出品</a></span>
       <span><a href="https://github.com/luodaoyi/dsh-cabinet-mode#readme" target="_blank" rel="noopener">完整文档见 README</a></span>
     </div>
   </footer>
 
-  <script src="assets/js/lang.js?v=11"></script>
+  <script src="assets/js/lang.js?v=12"></script>
 </body>
 </html>

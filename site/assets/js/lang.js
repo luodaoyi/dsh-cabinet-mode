@@ -1,36 +1,12 @@
-/* Cabinet Mode intro site: one-time language auto-redirect, copy buttons,
-   screenshot lightbox. Plain JS, no dependencies. */
+/* Cabinet Mode intro site: copy buttons, hero edict carousel and screenshot
+   lightbox. Plain JS, no dependencies.
+
+   Language is intentionally not auto-redirected from navigator.language:
+   crawlers and first-time visitors must be able to see the canonical page
+   they requested. The explicit language switch in the header is enough. */
 
 (function () {
   "use strict";
-
-  var body = document.body;
-
-  /* --- language: first visit only, unless the visitor already chose --- */
-  var pageLang = body.getAttribute("data-page-lang"); // "zh" | "en"
-  var root = body.getAttribute("data-root") || "./";
-  var pref = null;
-  try { pref = localStorage.getItem("cm-lang"); } catch (e) { /* storage unavailable */ }
-
-  if (pageLang && !pref) {
-    var navLang = (navigator.language || "").toLowerCase();
-    var wantsZh = navLang.indexOf("zh") === 0;
-    if (pageLang === "zh" && !wantsZh) {
-      try { localStorage.setItem("cm-lang", "en"); } catch (e) {}
-      location.replace(root + "en/");
-    } else if (pageLang === "en" && wantsZh) {
-      try { localStorage.setItem("cm-lang", "zh"); } catch (e) {}
-      location.replace(root);
-    }
-  }
-
-  /* --- language switch buttons remember the choice --- */
-  document.querySelectorAll("[data-set-lang]").forEach(function (el) {
-    el.addEventListener("click", function () {
-      try { localStorage.setItem("cm-lang", el.getAttribute("data-set-lang")); } catch (e) {}
-      /* let the link navigate */
-    });
-  });
 
   /* --- copy buttons --- */
   var copyTimer = null;
