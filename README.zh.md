@@ -4,6 +4,8 @@
 
 **安装入口：** [优先从插件市场安装](#从插件市场安装索引源推荐)。
 
+**介绍站：** [luodaoyi.github.io/dsh-cabinet-mode](https://luodaoyi.github.io/dsh-cabinet-mode/)（中英双语介绍页，源码在本仓库 `site/` 目录）。
+
 <p align="center">
   <img src="docs/images/cabinet-portrait.jpg" width="200" alt="内阁模式图标来源：明代内阁首辅画像（已作为 bundle 图标 icon.svg 随包发布）"/>
 </p>

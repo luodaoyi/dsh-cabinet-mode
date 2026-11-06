@@ -4,6 +4,8 @@
 
 **Install:** [Use the plugin market (recommended)](#install-from-the-plugin-market-recommended).
 
+**Website:** [luodaoyi.github.io/dsh-cabinet-mode](https://luodaoyi.github.io/dsh-cabinet-mode/) (bilingual intro page, served from `site/` in this repository).
+
 <p align="center">
   <img src="docs/images/cabinet-portrait.jpg" width="200" alt="Cabinet Mode — grand-secretary portrait, shipped as the bundle icon (icon.svg)"/>
 </p>

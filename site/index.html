@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>内阁模式 Cabinet Mode — DeepSeek Harness 的大明科研司内阁研究团队</title>
+  <meta name="description" content="内阁模式（Cabinet Mode）是为 DeepSeek Harness 打造的 DSH bundle：内阁首辅分派四司阁臣，研究优先、结论必带出处，附右栏派工面板与成员定制。">
+  <link rel="icon" type="image/png" href="assets/img/lead.png">
+  <link rel="stylesheet" href="assets/css/style.css?v=0.4.1">
+</head>
+<body data-page-lang="zh" data-root="./">
+
+  <header class="site-header">
+    <div class="container">
+      <a class="brand" href="./">
+        <img src="assets/img/lead.png" alt="内阁模式图标">
+        <span>内阁模式 <span class="sub">Cabinet Mode for DSH</span></span>
+      </a>
+      <nav class="site-nav">
+        <a href="#features">特性</a>
+        <a href="#team">团队</a>
+        <a href="#install">安装</a>
+        <a class="repo-link" href="https://github.com/luodaoyi/dsh-cabinet-mode" target="_blank" rel="noopener">GitHub</a>
+        <a class="lang-switch" href="en/" data-set-lang="en">English</a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div class="container">
+        <div>
+          <p class="hero-kicker">DEEPSEEK HARNESS · DSH BUNDLE</p>
+          <h1>大明科研司·内阁<br><span class="en-name">Cabinet Mode</span></h1>
+          <p class="tagline">
+            一个声明式 DSH bundle，为 DeepSeek Harness 加上「内阁模式」：内阁首辅主政，
+            翰林、工部、大理寺、都察院四司阁臣分司办事。研究优先，结论必带出处。
+          </p>
+          <div class="badges">
+            <span class="badge"><span class="dot"></span>v0.4.1</span>
+            <span class="badge">MIT License</span>
+            <span class="badge">preset id: cabinet</span>
+            <span class="badge">已实测 DSH 0.2.1-rc.3 / rc.5</span>
+          </div>
+          <div class="hero-actions">
+            <a class="btn btn-primary" href="#install">安装内阁模式</a>
+            <a class="btn btn-ghost" href="https://github.com/luodaoyi/dsh-cabinet-mode" target="_blank" rel="noopener">GitHub 仓库</a>
+          </div>
+          <div class="market-url">
+            <code>https://raw.githubusercontent.com/luodaoyi/dsh-cabinet-mode/market-index/marketplace.json</code>
+            <button class="copy-btn inline" data-copy="https://raw.githubusercontent.com/luodaoyi/dsh-cabinet-mode/market-index/marketplace.json" data-done="已复制">复制索引 URL</button>
+          </div>
+        </div>
+        <figure class="hero-figure">
+          <img src="assets/img/cabinet-portrait.jpg" alt="内阁首辅画像">
+          <figcaption>随 bundle 分发的首辅画像（icon.svg）</figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <section class="block alt" id="features">
+      <div class="container">
+        <h2>核心特性</h2>
+        <p class="lead-note">以下能力以 README 为准；各能力的实测范围见仓库「Unverified items」一节。</p>
+        <div class="features">
+          <div class="feature" style="--accent:#b03a2e">
+            <h3>双身份 persona</h3>
+            <p>首辅审题、拆解、分派、裁断、汇总、闭环；翰林院编修、工部尚书、大理寺卿、左都御史按司执行。同一 persona 依 Team 身份短语自认角色，阁臣禁止冒充首辅。</p>
+          </div>
+          <div class="feature" style="--accent:#1f618d">
+            <h3>研究优先</h3>
+            <p>默认先调研、后动码，改代码需明确授权。每个结论必须锚定路径、行号或命令输出；未验证事项如实标注，禁止编造来源。</p>
+          </div>
+          <div class="feature" style="--accent:#1e8449">
+            <h3>右栏 Cabinet 面板</h3>
+            <p>派工树按 ownerName 归位任务，依赖以 chips 呈现；运行成员绿点脉冲，空闲/启动/失败灰/琥珀/红点分级，任务状态 pending/进行/完成三色着色。</p>
+          </div>
+          <div class="feature" style="--accent:#6c3483">
+            <h3>成员可定制</h3>
+            <p>五个职位可改显示名（40 字）、头像与职责 prompt（4000 字）；每司可从官方 session.modelCatalog 单独选模型。保存原子写入，过期草稿无法覆盖新值。</p>
+          </div>
+          <div class="feature" style="--accent:#b9770e">
+            <h3>与标准模式同权</h3>
+            <p>复用 DSH 标准模式 22 行插件清单，工具不缩水；声明无硬 DSH 版本门禁，不加 engines.dsh 与 peerDependencies，实测 0.2.1-rc.3 与 rc.5。</p>
+          </div>
+          <div class="feature" style="--accent:#8a6d3b">
+            <h3>跨平台分发</h3>
+            <p>Linux/macOS 启用 tool-bash，Windows 启用 tool-pwsh，与标准模式一致；npm 包 + 市场索引分发，即插即用，无构建步骤。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="block" id="team">
+      <div class="container">
+        <h2>团队结构</h2>
+        <p class="lead-note">首辅坐镇居上，四司阁臣各领其职；成员由 spawn_teammate 创建并继承同一 persona。</p>
+        <figure class="team-diagram">
+          <img src="assets/img/cabinet-team.svg" alt="内阁模式团队结构示意图：内阁首辅统辖翰林院编修、工部尚书、大理寺卿、左都御史四司">
+        </figure>
+        <div class="avatars">
+          <figure style="--accent:#b03a2e">
+            <img src="assets/img/lead.png" alt="内阁首辅头像">
+            <figcaption>内阁首辅<span class="badge-note">鹤补 · 一品加衔设定</span></figcaption>
+          </figure>
+          <figure style="--accent:#1f618d">
+            <img src="assets/img/hanlin.png" alt="翰林院编修头像">
+            <figcaption>翰林院编修<span class="badge-note">鸂鶒补 · 七品</span></figcaption>
+          </figure>
+          <figure style="--accent:#1e8449">
+            <img src="assets/img/works.png" alt="工部尚书头像">
+            <figcaption>工部尚书<span class="badge-note">锦鸡补 · 二品</span></figcaption>
+          </figure>
+          <figure style="--accent:#6c3483">
+            <img src="assets/img/dali.png" alt="大理寺卿头像">
+            <figcaption>大理寺卿<span class="badge-note">孔雀补 · 三品</span></figcaption>
+          </figure>
+          <figure style="--accent:#b9770e">
+            <img src="assets/img/yushi.png" alt="左都御史头像">
+            <figcaption>左都御史<span class="badge-note">獬豸补 · 风宪</span></figcaption>
+          </figure>
+        </div>
+      </div>
+    </section>
+
+    <section class="block alt" id="screenshots">
+      <div class="container">
+        <h2>运行实况</h2>
+        <p class="lead-note">右栏 Cabinet 面板在真实会话中的截图，由项目维护者提供；点击可放大。</p>
+        <div class="shots">
+          <figure>
+            <img src="assets/img/cabinet-runtime-light.png" alt="明亮主题下的 Cabinet 面板：首辅与成员派工树、运行与空闲成员、任务进度与依赖" data-zoom="assets/img/cabinet-runtime-light.png">
+            <figcaption>明亮主题：派工树、运行中的成员、任务进度与依赖</figcaption>
+          </figure>
+          <figure>
+            <img src="assets/img/cabinet-runtime-dark.png" alt="深色主题下的 Cabinet 面板：任务列、待派任务组与依赖 chips" data-zoom="assets/img/cabinet-runtime-dark.png">
+            <figcaption>深色主题：任务列、待派任务组与依赖 chips</figcaption>
+          </figure>
+        </div>
+      </div>
+    </section>
+
+    <section class="block" id="install">
+      <div class="container">
+        <h2>安装</h2>
+        <p class="lead-note">推荐走 DSH 插件市场：索引安装 npm 包到当前 profile，无需检出仓库或手改 patch。</p>
+
+        <ol class="steps">
+          <li>
+            <strong>启用自定义插件市场</strong>
+            <p>打开 <b>Plugins → Experimental plugins → More</b>，启用「自定义插件市场」。</p>
+          </li>
+          <li>
+            <strong>添加索引源</strong>
+            <p>回到 <b>Plugins → Discover（发现）→ 索引源</b>，粘贴上面的 raw JSON URL，点「添加」。</p>
+            <div class="warn">务必使用 raw URL。GitHub 的 blob / tree 网页地址不是索引，DSH 会报 <code>$.format must be 1</code>。</div>
+          </li>
+          <li>
+            <strong>安装并启用</strong>
+            <p>等「Cabinet Mode / 内阁模式」出现，点「安装」，确认包为 <code>dsh-cabinet-mode@&lt;version&gt;</code>、registry 为 <code>https://registry.npmjs.org/</code>。装完点「立即启用」或在「已安装」页打开开关。</p>
+          </li>
+          <li>
+            <strong>重启并选用</strong>
+            <p><b>完全退出并重启 DSH</b>（preset 与客户端插件只在启动时装配），新建会话，在模式选择器中选<b>「内阁模式」</b>；需要面板时在右栏「+」里打开 Cabinet 标签。</p>
+          </li>
+        </ol>
+
+        <details class="ai-prompt">
+          <summary>让 AI 助手代为安装（复制这段 prompt）</summary>
+          <div class="codeblock">
+            <button class="copy-btn" data-copy-from="ai-prompt-text" data-done="已复制">复制</button>
+            <pre id="ai-prompt-text">Install the Cabinet Mode (内阁模式) DSH bundle for me, preferably through its plugin market index:
+https://raw.githubusercontent.com/luodaoyi/dsh-cabinet-mode/market-index/marketplace.json
+
+1. Identify my DSH version and intended profile. Use the existing UI to enable Custom plugin market, then Plugins → Discover → Index sources.
+2. Add the exact raw JSON URL above. Do not use GitHub blob/tree URLs, edit the index, or invent a command to add a market source.
+3. Install Cabinet Mode from that source. Verify the confirmation shows dsh-cabinet-mode@&lt;version&gt; from https://registry.npmjs.org/, then verify the Installed result and version. Click Enable now or turn on the plugin switch on Installed, and verify it is enabled.
+4. If browser/UI control is unavailable, give me those short UI steps. Use the release tarball or local-directory fallback only when the market is unavailable or I choose it; explain the specific reason first.
+5. Do not also append cordis.patch.yml to my profile: installing both ways duplicates the preset. Preserve my existing profile and plugins.
+6. Tell me to fully quit and restart DSH, create a new session and choose 内阁模式 (preset id cabinet). Do not claim success until the installed version is verified; do not claim untested team behavior works.
+
+On failure, show the exact error. For $.format must be 1, replace the webpage source with the raw JSON URL. Do not repeatedly reinstall or silently switch methods.</pre>
+          </div>
+        </details>
+
+        <h3 class="sub-h">回退：Release tarball</h3>
+        <p class="lead-note">仅当市场不可用或本地开发时使用；先完全退出桌面 DSH 以释放 profile 锁。</p>
+        <div class="codeblock">
+          <button class="copy-btn" data-copy-from="tarball-cmd" data-done="已复制">复制</button>
+          <pre id="tarball-cmd">dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.4.1/dsh-cabinet-mode-0.4.1.tgz
+dsh plugin --profile desktop list</pre>
+        </div>
+        <p class="lead-note">方法 A（bundle 安装）与方法 B（node 脚本写 cordis.patch.yml）互斥，同装会使 preset id 重复、声明加载失败。</p>
+      </div>
+    </section>
+
+    <section class="block alt" id="notes">
+      <div class="container">
+        <h2>须知</h2>
+        <ul class="notes-list">
+          <li>安装或更新后必须<b>完全退出并重启 DSH</b>；已有输出的会话其模式已锁定，需新建会话选用。</li>
+          <li>九件团队工具（spawn_teammate、team_task_* 等）来自 <code>@deepseek-ai/dsh-experimental-agent-team-profile</code> profile bundle；未启用时内阁按单人规则运行。</li>
+          <li>preset 是受信配置，可执行宿主代码；只安装你信任来源的 bundle。</li>
+          <li>成员设置存于 <code>DSH_HOME/profile</code> 配置（cabinet-ui 命名空间），同 profile 的多个浏览器共享。</li>
+          <li>市场安装在 Windows rc.5 web 客户端实测通过；Linux/macOS 与其他 DSH 版本未经实测，详见 README 的<a href="https://github.com/luodaoyi/dsh-cabinet-mode#installation-matrix" target="_blank" rel="noopener">安装矩阵</a>与「Unverified items」。</li>
+        </ul>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container">
+      <span>内阁模式 Cabinet Mode · <a href="https://github.com/luodaoyi/dsh-cabinet-mode" target="_blank" rel="noopener">luodaoyi/dsh-cabinet-mode</a></span>
+      <span>MIT License</span>
+      <span>v0.4.1 <!-- 随发版更新版本号 --></span>
+      <span class="spacer"></span>
+      <span><a href="https://github.com/luodaoyi/dsh-cabinet-mode#readme" target="_blank" rel="noopener">完整文档见 README</a></span>
+    </div>
+  </footer>
+
+  <script src="assets/js/lang.js?v=0.4.1"></script>
+</body>
+</html>

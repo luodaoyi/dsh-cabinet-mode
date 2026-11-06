@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cabinet Mode — a Great Ming Research Bureau team preset for DeepSeek Harness</title>
+  <meta name="description" content="Cabinet Mode (内阁模式) is a declarative DSH bundle for DeepSeek Harness: a grand-secretary Lead directs members of four bureaus, research comes first, and every conclusion must cite a source. Ships with a right-sidebar dispatch panel and member customization.">
+  <link rel="icon" type="image/png" href="../assets/img/lead.png">
+  <link rel="stylesheet" href="../assets/css/style.css?v=0.4.1">
+</head>
+<body data-page-lang="en" data-root="../">
+
+  <header class="site-header">
+    <div class="container">
+      <a class="brand" href="../">
+        <img src="../assets/img/lead.png" alt="Cabinet Mode icon">
+        <span>Cabinet Mode <span class="sub">for DeepSeek Harness</span></span>
+      </a>
+      <nav class="site-nav">
+        <a href="#features">Features</a>
+        <a href="#team">Team</a>
+        <a href="#install">Install</a>
+        <a class="repo-link" href="https://github.com/luodaoyi/dsh-cabinet-mode" target="_blank" rel="noopener">GitHub</a>
+        <a class="lang-switch" href="../" data-set-lang="zh">中文</a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div class="container">
+        <div>
+          <p class="hero-kicker">DEEPSEEK HARNESS · DSH BUNDLE</p>
+          <h1>内阁模式<br><span class="en-name">Cabinet Mode</span></h1>
+          <p class="tagline">
+            A declarative DSH bundle that adds <b>Cabinet Mode</b> to DeepSeek Harness:
+            a grand-secretary Lead directs members of four bureaus of the Great Ming
+            Research Bureau. Research first, change code only when authorized, and
+            every conclusion must cite a source.
+          </p>
+          <div class="badges">
+            <span class="badge"><span class="dot"></span>v0.4.1</span>
+            <span class="badge">MIT License</span>
+            <span class="badge">preset id: cabinet</span>
+            <span class="badge">tested on DSH 0.2.1-rc.3 / rc.5</span>
+          </div>
+          <div class="hero-actions">
+            <a class="btn btn-primary" href="#install">Install Cabinet Mode</a>
+            <a class="btn btn-ghost" href="https://github.com/luodaoyi/dsh-cabinet-mode" target="_blank" rel="noopener">GitHub repository</a>
+          </div>
+          <div class="market-url">
+            <code>https://raw.githubusercontent.com/luodaoyi/dsh-cabinet-mode/market-index/marketplace.json</code>
+            <button class="copy-btn inline" data-copy="https://raw.githubusercontent.com/luodaoyi/dsh-cabinet-mode/market-index/marketplace.json" data-done="Copied">Copy index URL</button>
+          </div>
+        </div>
+        <figure class="hero-figure">
+          <img src="../assets/img/cabinet-portrait.jpg" alt="Grand-secretary portrait shipped with the bundle">
+          <figcaption>The grand-secretary portrait ships as <code>icon.svg</code></figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <section class="block alt" id="features">
+      <div class="container">
+        <h2>Features</h2>
+        <p class="lead-note">The README is the source of truth; tested scope is documented under "Unverified items" in the repository.</p>
+        <div class="features">
+          <div class="feature" style="--accent:#b03a2e">
+            <h3>Dual-identity persona</h3>
+            <p>The Lead reads the request, splits it, assigns work, adjudicates, summarizes and closes the loop. Members of the four bureaus — Hanlin editor, Minister of Works, Dali chief minister, Left Censor-in-Chief — execute bureau-scoped work and must never claim to be the Lead.</p>
+          </div>
+          <div class="feature" style="--accent:#1f618d">
+            <h3>Research first</h3>
+            <p>Defaults to research before touching code; changes need explicit authorization. Every conclusion must cite a path, line or command output; unverified items are marked as such and sources are never fabricated.</p>
+          </div>
+          <div class="feature" style="--accent:#1e8449">
+            <h3>Right-sidebar Cabinet panel</h3>
+            <p>A dispatch tree files every task under its owner, with dependencies as chips. Running members pulse green; idle / starting / failed use gray / amber / red dots; tasks are colored pending, in progress and completed.</p>
+          </div>
+          <div class="feature" style="--accent:#6c3483">
+            <h3>Customizable members</h3>
+            <p>All five offices accept a display name (40 chars), portrait and duty prompt (4000 chars); each office can pick its own model from the official <code>session.modelCatalog</code>. Saves are atomic; a stale draft cannot overwrite newer values.</p>
+          </div>
+          <div class="feature" style="--accent:#b9770e">
+            <h3>Standard-Mode parity</h3>
+            <p>Reuses the same 22 plugin rows as the tested DSH Standard Mode — no tool cutbacks. The declaration has no hard version gate: no <code>engines.dsh</code>, no peer dependency, tested on 0.2.1-rc.3 and rc.5.</p>
+          </div>
+          <div class="feature" style="--accent:#8a6d3b">
+            <h3>Cross-platform by design</h3>
+            <p><code>tool-bash</code> on Linux/macOS, <code>tool-pwsh</code> on Windows, exactly like Standard Mode. Distributed as an npm package with a market index — no build step, no CDN.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="block" id="team">
+      <div class="container">
+        <h2>The cabinet</h2>
+        <p class="lead-note">The Lead sits on top; the four bureaus execute. Members are spawned via <code>spawn_teammate</code> and inherit the same persona.</p>
+        <figure class="team-diagram">
+          <img src="../assets/img/cabinet-team.svg" alt="Cabinet layout diagram: the Lead directing the Hanlin editor, Minister of Works, Dali chief minister and Left Censor-in-Chief">
+        </figure>
+        <div class="avatars">
+          <figure style="--accent:#b03a2e">
+            <img src="../assets/img/lead.png" alt="Lead avatar">
+            <figcaption>内阁首辅 · Lead<span class="badge-note">crane badge, first rank (artistic)</span></figcaption>
+          </figure>
+          <figure style="--accent:#1f618d">
+            <img src="../assets/img/hanlin.png" alt="Hanlin editor avatar">
+            <figcaption>翰林院编修 · Hanlin editor<span class="badge-note">duck badge, seventh rank</span></figcaption>
+          </figure>
+          <figure style="--accent:#1e8449">
+            <img src="../assets/img/works.png" alt="Minister of Works avatar">
+            <figcaption>工部尚书 · Minister of Works<span class="badge-note">golden pheasant, second rank</span></figcaption>
+          </figure>
+          <figure style="--accent:#6c3483">
+            <img src="../assets/img/dali.png" alt="Dali chief minister avatar">
+            <figcaption>大理寺卿 · Dali chief minister<span class="badge-note">peacock badge, third rank</span></figcaption>
+          </figure>
+          <figure style="--accent:#b9770e">
+            <img src="../assets/img/yushi.png" alt="Left Censor-in-Chief avatar">
+            <figcaption>左都御史 · Left Censor-in-Chief<span class="badge-note">xiezhi badge, censorate</span></figcaption>
+          </figure>
+        </div>
+      </div>
+    </section>
+
+    <section class="block alt" id="screenshots">
+      <div class="container">
+        <h2>Screenshots</h2>
+        <p class="lead-note">Captures of the Cabinet panel in real sessions, provided by the project owner. Click to enlarge.</p>
+        <div class="shots">
+          <figure>
+            <img src="../assets/img/cabinet-runtime-light.png" alt="Cabinet panel in light theme: dispatch tree, running and idle members, task progress and dependencies" data-zoom="../assets/img/cabinet-runtime-light.png">
+            <figcaption>Light theme: dispatch tree, running members, task progress and dependencies</figcaption>
+          </figure>
+          <figure>
+            <img src="../assets/img/cabinet-runtime-dark.png" alt="Cabinet panel in dark theme: task columns, unassigned group and dependency chips" data-zoom="../assets/img/cabinet-runtime-dark.png">
+            <figcaption>Dark theme: task columns, unassigned group and dependency chips</figcaption>
+          </figure>
+        </div>
+      </div>
+    </section>
+
+    <section class="block" id="install">
+      <div class="container">
+        <h2>Install</h2>
+        <p class="lead-note">The DSH plugin market is the recommended path: it installs the npm bundle into your profile — no checkout, no hand-edited patch.</p>
+
+        <ol class="steps">
+          <li>
+            <strong>Enable the custom plugin market</strong>
+            <p>Open <b>Plugins → Experimental plugins → More</b>, then enable <b>Custom plugin market</b> (自定义插件市场).</p>
+          </li>
+          <li>
+            <strong>Add the index source</strong>
+            <p>Back at <b>Plugins → Discover → Index sources</b>, paste the raw JSON URL above and click <b>Add</b>.</p>
+            <div class="warn">Use the raw URL. GitHub <code>blob</code> / <code>tree</code> webpage URLs are not an index — DSH fails with <code>$.format must be 1</code>.</div>
+          </li>
+          <li>
+            <strong>Install and enable</strong>
+            <p>Wait for <b>Cabinet Mode / 内阁模式</b>, click <b>Install</b>, and confirm the package is <code>dsh-cabinet-mode@&lt;version&gt;</code> from <code>https://registry.npmjs.org/</code>. Then click <b>Enable now</b>, or turn the plugin switch on under <b>Installed</b>.</p>
+          </li>
+          <li>
+            <strong>Restart and pick the mode</strong>
+            <p><b>Fully quit and restart DSH</b> — the preset and client plugin are only assembled at startup. Start a new session and pick <b>内阁模式</b> in the mode picker; open the Cabinet tab via <b>+</b> in the right sidebar if needed.</p>
+          </li>
+        </ol>
+
+        <details class="ai-prompt">
+          <summary>Install with an AI agent (copy this prompt)</summary>
+          <div class="codeblock">
+            <button class="copy-btn" data-copy-from="ai-prompt-text" data-done="Copied">Copy</button>
+            <pre id="ai-prompt-text">Install the Cabinet Mode (内阁模式) DSH bundle for me, preferably through its plugin market index:
+https://raw.githubusercontent.com/luodaoyi/dsh-cabinet-mode/market-index/marketplace.json
+
+1. Identify my DSH version and intended profile. Use the existing UI to enable Custom plugin market, then Plugins → Discover → Index sources.
+2. Add the exact raw JSON URL above. Do not use GitHub blob/tree URLs, edit the index, or invent a command to add a market source.
+3. Install Cabinet Mode from that source. Verify the confirmation shows dsh-cabinet-mode@&lt;version&gt; from https://registry.npmjs.org/, then verify the Installed result and version. Click Enable now or turn on the plugin switch on Installed, and verify it is enabled.
+4. If browser/UI control is unavailable, give me those short UI steps. Use the release tarball or local-directory fallback only when the market is unavailable or I choose it; explain the specific reason first.
+5. Do not also append cordis.patch.yml to my profile: installing both ways duplicates the preset. Preserve my existing profile and plugins.
+6. Tell me to fully quit and restart DSH, create a new session and choose 内阁模式 (preset id cabinet). Do not claim success until the installed version is verified; do not claim untested team behavior works.
+
+On failure, show the exact error. For $.format must be 1, replace the webpage source with the raw JSON URL. Do not repeatedly reinstall or silently switch methods.</pre>
+          </div>
+        </details>
+
+        <h3 class="sub-h">Fallback: release tarball</h3>
+        <p class="lead-note">Only when the market is unavailable, or for local development. Fully quit desktop DSH first to release the profile lock.</p>
+        <div class="codeblock">
+          <button class="copy-btn" data-copy-from="tarball-cmd" data-done="Copied">Copy</button>
+          <pre id="tarball-cmd">dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.4.1/dsh-cabinet-mode-0.4.1.tgz
+dsh plugin --profile desktop list</pre>
+        </div>
+        <p class="lead-note">Method A (bundle install) and Method B (node scripts writing cordis.patch.yml) are mutually exclusive; installing both duplicates the preset id and the declaration fails to load.</p>
+      </div>
+    </section>
+
+    <section class="block alt" id="notes">
+      <div class="container">
+        <h2>Good to know</h2>
+        <ul class="notes-list">
+          <li><b>Fully quit and restart DSH</b> after installing or updating; a session's mode is locked once it has produced output, so pick Cabinet Mode in a new session.</li>
+          <li>The nine team tools (<code>spawn_teammate</code>, <code>team_task_*</code>, …) come from the <code>@deepseek-ai/dsh-experimental-agent-team-profile</code> bundle; without it the cabinet runs without teammate tools.</li>
+          <li>A preset is trusted configuration and can execute host code; only install bundles from sources you trust.</li>
+          <li>Member settings live in the <code>DSH_HOME/profile</code> configuration (the cabinet-ui namespace) and are shared by browsers connected to the same profile.</li>
+          <li>Market installs were verified on the Windows rc.5 web client; Linux/macOS and other DSH versions are untested — see the <a href="https://github.com/luodaoyi/dsh-cabinet-mode#installation-matrix" target="_blank" rel="noopener">installation matrix</a> and "Unverified items" in the README.</li>
+        </ul>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container">
+      <span>Cabinet Mode · <a href="https://github.com/luodaoyi/dsh-cabinet-mode" target="_blank" rel="noopener">luodaoyi/dsh-cabinet-mode</a></span>
+      <span>MIT License</span>
+      <span>v0.4.1 <!-- bump alongside releases --></span>
+      <span class="spacer"></span>
+      <span><a href="https://github.com/luodaoyi/dsh-cabinet-mode#readme" target="_blank" rel="noopener">Full docs in the README</a></span>
+    </div>
+  </footer>
+
+  <script src="../assets/js/lang.js?v=0.4.1"></script>
+</body>
+</html>
