@@ -151,6 +151,24 @@ preset declaration:
   [Supported names and naming convention](docs/images/avatars/aliases.md) cover
   composite pinyin names, Chinese titles, separators and numeric suffixes.
 
+### Task dependency edges
+
+Cross-member dependencies (`blockedBy`) are wired up inside the cabinet panel:
+a hand-written SVG overlay draws one cubic curve per dependency, from the
+blocked task row to the blocker task row, ending in a small dot on the blocker
+side — a workflow line linking, for example, the Hanlin research task to the
+Works task it gates. Three states, mirrored from the blocker's status:
+
+- **completed** — solid green (the completed-task colour): the dependency is cleared;
+- **in_progress** — dashes flowing toward the blocker ("the dependency is progressing"),
+  faster and brighter while the blocker's owner is actually running;
+- **pending** — static grey dashes: still waiting.
+
+A missing or deleted blocker draws no line. The edges are a panel-only
+visualization of the existing `team.tasks.blockedBy` data — no new data channel
+or protocol — and the flow animation stands still under `prefers-reduced-motion`
+while the static line stays.
+
 The five original chibi portraits use Ming-style black winged hats, round-collar robes and square rank badges. The Lead wears burgundy with a crane badge (an artistic setting of a grand secretary with an additional first-rank title); Hanlin editor wears a seventh-rank duck badge, the Minister of Works a second-rank golden pheasant, the Chief Minister of the Court of Judicial Review a third-rank peacock, and the Left Censor-in-Chief a second-rank censor’s xiezhi badge. Robe colours distinguish roles and are not presented as mandatory rank colours.
 
 See [costume references, role settings and generation prompts](docs/images/avatars/README.md). The 1254px square sources are downscaled by `src/build_avatars.py` to 128px PNGs embedded in `client.js`. At the panel's 22–24px display size, role labels remain the primary identification.

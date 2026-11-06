@@ -15,6 +15,13 @@ All notable changes to this project are documented in this file.
 - Regression coverage with official Cordis/SystemPrompt/model-selection and
   catalog components, without external model calls. Isolated browser checks
   cover catalog selection, Save, reload, Cancel and clear.
+- Panel task-dependency edges: a self-contained hand-written SVG overlay wires
+  each `blockedBy` link as a curve from the blocked task row to its blocker
+  (solid green when the blocker is completed, flowing dashes while it is in
+  progress, static grey when pending), with rAF-throttled geometry re-measure
+  and a `prefers-reduced-motion` fallback. Caveat: the edges are a panel-only
+  visualization of the existing `team.tasks.blockedBy` data — no new data
+  channel, protocol or dependency is introduced.
 
 ### Fixed
 
