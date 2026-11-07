@@ -285,9 +285,12 @@ function memberKeyOf(ctx, agent) {
 }
 
 /** Couple one live Cabinet route to one AgentLoop turn signal. */
-function attachMemberModel(ctx, config, agent, attached, routeMemory = new Map()) {
+function attachMemberModel(ctx, config, agent, attached, routeMemory = new Map(), sessionApi) {
 	if (!agent || typeof agent.ctx?.on !== 'function') return undefined;
 	if (agent.id !== undefined && attached.has(agent.id)) return undefined;
+	if (typeof agent.model?.current === 'function' && typeof agent.model?.select === 'function') {
+		return attachPreparedMemberModel(ctx, config, agent, attached, routeMemory, sessionApi);
+	}
 	let active = true;
 	let controlledSignal;
 	const turns = new WeakMap();
@@ -382,13 +385,141 @@ function attachMemberModel(ctx, config, agent, attached, routeMemory = new Map()
 	return dispose;
 }
 
+// Use the host's module instance and incremental projection contract. Records
+// contain only selection provenance, never provider credentials or user config.
+async function prepareModelSessionApi(ctx) {
+	const loader = ctx.get('loader'), registry = ctx.get('sessionProjections');
+	if (!loader?.import || !registry?.register) return undefined;
+	const api = await loader.import('@deepseek-ai/dsh-session');
+	const { z } = await loader.import('zod');
+	const route = z.object({ provider: z.string().min(1), model: z.string().min(1), reasoningEffort: z.string().optional() });
+	const record = z.object({ agentId: z.string(), baseline: route, override: route, from: route, settled: z.boolean().default(false) });
+	const equal = (a, b) => a?.provider === b?.provider && a?.model === b?.model && a?.reasoningEffort === b?.reasoningEffort;
+	const ownership = await registry.register({
+		key: 'cabinetModelOwnership', stateVersion: 1,
+		stateSchema: z.object({ inheritedCount: z.number(), record: record.nullable() }),
+		init: (_, inheritedCount = 0) => ({ inheritedCount, record: null }),
+		apply: (state, event) => {
+			if (event.seq < state.inheritedCount) return state;
+			const item = api.pluginRecordOf(event);
+			if (item?.type === 'plugin:dsh-cabinet-mode/model-policy') {
+				const parsed = record.safeParse(item.data);
+				return { ...state, record: parsed.success ? parsed.data : null };
+			}
+			if (event.type === 'model/selection' && state.record) return {
+				...state, record: equal(event.data, state.record.override) ? { ...state.record, settled: true } : null
+			};
+			return state;
+		}
+	});
+	return { ...api, ownership };
+}
+
+/** Host plugin entry. */
+function attachPreparedMemberModel(ctx, config, agent, attached, routeMemory, sessionApi) {
+	let active = true;
+	const sameRoute = (a, b) => !!a && !!b && a.provider === b.provider && a.model === b.model;
+	const sameSelection = (a, b) => sameRoute(a, b) && a.reasoningEffort === b.reasoningEffort;
+	const recordType = 'plugin:dsh-cabinet-mode/model-policy';
+	const validRoute = value => value && typeof value.provider === 'string' && value.provider.length > 0 && typeof value.model === 'string' && value.model.length > 0 && (value.reasoningEffort === undefined || typeof value.reasoningEffort === 'string');
+	const canRecord = typeof sessionApi?.appendPluginRecord === 'function' && typeof sessionApi?.pluginRecordOf === 'function' && typeof sessionApi?.Session === 'function' && agent.session instanceof sessionApi.Session && !!sessionApi.ownership;
+	const refreshOwnership = () => {
+		const record = canRecord ? sessionApi.ownership.stateOf(agent.session).record : undefined;
+		const current = agent.model.current();
+		if (record?.agentId === agent.id && (sameSelection(current, record.override) || (!record.settled && sameSelection(current, record.from) && !sameSelection(record.from, record.baseline)))) {
+			routeMemory.set(agent.id, { baseline: record.baseline, override: current });
+		} else routeMemory.delete(agent.id);
+	};
+	const remember = value => {
+		if (!canRecord) throw new Error('Cabinet: host Session plugin-record API unavailable; model override refused');
+		sessionApi.appendPluginRecord(agent.session, recordType, value ? { agentId: agent.id, ...value, from: agent.model.current() } : { agentId: agent.id });
+		if (value) routeMemory.set(agent.id, value); else routeMemory.delete(agent.id);
+	};
+	const keyFor = () => { try { return memberKeyOf(ctx, agent); } catch { return undefined; } };
+	const syncSelection = () => {
+		if (!active) return;
+		refreshOwnership();
+		const key = keyFor();
+		const current = agent.model.current();
+		const previous = routeMemory.get(agent.id);
+		const override = key === undefined ? undefined : memberModel(config, key) ?? (key === 'lead' ? undefined : memberModel(config, 'lead'));
+		if (!override && !previous) return; // Never alter an unconfigured/native agent.
+		if (!override && previous && !sameSelection(current, previous.override)) {
+			remember(undefined); return; // Respect a newer native selection.
+		}
+		const defaults = ctx.get('agentDefaultModel')?.currentSelection?.() ?? agent.options;
+		const desired = override ?? (key === undefined ? previous?.baseline : defaults);
+		if (!desired?.provider || !desired?.model) throw new Error('Cabinet: no model available to restore native selection');
+		const selection = (override || key !== undefined) && sameRoute(desired, current) ? current : {
+			provider: desired.provider, model: desired.model,
+			...(desired.reasoningEffort === undefined ? {} : { reasoningEffort: desired.reasoningEffort })
+		};
+		if (override) {
+			const value = { baseline: previous && sameSelection(current, previous.override) ? previous.baseline : current, override: selection };
+			if (!validRoute(value.baseline)) throw new Error('Cabinet: no native selection available to restore');
+			if (JSON.stringify(value) !== JSON.stringify(previous)) remember(value);
+		}
+		agent.model.select(selection);
+		// Clear ownership only after restoration is durable. Reopening between
+		// these writes sees the native selection and retires the stale marker.
+		if (!override) remember(undefined);
+	};
+	// Both notifications precede preStep's model.current(): status starts the
+	// turn, and inbox claim resolves members registered after agent creation.
+	let syncError;
+	const sync = () => {
+		try { syncSelection(); syncError = undefined; }
+		catch (error) { syncError = error; }
+	};
+	const offStatus = agent.ctx.on('agent/status', sync);
+	const offClaim = agent.ctx.on('agent/inbox/claimed', sync);
+	// Defer errors to preparation too: a failed capability check must never
+	// silently send a configured override to the native model.
+	sync();
+	const turns = new WeakMap();
+	let controlledSignal;
+	const offAssembly = agent.ctx.on('system-prompt/assemble', async (_, context, next) => {
+		if (syncError) throw syncError;
+		const key = keyFor();
+		const controlled = key !== undefined && routeMemory.has(agent.id);
+		const state = { key, controlled };
+		if (context.signal) {
+			turns.set(context.signal, state);
+			if (controlled) controlledSignal = context.signal;
+		}
+		const result = await next();
+		if (controlled && (!active || context.signal?.aborted || keyFor() !== key)) throw new Error('Cabinet: model policy changed during step preparation');
+		return result; // The official frozen modelSelection owns all variables.
+	}, { prepend: true });
+	const offRequest = agent.ctx.on('agent/request', async (payload, next) => {
+		const state = turns.get(payload.signal);
+		const result = await next();
+		if (state?.controlled && (!active || payload.signal.aborted || keyFor() !== state.key)) throw new Error('Cabinet: model policy changed before request');
+		return result; // Never change the prepared route or effort.
+	}, { prepend: true });
+	const dispose = () => {
+		active = false;
+		if (controlledSignal && !controlledSignal.aborted) agent.cancel?.({ kind: 'hook', reason: 'Cabinet model policy unloaded' }, { keepInbox: true });
+		offStatus(); offClaim(); offAssembly(); offRequest();
+		refreshOwnership();
+		const previous = routeMemory.get(agent.id);
+		if (previous?.baseline && sameSelection(agent.model.current(), previous.override)) agent.model.select(previous.baseline);
+		if (previous && canRecord) remember(undefined);
+	};
+	if (agent.id !== undefined) attached.set(agent.id, dispose);
+	return dispose;
+}
+
 /** Host plugin entry. */
 const name = 'cabinet-ui';
 /** Services read by this entry; `agentTeams` is resolved lazily in apply(). */
 const inject = ['systemPrompt'];
 
 /** Register the runtime member block as a prompt section. */
-function apply(ctx, config) {
+async function apply(ctx, config) {
+	let sessionApi;
+	try { sessionApi = await prepareModelSessionApi(ctx); }
+	catch { /* Legacy hosts need no records; rc.1 overrides fail closed below. */ }
 	ctx.effect(() => ctx.systemPrompt.section({
 		name: MEMBER_SECTION,
 		order: ctx.systemPrompt.getSectionOrder('DEPLOYMENT_PERSONA_PREFIX') + 1,
@@ -407,7 +538,7 @@ function apply(ctx, config) {
 	const routeMemory = new Map();
 	const attach = (agent) => {
 		try {
-			attachMemberModel(ctx, config, agent, attached, routeMemory);
+			attachMemberModel(ctx, config, agent, attached, routeMemory, sessionApi);
 		} catch (error) {
 			try { ctx.logger?.warn?.(`cabinet-ui: model selection attach failed: ${String(error)}`); } catch { /* logger unavailable */ }
 		}
@@ -433,4 +564,4 @@ function apply(ctx, config) {
 	}, 'cabinet-member: model selection');
 }
 
-export { bureauOf, sectionText, memberBlock, memberModel, modelRoute, clampModel, attachMemberModel, Config, DEFAULT_LEAD_PROMPT, DEFAULT_MEMBER_PROMPTS, MEMBER_KEYS, MEMBER_LABELS, MEMBER_SECTION, MAX_AVATAR_LENGTH, MAX_MODEL_LENGTH, MAX_NAME_LENGTH, MAX_PROMPT_LENGTH, apply, inject, name };
+export { prepareModelSessionApi, bureauOf, sectionText, memberBlock, memberModel, modelRoute, clampModel, attachMemberModel, Config, DEFAULT_LEAD_PROMPT, DEFAULT_MEMBER_PROMPTS, MEMBER_KEYS, MEMBER_LABELS, MEMBER_SECTION, MAX_AVATAR_LENGTH, MAX_MODEL_LENGTH, MAX_NAME_LENGTH, MAX_PROMPT_LENGTH, apply, inject, name };

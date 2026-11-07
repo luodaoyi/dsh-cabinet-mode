@@ -14,7 +14,7 @@ preset='cabinet';config.members=[];assert.deepEqual((await route()).r,defaults);
 services.agentPresets=undefined;assert.equal((await route()).r.model,'seed');
 off();assert.equal(Object.keys(callbacks).length,0);
 const effects=[],events={};services.agents={list:()=>[agent]};
-apply({get:key=>services[key],effect:fn=>effects.push(fn()),on:(name,fn)=>{events[name]=fn;return()=>delete events[name];},systemPrompt:{getSectionOrder:()=>0,section:()=>()=>{}}},config);
+await apply({get:key=>services[key],effect:fn=>effects.push(fn()),on:(name,fn)=>{events[name]=fn;return()=>delete events[name];},systemPrompt:{getSectionOrder:()=>0,section:()=>()=>{}}},config);
 assert.equal(typeof callbacks['agent/request'],'function','backfill existing agents');
 events['agent/disposed']({agent});assert.equal(Object.keys(callbacks).length,0);
 events['agent/created']({agent});assert.equal(typeof callbacks['agent/request'],'function','attach before membership is available');
