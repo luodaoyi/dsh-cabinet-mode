@@ -2407,8 +2407,13 @@ window.__ModuleLoader__.load({
 			'body[data-ds-dark-theme] .cabinet-status-running{color:#4ade80}body[data-ds-dark-theme] .cabinet-status-inactive{color:#adb2b8}body[data-ds-dark-theme] .cabinet-status-provisioning{color:#f7ad31}body[data-ds-dark-theme] .cabinet-status-failed{color:#f25a5a}',
 			'.cabinet-task-pending{color:#61666b}.cabinet-task-in_progress{color:#2563eb}.cabinet-task-completed{color:#15803d}',
 			'body[data-ds-dark-theme] .cabinet-task-pending{color:#adb2b8}body[data-ds-dark-theme] .cabinet-task-in_progress{color:#60a5fa}body[data-ds-dark-theme] .cabinet-task-completed{color:#4ed17e}',
-			// task dependency edges (blocked → blocker): one class per blocker state,
+			// task dependency edges (blocker → blocked): one class per blocker state,
 			// same palette as TASK_COLOR (done #22c55e / active #3b82f6 / pending #9aa0a6)
+			// Flow direction: the path now runs blocker → blocked, and a dash pattern
+			// starts at path distance ≡ -offset, so animating offset 0 → -24 slides
+			// the dashes toward the path END — with the arrow, toward the blocked
+			// task. No sign flip was needed after reversing the path; this is a desk
+			// derivation from the SVG dash rule, not a browser observation (未验证).
 			'@keyframes cabinetEdgeFlow{to{stroke-dashoffset:-24}}',
 			'.cabinet-edge{fill:none;stroke-width:1.5;stroke-linecap:round}',
 			'.cabinet-edge-done{stroke:light-dark(#15803d,#4ade80)}',
@@ -2554,6 +2559,34 @@ window.__ModuleLoader__.load({
 		let memberWriter = null;
 		/** Host remote handle for the model catalog; null degrades the picker to text. */
 		let memberRemote = null;
+		/**
+		 * Optional uiWorkspace opener, captured by ctx.inject() inside apply()
+		 * (same pattern as memberRemote/memberWriter). It stays null on a
+		 * deployment without the workspace service, and every panel click then
+		 * degrades to a silent no-op instead of throwing at the panel.
+		 */
+		let cabinetOpenSession = null;
+		/**
+		 * Open a teammate's child session the way the native roster does
+		 * (dsh-experimental-client-ui-agent-team openTeammate): the Lead session
+		 * is the parent, the member id the child, mode "continuable"; when the
+		 * target IS the parent the native code takes the plain-string branch, so
+		 * mirror that too. Returns false when the channel or the id is missing —
+		 * callers simply do nothing, no exception reaches the panel.
+		 */
+		function openCabinetSession(childSessionId, parentSessionId) {
+			const open = cabinetOpenSession;
+			if (typeof open !== 'function') return false;
+			if (typeof childSessionId !== 'string' || childSessionId === '') return false;
+			try {
+				if (parentSessionId && childSessionId === parentSessionId) open(parentSessionId);
+				else open({ parentSessionId: parentSessionId ?? childSessionId, childSessionId, mode: 'continuable' });
+				return true;
+			} catch (error) {
+				try { console.warn('[cabinet-ui] open session failed:', error); } catch (ignored) { /* console may be unavailable */ }
+				return false;
+			}
+		}
 		const MEMBER_LISTENERS = new Set();
 		let memberT = (key) => key;
 		function clampMemberText(value, limit) {
@@ -2996,13 +3029,23 @@ window.__ModuleLoader__.load({
 		// line one; status dot + state text (+ live dots / model) on line two.
 		// State text carries a theme-aware class so 11px copy clears 3:1 in both
 		// themes; the badge keeps lead's formula with a light-theme dark amber.
-		function MemberCard({ member, running, model, isCurrent, lead, statusLabel, t, size, children }) {
+		function MemberCard({ member, running, model, isCurrent, lead, statusLabel, t, size, onOpen, children }) {
 			const tt = typeof t === 'function' ? t : (key) => key;
 			const status = member.phase === 'active' ? (running ? 'running' : 'inactive') : member.phase;
+			// Availability mirrors the native roster row (agent-team TeamMemberRow):
+			// the session you are already viewing, and failed/provisioning members,
+			// are inert — no click, no pointer cursor. Opening also needs a real
+			// session id, which is what member.id is (sessionIdSchema).
+			const canOpen = typeof onOpen === 'function'
+				&& isCurrent !== true
+				&& member.phase !== 'failed'
+				&& member.phase !== 'provisioning'
+				&& typeof member.id === 'string' && member.id !== '';
 			return h('div', { className: lead ? 'cabinet-card cabinet-card-lead' : 'cabinet-card', style: { position: 'relative', zIndex: 1 } }, [
 				h('div', {
 					key: 'who',
-					style: { display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', minWidth: 0 }
+					onClick: canOpen ? () => onOpen(member) : undefined,
+					style: { display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', minWidth: 0, cursor: canOpen ? 'pointer' : undefined }
 				}, [
 					h(Avatar, { key: 'avatar', name: member.name, size: size || 22, live: status === 'running' }),
 					h('span', {
@@ -3039,11 +3082,16 @@ window.__ModuleLoader__.load({
 			]);
 		}
 
-		function TaskLine({ task, blockerOf, t, taskLabel, ownerRunning }) {
+		function TaskLine({ task, blockerOf, t, taskLabel, ownerRunning, onOpenOwner }) {
 			const [openBlockers, setOpenBlockers] = React.useState(true);
 			const status = TASK_COLOR[task.status] ? task.status : 'pending';
 			const color = TASK_COLOR[status];
 			const blockers = Array.isArray(task.blockedBy) ? [...new Set(task.blockedBy.filter((id) => typeof id === 'string' && id !== task.id))] : [];
+			// The subject itself is the affordance, but only when the panel handed
+			// us a resolved opener: lead-owned, unassigned, foreign-owner and
+			// inert-owner tasks arrive with onOpenOwner === null and keep the plain
+			// look (no onClick, no pointer cursor).
+			const openTask = typeof onOpenOwner === 'function';
 			const parts = [
 				h('span', {
 					key: 'dot',
@@ -3053,8 +3101,9 @@ window.__ModuleLoader__.load({
 				h('span', { key: 'st', className: 'cabinet-task-' + status, style: { fontSize: 11, flex: 'none' } }, taskLabel(status)),
 				h('span', {
 					key: 'subj',
-					style: { fontSize: 12.5, color: INK, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
-					title: task.subject
+					style: { fontSize: 12.5, color: INK, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', cursor: openTask ? 'pointer' : undefined },
+					title: task.subject,
+					onClick: openTask ? () => onOpenOwner(task) : undefined
 				}, task.subject)
 			];
 			if (!task.ownerName) {
@@ -3100,11 +3149,13 @@ window.__ModuleLoader__.load({
 			}, children);
 		}
 
-		// Dependency-edge overlay: one cubic path + one blocker-side dot per edge,
-		// paths are masked behind card interiors; endpoint dots remain visible. The
-		// layer is pointer-transparent, so rows stay
-		// clickable. `data-cabinet-edge="<blocked>-><blocker>"` plus a
-		// cabinet-edge-pending/active/done class makes every edge assertable.
+		// Dependency-edge overlay: one cubic path + one blocked-side dot per edge
+		// (the line leaves the blocker's row and lands on the blocked task's row),
+		// masked behind card interiors while endpoint dots remain visible. The
+		// layer is pointer-transparent, so rows stay clickable.
+		// `data-cabinet-edge="<blocked>-><blocker>"` — key format is unchanged by
+		// the geometry flip — plus a cabinet-edge-pending/active/done class makes
+		// every edge assertable.
 		function TaskEdgeLayer({ edges, cards = [] }) {
 			const maskId = React.useId();
 			if (!Array.isArray(edges) || edges.length === 0) return null;
@@ -3240,16 +3291,19 @@ window.__ModuleLoader__.load({
 			}
 			return paths;
 		}
-		// One cubic per dependency: from the blocked task's row to its blocker's
-		// row, both endpoints taken from task-row DOM rects relative to the
-		// overlay container. State mirrors the BLOCKER's status — completed →
-		// solid green, in_progress → flowing dashes (travelling toward the
-		// blocker, "the dependency is progressing"), pending → static grey
-		// dashes; a missing or deleted blocker, or an unmeasured row, draws
-		// nothing (tolerant, never throws). Edges sharing a source row or a
-		// target row fan their control points apart so parallel lines never sit
-		// exactly on top of each other. Returns null while the panel is hidden
-		// (zero-size base) so a collapsed pane keeps the last drawing.
+		// One cubic per dependency: from the BLOCKER's row to the blocked task's
+		// row (首辅 → 阁臣 reading on a normal board), both endpoints taken from
+		// task-row DOM rects relative to the overlay container. The edge key stays
+		// `<blocked>-><blocker>` — only the geometry flipped, so data-cabinet-edge
+		// and the CSS class names keep their old form. State mirrors the BLOCKER's
+		// status — completed → solid green, in_progress → flowing dashes
+		// (travelling with the arrow, toward the blocked task, "the dependency is
+		// progressing"), pending → static grey dashes; a missing or deleted
+		// blocker, or an unmeasured row, draws nothing (tolerant, never throws).
+		// Edges sharing a source row or a target row fan their control points
+		// apart so parallel lines never sit exactly on top of each other. Returns
+		// null while the panel is hidden (zero-size base) so a collapsed pane
+		// keeps the last drawing.
 		function buildTaskEdges(base, tasks, rectOf, isLive) {
 			if (!base || base.width === 0 || base.height === 0) return null;
 			const list = Array.isArray(tasks) ? tasks : [];
@@ -3275,8 +3329,13 @@ window.__ModuleLoader__.load({
 					seen.add(key);
 					const blocker = byId.get(blockerId);
 					if (!blocker || blocker.status === 'deleted') continue; // missing/removed task: skip, don't crash
-					const from = rectOf(task.id);
-					const to = rectOf(blockerId);
+					// Geometry reversed: the path starts on the blocker's row and
+					// ends on the blocked task's row (the key above still reads
+					// blocked->blocker). from/to drive the anchors, fromId/toId the
+					// parallel-edge fan, and the endpoint dot lands on edge.e — i.e.
+					// on the blocked task.
+					const from = rectOf(blockerId);
+					const to = rectOf(task.id);
 					if (!from || !to || from.width === 0 || from.height === 0 || to.width === 0 || to.height === 0) continue;
 					const state = blocker.status === 'completed' ? 'done'
 						: blocker.status === 'in_progress' ? 'active'
@@ -3285,8 +3344,8 @@ window.__ModuleLoader__.load({
 						key,
 						state,
 						live: state === 'active' && typeof isLive === 'function' && isLive(blockerId) === true,
-						fromId: task.id,
-						toId: blockerId,
+						fromId: blockerId,
+						toId: task.id,
 						from: rel(from),
 						to: rel(to)
 					});
@@ -3325,9 +3384,10 @@ window.__ModuleLoader__.load({
 				edge.c2 = [c2x, c2y];
 				edge.e = [ex, ey];
 			}
-			// Parallel-edge offset: edges from the same row (or into the same
-			// blocker row) share an anchor, so shift their control points apart
-			// perpendicular to the travel axis (7px pitch, centred on the group).
+			// Parallel-edge offset: edges leaving the same blocker row (or arriving
+			// at the same blocked row) share an anchor, so shift their control
+			// points apart perpendicular to the travel axis (7px pitch, centred on
+			// the group). fromId is the blocker, toId the blocked task.
 			const fan = (pointField, idField, prefix) => {
 				const groups = new Map();
 				for (const edge of edges) {
@@ -3576,6 +3636,24 @@ window.__ModuleLoader__.load({
 			const isLeadTask = (task) => task.ownerName === 'lead' || (lead !== undefined && task.ownerName === lead.name);
 			const unassigned = tasks.filter((task) => !task.ownerName);
 			const leadOwn = tasks.filter((task) => task.ownerName !== undefined && isLeadTask(task));
+
+			// ---- click-to-open a member's child session (optional channel) ----
+			// cabinetOpenSession is filled by ctx.inject(['uiWorkspace']) in apply()
+			// and stays null when the service is missing — the helpers below then
+			// return false and the click does nothing. Availability follows the
+			// native roster's inert rule (agent-team: self / failed / provisioning
+			// never open); lead-owned and unassigned tasks resolve to no member at
+			// all, so the panel hands TaskLine null and nothing is bound.
+			const openableMember = (member) => Boolean(member)
+				&& typeof member.id === 'string' && member.id !== ''
+				&& member.id !== sessionId
+				&& member.phase !== 'failed'
+				&& member.phase !== 'provisioning';
+			const openMemberSession = (member) => openableMember(member) && openCabinetSession(member.id, leadSessionId);
+			const ownerMemberOf = (task) => (task && task.ownerName && !isLeadTask(task) ? memberByName.get(task.ownerName) : undefined);
+			const openOwnerSession = (task) => openMemberSession(ownerMemberOf(task));
+			// Per-task opener handed to TaskLine: null means "do not bind".
+			const ownerOpener = (task) => (openableMember(ownerMemberOf(task)) ? openOwnerSession : null);
 			const rosterNames = new Set(mates.map((member) => member.name));
 			const foreignOwners = [];
 			for (const task of tasks) {
@@ -3599,7 +3677,8 @@ window.__ModuleLoader__.load({
 				lead: true,
 				size: 26,
 				statusLabel,
-				t: tt
+				t: tt,
+				onOpen: openMemberSession
 			});
 
 			// Cells: every minister first, then 未分派 / 首辅自办 / 不在册 as
@@ -3657,6 +3736,7 @@ window.__ModuleLoader__.load({
 							isCurrent: member.id === sessionId,
 							statusLabel,
 							t: tt,
+							onOpen: openMemberSession,
 							// tasks live inside the card, elbow-connected by RailList
 							children: own.length > 0
 								? h(RailList, { key: 'tasks', style: { marginTop: 4 } }, own.map((task) => h(TaskLine, {
@@ -3665,7 +3745,8 @@ window.__ModuleLoader__.load({
 									blockerOf,
 									t: tt,
 									taskLabel,
-									ownerRunning: memberRunning
+									ownerRunning: memberRunning,
+									onOpenOwner: ownerOpener(task)
 								})))
 								: h('div', { key: 'tasks', style: { fontSize: 11, color: INK3, padding: '2px 0' } }, tt('task.none'))
 						});
@@ -3681,7 +3762,8 @@ window.__ModuleLoader__.load({
 								blockerOf,
 								t: tt,
 								taskLabel,
-								ownerRunning: false
+								ownerRunning: false,
+								onOpenOwner: ownerOpener(task)
 							})))
 						]);
 					}
@@ -4121,6 +4203,19 @@ window.__ModuleLoader__.load({
 					memberRemote = remote;
 					return () => { if (memberRemote === remote) memberRemote = null; };
 				}, 'cabinet-ui: model catalog remote');
+			});
+			// Optional navigation channel for the panel's click-to-open rows. The
+			// manifest inject list above stays untouched: without the workspace
+			// service this callback never runs, cabinetOpenSession stays null and
+			// every click no-ops — the same degradation as the remote channel.
+			ctx.inject(['uiWorkspace'], (scope) => {
+				const workspace = scope.uiWorkspace;
+				if (!workspace || typeof workspace.openSession !== 'function') return;
+				scope.effect(() => {
+					const opener = (target) => workspace.openSession(target);
+					cabinetOpenSession = opener;
+					return () => { if (cabinetOpenSession === opener) cabinetOpenSession = null; };
+				}, 'cabinet-ui: open teammate session');
 			});
 			// Stage one: declare the page type. No patterns => a page type, opened by kind.
 			ctx.effect(() => ctx.sidebarRightTabs.register({

@@ -234,7 +234,7 @@ assert.ok(classByKey['t-audit->t-build'].includes('cabinet-edge-active'), classB
 assert.ok(classByKey['t-audit->t-build'].includes('cabinet-edge-live'), 'running-owner flow edge is distinguishable');
 assert.ok(classByKey['t-extra->t-audit'].includes('cabinet-edge-pending'), classByKey['t-extra->t-audit']);
 const edgeDots = layerEls.filter((node) => node.type === 'circle');
-assert.equal(edgeDots.length, 5, 'every edge ends in a dot on the blocker side');
+assert.equal(edgeDots.length, 5, 'every edge ends in a dot on the blocked side');
 assert.ok(edgeDots.every((dot) => dot.props['data-cabinet-edge-dot'].includes('->')));
 assert.equal(client.TaskEdgeLayer({ edges: [] }), null, 'no edges → no overlay layer');
 // panel render: cross-member tasks all expose measurement anchors, no premature edges
@@ -270,6 +270,102 @@ assert.ok(reducedMedia.includes('.cabinet-edge-active') && reducedMedia.includes
 assert.ok(source.includes('.cabinet-edge-done{stroke:light-dark(#15803d,#4ade80)}'), 'done edge has theme-specific green contrast');
 assert.ok(source.includes('.cabinet-edge-pending{stroke:light-dark(#6b7280,#9ca3af)'), 'pending edge is static grey');
 assert.ok(source.includes('cabinetEdgeFlow'), 'active edge gets the dash-offset flow');
+// --- direction: the path LEAVES the blocker's row and LANDS on the blocked
+// task's row, dot included; the key still reads <blocked>-><blocker> because
+// only the geometry flipped (首辅 → 阁臣) ---
+const rectBoundary = (point, id) => {
+  const rect = edgeRects.get(id);
+  if (!rect) return false;
+  const [x, y] = point;
+  return ((x === rect.left || x === rect.right) && y >= rect.top && y <= rect.bottom)
+    || ((y === rect.top || y === rect.bottom) && x >= rect.left && x <= rect.right);
+};
+const dPoints = (d) => d.split(/[MC]/).slice(1).map((part) => part.trim().split(/\s+/).map(Number));
+const near = (a, b) => Math.abs(a - b) < 0.05;
+for (const edge of built) {
+  const [blockedId, blockerId] = edge.key.split('->');
+  const [start, curve] = dPoints(edge.d);
+  const end = curve.slice(-2);
+  assert.ok(near(start[0], edge.s[0]) && near(start[1], edge.s[1]), `${edge.key}: M must sit on the start anchor`);
+  assert.ok(near(end[0], edge.e[0]) && near(end[1], edge.e[1]), `${edge.key}: path end must sit on the end anchor`);
+  assert.equal(edge.ex, edge.e[0], `${edge.key}: dot x is the path end`);
+  assert.equal(edge.ey, edge.e[1], `${edge.key}: dot y is the path end`);
+  assert.ok(rectBoundary(start, blockerId), `${edge.key}: start anchor lies on the BLOCKER row ${blockerId}`);
+  assert.ok(rectBoundary(end, blockedId), `${edge.key}: end anchor lies on the BLOCKED row ${blockedId}`);
+  assert.ok(!rectBoundary(start, blockedId), `${edge.key}: start is not on the blocked row — direction is blocker → blocked`);
+  assert.ok(!rectBoundary(end, blockerId), `${edge.key}: end is not on the blocker row`);
+}
+// --- click-to-open: only a resolvable, non-inert target binds a handler ---
+const openLog = [];
+const recordOpen = (target) => { openLog.push(target); return true; };
+const subjectOf = (line) => elements(line).find((node) => node.props?.key === 'subj');
+const boundLine = subjectOf(client.TaskLine({ task: tasks[0], t: (key) => key, taskLabel: (status) => status, onOpenOwner: recordOpen }));
+assert.equal(typeof boundLine.props.onClick, 'function', 'a resolved owner binds the subject span');
+assert.equal(boundLine.props.style.cursor, 'pointer', 'a bound subject shows the pointer cursor');
+boundLine.props.onClick();
+assert.deepEqual(openLog, [tasks[0]], 'clicking the subject invokes the opener once with the task');
+for (const task of [
+  { id: 'k-lead', subject: 'lead work', ownerName: 'lead', status: 'pending' },
+  { id: 'k-none', subject: 'nobody', status: 'pending' },
+]) {
+  const subject = subjectOf(client.TaskLine({ task, t: (key) => key, taskLabel: (status) => status, onOpenOwner: null }));
+  assert.equal(subject.props.onClick, undefined, `${task.id}: no click binding without an opener`);
+  assert.equal(subject.props.style.cursor, undefined, `${task.id}: no pointer cursor without an opener`);
+}
+// panel level: the resolver decides who gets an opener
+const clickTeam = {
+  members: [
+    { id: 'lead-session', name: 'lead', role: 'lead', phase: 'active' },
+    { id: 'm-works', name: 'works', role: 'mate', phase: 'active' },
+    { id: 'm-dali', name: 'dali', role: 'mate', phase: 'failed' },
+    { id: 'm-yushi', name: 'yushi', role: 'mate', phase: 'provisioning' },
+  ],
+  tasks: [
+    { id: 'k-lead', subject: 'lead owns this', ownerName: 'lead', status: 'pending' },
+    { id: 'k-none', subject: 'no owner', status: 'pending' },
+    { id: 'k-works', subject: 'works owns this', ownerName: 'works', status: 'pending' },
+    { id: 'k-dali', subject: 'dali owns this', ownerName: 'dali', status: 'pending' },
+    { id: 'k-yushi', subject: 'yushi owns this', ownerName: 'yushi', status: 'pending' },
+  ],
+};
+const clickEls = elements(render(clickTeam, client.zh));
+const subjectByTitle = new Map();
+for (const node of clickEls) if (node.props?.key === 'subj') subjectByTitle.set(node.props.title, node);
+assert.equal(subjectByTitle.size, clickTeam.tasks.length, 'every task subject rendered');
+assert.equal(subjectByTitle.get('lead owns this').props.onClick, undefined, 'lead task: panel hands no opener');
+assert.equal(subjectByTitle.get('no owner').props.onClick, undefined, 'unassigned task: panel hands no opener');
+assert.equal(typeof subjectByTitle.get('works owns this').props.onClick, 'function', 'teammate task binds');
+assert.equal(subjectByTitle.get('dali owns this').props.onClick, undefined, 'failed-owner task: no opener');
+assert.equal(subjectByTitle.get('yushi owns this').props.onClick, undefined, 'provisioning-owner task: no opener');
+assert.equal(subjectByTitle.get('works owns this').props.style.cursor, 'pointer', 'clickable subject shows the pointer');
+assert.equal(subjectByTitle.get('lead owns this').props.style.cursor, undefined, 'lead task keeps the plain cursor');
+// a bound click with no uiWorkspace channel must degrade silently, never throw
+assert.equal(subjectByTitle.get('works owns this').props.onClick(), false, 'missing channel → silent false, no throw');
+// member cards: same inert rule as the native roster row (self / failed / provisioning)
+const cardWho = (member, extra) => elements(client.MemberCard({
+  member, statusLabel: (status) => status, ...extra,
+})).find((node) => node.props?.key === 'who');
+const activeWho = cardWho({ id: 'm-works', name: 'works', phase: 'active' }, { isCurrent: false, onOpen: recordOpen });
+assert.equal(typeof activeWho.props.onClick, 'function', 'active non-current member binds');
+assert.equal(activeWho.props.style.cursor, 'pointer', 'clickable member card shows the pointer');
+assert.equal(activeWho.props.onClick(), true, 'click forwards to the opener');
+for (const [label, member, extra] of [
+  ['self', { id: 'lead-session', name: 'lead', phase: 'active' }, { isCurrent: true, onOpen: recordOpen }],
+  ['failed', { id: 'm-dali', name: 'dali', phase: 'failed' }, { isCurrent: false, onOpen: recordOpen }],
+  ['provisioning', { id: 'm-yushi', name: 'yushi', phase: 'provisioning' }, { isCurrent: false, onOpen: recordOpen }],
+  ['no id', { name: 'works', phase: 'active' }, { isCurrent: false, onOpen: recordOpen }],
+  ['no channel', { id: 'm-works', name: 'works', phase: 'active' }, { isCurrent: false }],
+]) {
+  const who = cardWho(member, extra);
+  assert.equal(who.props.onClick, undefined, `${label}: no click binding`);
+  assert.equal(who.props.style.cursor, undefined, `${label}: no pointer cursor`);
+}
+// panel level: exactly the one openable member card is bound
+const whoNodes = clickEls.filter((node) => node.props?.key === 'who');
+assert.equal(whoNodes.length, clickTeam.members.length, 'one who-row per member');
+assert.deepEqual(whoNodes.map((node) => typeof node.props.onClick), ['undefined', 'function', 'undefined', 'undefined'],
+  'lead(self)/failed/provisioning cards stay inert, the active mate binds');
+
 console.log('PASS: avatars, stale-team warnings, and distinct member/owner/group identities; mocked React, not browser E2E');
 console.log('PASS: task dependency edges — data attributes, three states, missing-blocker tolerance, reduced-motion CSS, geometry refresh gate');
 
@@ -291,3 +387,4 @@ const adjacent=client.buildTaskEdges(edgeBase,[{id:'top'},{id:'bottom',blockedBy
 assert.equal(adjacent.length,1);assert.notEqual(adjacent[0].s[1],adjacent[0].e[1]);
 assert.ok(adjacent[0].c1[0]>adjacent[0].s[0]);
 console.log('PASS: adjacent same-column rows retain a nonzero gutter curve');
+console.log('PASS: edge direction blocker → blocked (start on blocker row, dot on blocked row) and click-to-open binding rules (lead/unassigned/inert never bind)');
