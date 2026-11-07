@@ -8,6 +8,8 @@ All notable changes to this project are documented in this file.
 
 - Select Cabinet member models through the public rc.1 AgentModel API before
   step preparation, preserving one frozen selection for tools, prompts and requests.
+- Observe entry-scoped volatile saves without remounting; use real empty-inbox
+  regressions and refuse stale owned routes after mode changes.
 - Persist minimal ownership with host-loaded Session plugin records and an
   incremental projection; recover interrupted writes and preserve later native
   choices when clearing, exiting Cabinet or unloading. Standard mode restores

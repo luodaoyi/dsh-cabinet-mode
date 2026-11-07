@@ -67,8 +67,12 @@ A newer native manual selection is preserved when clearing or unloading the poli
 
 On rc.1, the plugin calls the public AgentModel.select() before step preparation;
 the host's frozen selection supplies tools, prompt variables and the request together.
-Saving applies to the next step, including live members; an already prepared step
-keeps its selection. Actual team roles and the current preset gate the policy: a
+Saving uses the owning entry's committed loader/volatile-update notification, so
+it applies to the next step even with an empty inbox and no remount; an already
+prepared step keeps its selection. Unsignaled in-memory config mutations are only
+sampled at attachment, a real status change or a claimed inbox message. Deployment
+defaults are sampled when clearing an owned override; later default edits do not
+silently rewrite a native selection. Actual team roles and the current preset gate the policy: a
 teammate named lead cannot gain Lead policy. Different routes use the new adapter's
 reasoning default; matching routes retain native effort. Exiting Cabinet restores
 the pre-policy native selection, including its effort. Unloading cancels the active
@@ -83,9 +87,8 @@ versions did not record ownership: if an old override is already persisted, sele
 the desired native model once before enabling the new policy; its origin cannot be
 inferred safely from a request header.
 
-Regression scope: 86 rc.1 cases use official Cordis, Session, AgentModel, projections,
-SystemPrompt and the unchanged preStep/prepareRequest implementations. Team identity,
-inbox and model adapters are fixtures; there are no paid/real model calls and this
+Regression scope: 120 rc.1 cases use official Cordis, Session, AgentModel, projections,
+SystemPrompt and the unchanged preStep/prepareRequest implementations. The inbox and volatile Loader updates are real; team identity and model adapters are fixtures; there are no paid/real model calls and this
 is not a full team/browser end-to-end test. The 41 legacy rc.5 model cases remain
 covered, but do not certify the current rc.1 preset for older hosts.
 

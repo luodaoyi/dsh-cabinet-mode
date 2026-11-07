@@ -418,6 +418,7 @@ async function prepareModelSessionApi(ctx) {
 /** Host plugin entry. */
 function attachPreparedMemberModel(ctx, config, agent, attached, routeMemory, sessionApi) {
 	let active = true;
+	let synchronizedKey;
 	const sameRoute = (a, b) => !!a && !!b && a.provider === b.provider && a.model === b.model;
 	const sameSelection = (a, b) => sameRoute(a, b) && a.reasoningEffort === b.reasoningEffort;
 	const recordType = 'plugin:dsh-cabinet-mode/model-policy';
@@ -440,6 +441,7 @@ function attachPreparedMemberModel(ctx, config, agent, attached, routeMemory, se
 		if (!active) return;
 		refreshOwnership();
 		const key = keyFor();
+		synchronizedKey = key;
 		const current = agent.model.current();
 		const previous = routeMemory.get(agent.id);
 		const override = key === undefined ? undefined : memberModel(config, key) ?? (key === 'lead' ? undefined : memberModel(config, 'lead'));
@@ -473,6 +475,11 @@ function attachPreparedMemberModel(ctx, config, agent, attached, routeMemory, se
 	};
 	const offStatus = agent.ctx.on('agent/status', sync);
 	const offClaim = agent.ctx.on('agent/inbox/claimed', sync);
+	// Loader dispatches committed volatile paths only to the owning plugin fiber.
+	// Register on this entry's context, not the unrelated Agent scope.
+	const offConfig = ctx.on('loader/volatile-update', paths => {
+		if (paths.some(path => path[0] === 'members')) sync();
+	});
 	// Defer errors to preparation too: a failed capability check must never
 	// silently send a configured override to the native model.
 	sync();
@@ -481,6 +488,11 @@ function attachPreparedMemberModel(ctx, config, agent, attached, routeMemory, se
 	const offAssembly = agent.ctx.on('system-prompt/assemble', async (_, context, next) => {
 		if (syncError) throw syncError;
 		const key = keyFor();
+		// An empty inbox emits no notification. Refuse a stale owned selection
+		// after a mode/role change even before the next status boundary can restore it.
+		refreshOwnership();
+		const configured = key === undefined ? undefined : memberModel(config, key) ?? (key === 'lead' ? undefined : memberModel(config, 'lead'));
+		if ((routeMemory.has(agent.id) || configured) && key !== synchronizedKey) throw new Error('Cabinet: model policy changed before step preparation; start a new turn');
 		const controlled = key !== undefined && routeMemory.has(agent.id);
 		const state = { key, controlled };
 		if (context.signal) {
@@ -500,7 +512,7 @@ function attachPreparedMemberModel(ctx, config, agent, attached, routeMemory, se
 	const dispose = () => {
 		active = false;
 		if (controlledSignal && !controlledSignal.aborted) agent.cancel?.({ kind: 'hook', reason: 'Cabinet model policy unloaded' }, { keepInbox: true });
-		offStatus(); offClaim(); offAssembly(); offRequest();
+		offStatus(); offClaim(); offConfig(); offAssembly(); offRequest();
 		refreshOwnership();
 		const previous = routeMemory.get(agent.id);
 		if (previous?.baseline && sameSelection(agent.model.current(), previous.override)) agent.model.select(previous.baseline);
