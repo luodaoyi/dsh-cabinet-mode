@@ -1,5 +1,7 @@
 # 内阁模式（Cabinet Mode）· DeepSeek Harness 插件
 
+**版本兼容（0.5.3）：** 面向 DSH **0.2.2-rc.1**，在宿主固定每步模型前完成官职模型选择；0.5.1/0.5.2 仅修复了预设加载和显示元数据。已使用官方宿主组件与隔离 profile 验证，未调用真实模型；测试范围见下文。旧 rc.3/rc.5 的界面及安装记录仅适用于当时的包。DSH 0.2.1-rc.3/rc.5 用户应保留原先已验证版本（包括 0.5.0），当前预设已移除 rc.5 所需的独立 list_agents 入口；请在商店选择匹配版本。
+
 [English](README.md) | 中文
 
 **安装入口：** [优先从插件市场安装](#从插件市场安装索引源推荐)。
@@ -19,7 +21,7 @@
 
 它声明**两行**——`preset-cabinet`（一条 `@deepseek-ai/dsh-agent-preset` 声明）与 `cabinet-ui`（载入本包 JavaScript 的 Loader 行）——并复用 DSH **标准模式**（Standard Mode）出厂的 22 行插件清单，因此工具与标准模式一致；与出厂模式的差异是 persona，并另加右栏「内阁」面板。团队工具（`spawn_teammate`、`team_task_*` 等）由 profile 层的 `@deepseek-ai/dsh-experimental-agent-team-profile` 提供，**本 preset 未内置**。
 
-本包声明 **无 DSH 版本硬限制**：没有 `engines.dsh`、没有 DSH `peerDependencies`、安装时不做版本检查。本机在 DSH **0.2.1-rc.3** 实测；其他提供声明式 preset 机制的 DSH 版本可尝试安装，但**未经验证**（见 [DSH 侧限制与说明](#dsh-侧限制与说明)）。
+本包声明 **无 DSH 版本硬限制**：没有 `engines.dsh`、没有 DSH `peerDependencies`、安装时不做版本检查。旧包曾在 DSH **0.2.1-rc.3** 实测；0.5.3 请遵循上方版本兼容说明（见 [DSH 侧限制与说明](#dsh-侧限制与说明)）。
 
 ## 内阁成员配置
 
@@ -37,18 +39,29 @@
 目录不可用时提供手动 `provider/id` 输入。模型 ID 支持 +、@、空格及额外斜杠，
 仅第一个斜杠分隔提供方；格式错误会阻止保存。
 
-仅在 **内阁模式** 中，profile 策略优先于原生会话模型选择：成员显式模型优先；
-阁臣留空时使用已配置的首辅模型，首辅未配置时使用当前 **DSH 部署默认模型**。
-首辅留空也使用部署默认模型，并非继承另一个会话最后使用的模型。清空会主动恢复
-该默认路由，即使历史请求头仍记录上次覆盖模型也不会继续沿用它。
+仅在 **内阁模式** 中，成员显式模型优先，阁臣留空时跟随已配置的首辅模型。
+rc.1 中从未配置内阁覆盖的会话保留原生选择；清空原先受管的覆盖时恢复当前
+**DSH 部署默认模型**，不继承其他会话最后使用的模型。清空或卸载时保留后来
+由用户手动设置的原生选择。
 
-路由在提示词装配时快照，并通过同一 AgentLoop turn signal 关联请求。保存影响
-下一次装配，已存活成员同样生效；正在进行的请求保持原快照。实时 cabinet preset
-和真实团队角色共同限定范围，名为 lead 的阁臣不会获得首辅策略。换模型时使用
-新模型适配器的 reasoning 默认值，同路由保留原生 effort。步骤中途切换模式会
-中止该步骤，避免提示词与路由错配；运行期间切出内阁时，将残留插件覆盖恢复到
-接管前记录的路由。卸载会中止仍在运行的受管轮次、保留排队输入并移除监听器，但不会改写会话历史。默认模型不可用时明确
-报错，不会静默保留旧覆盖。
+rc.1 路径在步骤准备前调用公开 AgentModel.select()，工具、提示变量和请求均使用
+宿主固定的同一模型。保存通过仅属于本插件的 loader/volatile-update 通知同步模型，即使 inbox 为空且
+没有重挂载也影响下一步；已经准备的步骤保持原选择。没有发送通知的内存配置修改
+仅在挂载、真实状态变化或领取 inbox 消息时重新读取。部署默认模型在清空受管覆盖
+时读取，后续修改部署默认不会静默改写已有原生选择。实时 preset 和真实团队角色限定范围，名为 lead 的阁臣不会获得首辅策略。
+换路由使用新适配器的 reasoning 默认值，同路由保留原生 effort。退出内阁恢复
+接管前的原生模型及 effort；卸载中止受管轮次、保留排队输入并恢复仍归插件所有的选择。
+
+公开 Session 插件记录和宿主 projection 仅记录路由归属，不记录凭据或完整配置。
+先记录覆盖意图再选择模型；先恢复原生选择再清除归属。两次写入之间中断后可在
+重开时恢复，且不覆盖后来的原生手动选择。缺失宿主记录 API 时，显式覆盖会在模型
+请求前报错。旧版本没有归属记录，不能仅凭历史请求头安全推断来源；若旧覆盖已
+持久化，请先用原生模型选择器选回所需模型，再启用新策略。
+
+回归范围：120 项 rc.1 测试使用官方 Cordis、Session、AgentModel、projection、
+SystemPrompt 及未改动的 preStep/prepareRequest 实现；inbox 和 Loader volatile 更新使用真实实现，身份和模型适配器为
+测试替身，未调用真实模型，也不是完整团队或浏览器端到端测试。保留旧 rc.5 的
+41 项模型组合回归，但这不代表当前 rc.1 预设已通过旧宿主验收。
 
 可上传不超过 2 MB 的 PNG/JPEG/WebP；浏览器居中裁成 96×96 PNG，data URL 不超过
 48 KB。保存后头像同时用于内阁面板和原生团队列表。**恢复默认** 将该官职组的
@@ -176,7 +189,7 @@ https://raw.githubusercontent.com/luodaoyi/dsh-cabinet-mode/market-index/marketp
 仅在商店不可用或本地开发时使用。先完全退出桌面 DSH，释放 profile 锁，再执行：
 
 ```sh
-dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.5.2/dsh-cabinet-mode-0.5.2.tgz
+dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.5.3/dsh-cabinet-mode-0.5.3.tgz
 dsh plugin --profile desktop list
 ```
 
@@ -187,7 +200,7 @@ dsh plugin --profile desktop list
 若通过插件市场安装：刷新市场，先在**已安装**页卸载旧版本，再从**插件市场**安装新版本，然后重启——没有 tgz URL 要换，也没有一键更新。否则用同一条安装命令换新版本 URL（或在插件页选新 `.tgz`），然后完全退出并重启 DeepSeek Harness：
 
 ```sh
-dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.5.2/dsh-cabinet-mode-0.5.2.tgz
+dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.5.3/dsh-cabinet-mode-0.5.3.tgz
 ```
 
 `dsh plugin --profile desktop list` 应显示新版本。升级已在 Windows 实测：

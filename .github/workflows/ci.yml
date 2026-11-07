@@ -71,3 +71,42 @@ jobs:
               exit 1
             }
           done
+
+  model-compatibility:
+    name: Official model APIs (${{ matrix.dsh }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        dsh: [0.2.1-rc.5, 0.2.2-rc.1]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install pnpm for isolated DSH profile composition
+        if: matrix.dsh == '0.2.2-rc.1'
+        run: |
+          npm install --global pnpm@11.13.1
+          pnpm --version
+      - run: npm ci --ignore-scripts
+      - name: Install isolated official runtime (no model credentials)
+        run: npm install --prefix "$RUNNER_TEMP/cabinet-runtime" --ignore-scripts --no-audit --no-fund @deepseek-ai/dsh@${{ matrix.dsh }}
+      - name: Official component regressions
+        env:
+          DSH_MODULE_ROOT: ${{ runner.temp }}/cabinet-runtime/node_modules
+          DSH_TEST_VERSION: ${{ matrix.dsh }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$DSH_TEST_VERSION" == "0.2.2-rc.1" ]]; then
+            node scripts/test-model-prepared.mjs
+            export PATH="$DSH_MODULE_ROOT/.bin:$PATH"
+            node scripts/verify.mjs
+          else
+            node scripts/test-model-selection.cjs
+          fi
+          node scripts/test-prompt-assembly.cjs

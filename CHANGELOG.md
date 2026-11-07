@@ -2,6 +2,24 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.5.3] - 2026-11-07
+
+### Fixed
+
+- Select Cabinet member models through the public rc.1 AgentModel API before
+  step preparation, preserving one frozen selection for tools, prompts and requests.
+- Observe entry-scoped volatile saves without remounting; use real empty-inbox
+  regressions and refuse stale owned routes after mode changes.
+- Persist minimal ownership with host-loaded Session plugin records and an
+  incremental projection; recover interrupted writes and preserve later native
+  choices when clearing, exiting Cabinet or unloading. Standard mode restores
+  the original reasoning effort even when its route matches the last override.
+- Keep the legacy rc.5 model path; the shipped preset still targets rc.1.
+  Existing unmarked overrides require a one-time native selection on migration.
+- Update bilingual compatibility guidance, website versions and download links;
+  retain 0.5.2 locale/icon exports. Add official-component regressions without
+  model calls; these do not claim full browser/team end-to-end coverage.
+
 ## [0.5.2] - 2026-11-07
 
 ### Fixed
