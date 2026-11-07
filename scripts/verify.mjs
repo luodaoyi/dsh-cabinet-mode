@@ -36,7 +36,7 @@ import { tmpdir } from 'node:os';
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const PATCH_PATH = join(ROOT, 'cordis.patch.yml');
 const PACKAGE_PATH = join(ROOT, 'package.json');
-const TESTS_ON = '0.2.1-rc.3';
+const TESTS_ON = '0.2.2-rc.1';
 const EXPECTED_PLUGINS = [
   'persona', 'agent-instructions', 'time-context', 'tool-bash', 'tool-pwsh',
   'tool-fs', 'tool-fs-search', 'tool-jobs', 'tool-schedule',

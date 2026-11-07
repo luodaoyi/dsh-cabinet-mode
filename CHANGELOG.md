@@ -2,6 +2,26 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.5.1] - 2026-11-07
+
+### Fixed
+
+- Make the Cabinet preset load again on DSH 0.2.2-rc.1. The preset still listed
+  `@deepseek-ai/dsh-tool-subagent-control/list-agents`, a subpath that
+  0.2.2-rc.1 no longer exports; the row failed to resolve, the preset registry
+  marked the whole preset broken, and the mode picker hid it while the settings
+  page showed a load-failure badge.
+- Drop that row (`list_agents` now comes from the control entry itself), rename
+  `modelSelectionSettings` to `modelSelection: true` plus `modelDiscovery: true`,
+  and set `applyPatch: false` on the `tool-fs` row to match the shipped
+  Standard Mode.
+
+### Changed
+
+- The tested reference DSH is now 0.2.2-rc.1. Users still on 0.2.1-rc.5 should
+  stay on the 0.4.x line: those releases ship `list_agents` through the removed
+  subpath, so this release trades that tool away on rc.5.
+
 ## [0.5.0] - 2026-11-06
 
 ### Added
