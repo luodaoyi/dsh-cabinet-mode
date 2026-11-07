@@ -176,7 +176,7 @@ https://raw.githubusercontent.com/luodaoyi/dsh-cabinet-mode/market-index/marketp
 仅在商店不可用或本地开发时使用。先完全退出桌面 DSH，释放 profile 锁，再执行：
 
 ```sh
-dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.5.1/dsh-cabinet-mode-0.5.1.tgz
+dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.5.2/dsh-cabinet-mode-0.5.2.tgz
 dsh plugin --profile desktop list
 ```
 
@@ -187,7 +187,7 @@ dsh plugin --profile desktop list
 若通过插件市场安装：刷新市场，先在**已安装**页卸载旧版本，再从**插件市场**安装新版本，然后重启——没有 tgz URL 要换，也没有一键更新。否则用同一条安装命令换新版本 URL（或在插件页选新 `.tgz`），然后完全退出并重启 DeepSeek Harness：
 
 ```sh
-dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.5.1/dsh-cabinet-mode-0.5.1.tgz
+dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.5.2/dsh-cabinet-mode-0.5.2.tgz
 ```
 
 `dsh plugin --profile desktop list` 应显示新版本。升级已在 Windows 实测：

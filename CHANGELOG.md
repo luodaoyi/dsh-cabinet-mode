@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.5.2] - 2026-11-07
+
+### Fixed
+
+- Export the bundle icon and English/Chinese display metadata so DSH plugin
+  management shows the Cabinet title, description, and portrait instead of the
+  package name and generic artwork. Include locale files in the published package.
+
 ## [0.5.1] - 2026-11-07
 
 ### Fixed
