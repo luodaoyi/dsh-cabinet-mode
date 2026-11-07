@@ -54,10 +54,10 @@
         "description": "内阁模式是 DeepSeek Harness 的开源 DSH 插件：首辅统领四司阁臣，研究优先，结论必带出处，附右栏派工面板与成员定制。",
         "url": "https://luodaoyi.github.io/dsh-cabinet-mode/",
         "downloadUrl": "https://www.npmjs.com/package/dsh-cabinet-mode",
-        "softwareVersion": "0.5.0",
+        "softwareVersion": "0.5.1",
         "applicationCategory": "DeveloperApplication",
         "operatingSystem": "Linux, macOS, Windows",
-        "softwareRequirements": "DeepSeek Harness 0.2.1-rc.3 or rc.5 (tested)",
+        "softwareRequirements": "DeepSeek Harness 0.2.2-rc.1 (0.5.1 target; independent acceptance pending)",
         "license": "https://opensource.org/license/mit",
         "isAccessibleForFree": true,
         "offers": {"@type": "Offer", "price": "0", "priceCurrency": "USD"},
@@ -81,7 +81,7 @@
         "name": "dsh-cabinet-mode",
         "codeRepository": "https://github.com/luodaoyi/dsh-cabinet-mode",
         "programmingLanguage": "JavaScript",
-        "version": "0.5.0",
+        "version": "0.5.1",
         "license": "https://opensource.org/license/mit",
         "author": {"@type": "Person", "name": "luodaoyi", "url": "https://github.com/luodaoyi"}
       },
@@ -144,7 +144,7 @@
             "name": "免费吗？支持哪些平台？",
             "acceptedAnswer": {
               "@type": "Answer",
-              "text": "免费开源，MIT License。Linux/macOS 使用 tool-bash，Windows 使用 tool-pwsh。市场安装在 Windows rc.5 web 客户端实测通过；其他平台与 DSH 版本见安装矩阵。"
+              "text": "免费开源，MIT License。Linux/macOS 使用 tool-bash，Windows 使用 tool-pwsh。旧包市场安装在 Windows rc.5 web 客户端实测通过；其他平台与 DSH 版本见安装矩阵。"
             }
           },
           {
@@ -187,6 +187,7 @@
   </header>
 
   <main>
+<p role="note">版本兼容（0.5.1）： 本版面向 DSH 0.2.2-rc.1 的 preset 加载修复：移除旧 list-agents 子路径，改用 modelSelection/modelDiscovery，并设置 tool-fs applyPatch:false。0.2.2-rc.1 独立验收尚在进行；CI 为 38 PASS / 0 FAIL / 1 WARN，其中 DSH 配置组合跳过。下文 rc.3/rc.5 安装、界面及模型测试均是旧包的历史记录，不代表 0.5.1 已通过。DSH 0.2.1-rc.3/rc.5 用户应保留原先已验证的包（包括 0.5.0），不要自动升级至 0.5.1，也不必降到 0.4.x。0.5.1 移除了 rc.5 所需的独立 list_agents 入口。商店中请选择匹配版本；下文 0.5.1 下载命令面向 0.2.2-rc.1。</p>
     <section class="hero">
       <div class="hero-cloud" aria-hidden="true"><img src="assets/img/cloud-scroll.svg?v=9" width="760" height="230" alt=""></div>
       <div class="container">
@@ -198,10 +199,10 @@
             翰林、工部、大理寺、都察院四司阁臣分司办事。研究优先，结论必带出处。
           </p>
           <div class="badges">
-            <span class="badge"><span class="dot"></span>v0.5.0</span>
+            <span class="badge"><span class="dot"></span>v0.5.1</span>
             <span class="badge">MIT License</span>
             <span class="badge">preset id: cabinet</span>
-            <span class="badge">已实测 DSH 0.2.1-rc.3 / rc.5</span>
+            <span class="badge">面向 DSH 0.2.2-rc.1</span>
           </div>
           <div class="hero-actions">
             <a class="btn btn-primary" href="#install">安装内阁模式</a>
@@ -245,9 +246,9 @@
               <tr><td>产品</td><td>内阁模式（Cabinet Mode）</td></tr>
               <tr><td>类型</td><td>DeepSeek Harness DSH bundle / 多智能体 preset</td></tr>
               <tr><td>preset id</td><td><code>cabinet</code></td></tr>
-              <tr><td>版本</td><td>v0.5.0</td></tr>
+              <tr><td>版本</td><td>v0.5.1</td></tr>
               <tr><td>许可与价格</td><td>MIT License，免费开源</td></tr>
-              <tr><td>已实测 DSH</td><td>0.2.1-rc.3 / rc.5</td></tr>
+              <tr><td>旧包实测 DSH</td><td>0.2.1-rc.3 / rc.5</td></tr>
               <tr><td>平台</td><td>Linux/macOS（<code>tool-bash</code>）、Windows（<code>tool-pwsh</code>）</td></tr>
               <tr><td>安装</td><td>DSH 插件市场 raw 索引；Release tarball 回退</td></tr>
             </tbody>
@@ -280,7 +281,7 @@
           </div>
           <div class="feature" style="--accent:#b9770e">
             <h3>与标准模式同权</h3>
-            <p>复用 DSH 标准模式 22 行插件清单，工具不缩水；声明无硬 DSH 版本门禁，不加 engines.dsh 与 peerDependencies，实测 0.2.1-rc.3 与 rc.5。</p>
+            <p>复用 DSH 标准模式 22 行插件清单，工具覆盖取决于宿主与包版本；声明无硬 DSH 版本门禁，不加 engines.dsh 与 peerDependencies，旧包实测 0.2.1-rc.3 与 rc.5。</p>
           </div>
           <div class="feature" style="--accent:#8a6d3b">
             <h3>跨平台分发</h3>
@@ -296,11 +297,11 @@
               <tr><th scope="col">维度</th><th scope="col">标准模式</th><th scope="col">内阁模式</th></tr>
             </thead>
             <tbody>
-              <tr><td>插件清单</td><td>22 行</td><td>22 行，工具不缩水</td></tr>
+              <tr><td>插件清单</td><td>22 行</td><td>22 行，工具覆盖取决于宿主与包版本</td></tr>
               <tr><td>persona</td><td>单一</td><td>首辅 + 四司阁臣双身份</td></tr>
               <tr><td>派工面板</td><td>无</td><td>右栏 Cabinet 派工树</td></tr>
               <tr><td>成员定制</td><td>无</td><td>显示名、头像、职责 prompt、每司模型</td></tr>
-              <tr><td>版本门禁</td><td>—</td><td>无硬门禁；实测 0.2.1-rc.3 / rc.5</td></tr>
+              <tr><td>版本门禁</td><td>—</td><td>无硬门禁；旧包实测 0.2.1-rc.3 / rc.5</td></tr>
             </tbody>
           </table>
         </div>
@@ -403,7 +404,7 @@ On failure, show the exact error. For $.format must be 1, replace the webpage so
         <p class="lead-note">仅当市场不可用或本地开发时使用；先完全退出桌面 DSH 以释放 profile 锁。</p>
         <div class="codeblock">
           <button class="copy-btn" data-copy-from="tarball-cmd" data-done="已复制">复制</button>
-          <pre id="tarball-cmd">dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.5.0/dsh-cabinet-mode-0.5.0.tgz
+          <pre id="tarball-cmd">dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.5.1/dsh-cabinet-mode-0.5.1.tgz
 dsh plugin --profile desktop list</pre>
         </div>
         <p class="lead-note">方法 A（bundle 安装）与方法 B（node 脚本写 cordis.patch.yml）互斥，同装会使 preset id 重复、声明加载失败。</p>
@@ -418,7 +419,7 @@ dsh plugin --profile desktop list</pre>
           <li>九件团队工具（spawn_teammate、team_task_* 等）来自 <code>@deepseek-ai/dsh-experimental-agent-team-profile</code> profile bundle；未启用时内阁按单人规则运行。</li>
           <li>preset 是受信配置，可执行宿主代码；只安装你信任来源的 bundle。</li>
           <li>成员设置存于 <code>DSH_HOME/profile</code> 配置（cabinet-ui 命名空间），同 profile 的多个浏览器共享。</li>
-          <li>市场安装在 Windows rc.5 web 客户端实测通过；Linux/macOS 与其他 DSH 版本未经实测，详见 README 的<a href="https://github.com/luodaoyi/dsh-cabinet-mode#installation-matrix" target="_blank" rel="noopener">安装矩阵</a>与「Unverified items」。</li>
+          <li>旧包市场安装在 Windows rc.5 web 客户端实测通过；Linux/macOS 与其他 DSH 版本未经实测，详见 README 的<a href="https://github.com/luodaoyi/dsh-cabinet-mode#installation-matrix" target="_blank" rel="noopener">安装矩阵</a>与「Unverified items」。</li>
         </ul>
 
         <h3 class="sub-h">验证范围</h3>
@@ -429,8 +430,8 @@ dsh plugin --profile desktop list</pre>
               <tr><th scope="col">范围</th><th scope="col">状态</th><th scope="col">说明</th></tr>
             </thead>
             <tbody>
-              <tr><td>DSH 0.2.1-rc.3 / rc.5</td><td>已验证</td><td>结构、插件清单与本地测试套件</td></tr>
-              <tr><td>Windows rc.5 web 市场安装</td><td>已验证</td><td>插件市场安装流程</td></tr>
+              <tr><td>DSH 0.2.1-rc.3 / rc.5</td><td>历史旧包已验证</td><td>结构、插件清单与本地测试套件</td></tr>
+              <tr><td>Windows rc.5 web 市场安装</td><td>历史旧包已验证</td><td>插件市场安装流程</td></tr>
               <tr><td>Linux/macOS 市场安装</td><td>未验证</td><td>见 README 安装矩阵</td></tr>
               <tr><td>其他 DSH 版本</td><td>未验证</td><td>无硬版本门禁，不保证行为</td></tr>
               <tr><td>团队行为</td><td>部分未验证</td><td>见 README「Unverified items」</td></tr>
@@ -463,7 +464,7 @@ dsh plugin --profile desktop list</pre>
           </article>
           <article class="faq-item">
             <h3>免费吗？支持哪些平台？</h3>
-            <p>免费开源，MIT License。Linux/macOS 使用 tool-bash，Windows 使用 tool-pwsh。市场安装在 Windows rc.5 web 客户端实测通过；其他平台与 DSH 版本见安装矩阵。</p>
+            <p>免费开源，MIT License。Linux/macOS 使用 tool-bash，Windows 使用 tool-pwsh。旧包市场安装在 Windows rc.5 web 客户端实测通过；其他平台与 DSH 版本见安装矩阵。</p>
           </article>
           <article class="faq-item">
             <h3>本站会收集访问数据吗？</h3>
@@ -478,7 +479,7 @@ dsh plugin --profile desktop list</pre>
     <div class="container">
       <span>内阁模式 Cabinet Mode · <a href="https://github.com/luodaoyi/dsh-cabinet-mode" target="_blank" rel="noopener">luodaoyi/dsh-cabinet-mode</a></span>
       <span>MIT License</span>
-      <span>v0.5.0 · 更新于 <time datetime="2026-11-06">2026-11-06</time> <!-- 随内容更新 --></span>
+      <span>v0.5.1 · 更新于 <time datetime="2026-11-06">2026-11-06</time> <!-- 随内容更新 --></span>
       <span class="spacer"></span>
       <span><a href="https://rsrs.rs/zh/" target="_blank" rel="noopener" hreflang="zh-CN" lang="zh-CN">Respire记忆系统出品</a></span>
       <span><a href="https://github.com/luodaoyi/dsh-cabinet-mode#readme" target="_blank" rel="noopener">完整文档见 README</a></span>

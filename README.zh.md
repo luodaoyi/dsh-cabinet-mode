@@ -1,5 +1,7 @@
 # 内阁模式（Cabinet Mode）· DeepSeek Harness 插件
 
+**版本兼容（0.5.1）：** 本版面向 DSH 0.2.2-rc.1 的 preset 加载修复：移除旧 list-agents 子路径，改用 modelSelection/modelDiscovery，并设置 tool-fs applyPatch:false。0.2.2-rc.1 独立验收尚在进行；CI 为 38 PASS / 0 FAIL / 1 WARN，其中 DSH 配置组合跳过。下文 rc.3/rc.5 安装、界面及模型测试均是旧包的历史记录，不代表 0.5.1 已通过。DSH 0.2.1-rc.3/rc.5 用户应保留原先已验证的包（包括 0.5.0），不要自动升级至 0.5.1，也不必降到 0.4.x。0.5.1 移除了 rc.5 所需的独立 list_agents 入口。商店中请选择匹配版本；下文 0.5.1 下载命令面向 0.2.2-rc.1。
+
 [English](README.md) | 中文
 
 **安装入口：** [优先从插件市场安装](#从插件市场安装索引源推荐)。
@@ -19,7 +21,7 @@
 
 它声明**两行**——`preset-cabinet`（一条 `@deepseek-ai/dsh-agent-preset` 声明）与 `cabinet-ui`（载入本包 JavaScript 的 Loader 行）——并复用 DSH **标准模式**（Standard Mode）出厂的 22 行插件清单，因此工具与标准模式一致；与出厂模式的差异是 persona，并另加右栏「内阁」面板。团队工具（`spawn_teammate`、`team_task_*` 等）由 profile 层的 `@deepseek-ai/dsh-experimental-agent-team-profile` 提供，**本 preset 未内置**。
 
-本包声明 **无 DSH 版本硬限制**：没有 `engines.dsh`、没有 DSH `peerDependencies`、安装时不做版本检查。本机在 DSH **0.2.1-rc.3** 实测；其他提供声明式 preset 机制的 DSH 版本可尝试安装，但**未经验证**（见 [DSH 侧限制与说明](#dsh-侧限制与说明)）。
+本包声明 **无 DSH 版本硬限制**：没有 `engines.dsh`、没有 DSH `peerDependencies`、安装时不做版本检查。旧包曾在 DSH **0.2.1-rc.3** 实测；0.5.1 请遵循上方版本兼容说明（见 [DSH 侧限制与说明](#dsh-侧限制与说明)）。
 
 ## 内阁成员配置
 

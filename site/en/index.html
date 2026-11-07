@@ -54,10 +54,10 @@
         "description": "Cabinet Mode is an open-source DSH bundle for DeepSeek Harness: a grand-secretary Lead directs four bureau members, research comes first, and conclusions cite sources.",
         "url": "https://luodaoyi.github.io/dsh-cabinet-mode/",
         "downloadUrl": "https://www.npmjs.com/package/dsh-cabinet-mode",
-        "softwareVersion": "0.5.0",
+        "softwareVersion": "0.5.1",
         "applicationCategory": "DeveloperApplication",
         "operatingSystem": "Linux, macOS, Windows",
-        "softwareRequirements": "DeepSeek Harness 0.2.1-rc.3 or rc.5 (tested)",
+        "softwareRequirements": "DeepSeek Harness 0.2.2-rc.1 (0.5.1 target; independent acceptance pending)",
         "license": "https://opensource.org/license/mit",
         "isAccessibleForFree": true,
         "offers": {"@type": "Offer", "price": "0", "priceCurrency": "USD"},
@@ -81,7 +81,7 @@
         "name": "dsh-cabinet-mode",
         "codeRepository": "https://github.com/luodaoyi/dsh-cabinet-mode",
         "programmingLanguage": "JavaScript",
-        "version": "0.5.0",
+        "version": "0.5.1",
         "license": "https://opensource.org/license/mit",
         "author": {"@type": "Person", "name": "luodaoyi", "url": "https://github.com/luodaoyi"}
       },
@@ -144,7 +144,7 @@
             "name": "Is it free, and which platforms are supported?",
             "acceptedAnswer": {
               "@type": "Answer",
-              "text": "It is free and open source under the MIT License. Linux and macOS use tool-bash; Windows uses tool-pwsh. Market install was verified on the Windows rc.5 web client; see the installation matrix for other versions."
+              "text": "It is free and open source under the MIT License. Linux and macOS use tool-bash; Windows uses tool-pwsh. Earlier package market install was verified on the Windows rc.5 web client; see the installation matrix for other versions."
             }
           },
           {
@@ -187,6 +187,7 @@
   </header>
 
   <main>
+<p role="note">Version compatibility (0.5.1): This release targets DSH 0.2.2-rc.1 preset loading: it removes the obsolete list-agents subpath, enables modelSelection/modelDiscovery and sets tool-fs applyPatch:false. Independent 0.2.2-rc.1 acceptance is pending; CI reports 38 PASS / 0 FAIL / 1 WARN with DSH composition skipped. Earlier rc.3/rc.5 installation, UI and model tests below are historical evidence for earlier packages, not acceptance of 0.5.1. On DSH 0.2.1-rc.3/rc.5, retain the previously verified package (including 0.5.0); do not automatically upgrade to 0.5.1 or unnecessarily downgrade to 0.4.x. Version 0.5.1 omits the separate list_agents entry needed on rc.5. Select the compatible version in the market; the 0.5.1 tarball below is for 0.2.2-rc.1.</p>
     <section class="hero">
       <div class="hero-cloud" aria-hidden="true"><img src="../assets/img/cloud-scroll.svg?v=9" width="760" height="230" alt=""></div>
       <div class="container">
@@ -200,10 +201,10 @@
             every conclusion must cite a source.
           </p>
           <div class="badges">
-            <span class="badge"><span class="dot"></span>v0.5.0</span>
+            <span class="badge"><span class="dot"></span>v0.5.1</span>
             <span class="badge">MIT License</span>
             <span class="badge">preset id: cabinet</span>
-            <span class="badge">tested on DSH 0.2.1-rc.3 / rc.5</span>
+            <span class="badge">targets DSH 0.2.2-rc.1</span>
           </div>
           <div class="hero-actions">
             <a class="btn btn-primary" href="#install">Install Cabinet Mode</a>
@@ -247,9 +248,9 @@
               <tr><td>Product</td><td>Cabinet Mode (内阁模式)</td></tr>
               <tr><td>Type</td><td>DSH bundle / multi-agent preset for DeepSeek Harness</td></tr>
               <tr><td>Preset id</td><td><code>cabinet</code></td></tr>
-              <tr><td>Version</td><td>v0.5.0</td></tr>
+              <tr><td>Version</td><td>v0.5.1</td></tr>
               <tr><td>License and price</td><td>MIT License, free and open source</td></tr>
-              <tr><td>Tested DSH</td><td>0.2.1-rc.3 / rc.5</td></tr>
+              <tr><td>Earlier package tests</td><td>0.2.1-rc.3 / rc.5</td></tr>
               <tr><td>Platforms</td><td>Linux/macOS (<code>tool-bash</code>), Windows (<code>tool-pwsh</code>)</td></tr>
               <tr><td>Install</td><td>DSH plugin market raw index; release tarball fallback</td></tr>
             </tbody>
@@ -282,7 +283,7 @@
           </div>
           <div class="feature" style="--accent:#b9770e">
             <h3>Standard-Mode parity</h3>
-            <p>Reuses the same 22 plugin rows as the tested DSH Standard Mode — no tool cutbacks. The declaration has no hard version gate: no <code>engines.dsh</code>, no peer dependency, tested on 0.2.1-rc.3 and rc.5.</p>
+            <p>Reuses the same 22 plugin rows as the tested DSH Standard Mode — tool coverage depends on host/package versions. The declaration has no hard version gate: no <code>engines.dsh</code>, no peer dependency, earlier packages tested on 0.2.1-rc.3 and rc.5.</p>
           </div>
           <div class="feature" style="--accent:#8a6d3b">
             <h3>Cross-platform by design</h3>
@@ -302,7 +303,7 @@
               <tr><td>Persona</td><td>Single</td><td>Lead + four bureau members, dual identity</td></tr>
               <tr><td>Dispatch panel</td><td>None</td><td>Right-sidebar Cabinet dispatch tree</td></tr>
               <tr><td>Member customization</td><td>None</td><td>Display name, portrait, duty prompt, per-office model</td></tr>
-              <tr><td>Version gate</td><td>—</td><td>No hard gate; tested on 0.2.1-rc.3 / rc.5</td></tr>
+              <tr><td>Version gate</td><td>—</td><td>No hard gate; earlier packages tested on 0.2.1-rc.3 / rc.5</td></tr>
             </tbody>
           </table>
         </div>
@@ -405,7 +406,7 @@ On failure, show the exact error. For $.format must be 1, replace the webpage so
         <p class="lead-note">Only when the market is unavailable, or for local development. Fully quit desktop DSH first to release the profile lock.</p>
         <div class="codeblock">
           <button class="copy-btn" data-copy-from="tarball-cmd" data-done="Copied">Copy</button>
-          <pre id="tarball-cmd">dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.5.0/dsh-cabinet-mode-0.5.0.tgz
+          <pre id="tarball-cmd">dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.5.1/dsh-cabinet-mode-0.5.1.tgz
 dsh plugin --profile desktop list</pre>
         </div>
         <p class="lead-note">Method A (bundle install) and Method B (node scripts writing cordis.patch.yml) are mutually exclusive; installing both duplicates the preset id and the declaration fails to load.</p>
@@ -420,7 +421,7 @@ dsh plugin --profile desktop list</pre>
           <li>The nine team tools (<code>spawn_teammate</code>, <code>team_task_*</code>, …) come from the <code>@deepseek-ai/dsh-experimental-agent-team-profile</code> bundle; without it the cabinet runs without teammate tools.</li>
           <li>A preset is trusted configuration and can execute host code; only install bundles from sources you trust.</li>
           <li>Member settings live in the <code>DSH_HOME/profile</code> configuration (the cabinet-ui namespace) and are shared by browsers connected to the same profile.</li>
-          <li>Market installs were verified on the Windows rc.5 web client; Linux/macOS and other DSH versions are untested — see the <a href="https://github.com/luodaoyi/dsh-cabinet-mode#installation-matrix" target="_blank" rel="noopener">installation matrix</a> and "Unverified items" in the README.</li>
+          <li>Earlier package market installs were verified on the Windows rc.5 web client; Linux/macOS and other DSH versions are untested — see the <a href="https://github.com/luodaoyi/dsh-cabinet-mode#installation-matrix" target="_blank" rel="noopener">installation matrix</a> and "Unverified items" in the README.</li>
         </ul>
 
         <h3 class="sub-h">Verification scope</h3>
@@ -431,8 +432,8 @@ dsh plugin --profile desktop list</pre>
               <tr><th scope="col">Scope</th><th scope="col">Status</th><th scope="col">Notes</th></tr>
             </thead>
             <tbody>
-              <tr><td>DSH 0.2.1-rc.3 / rc.5</td><td>Verified</td><td>Structure, plugin list and local test suite</td></tr>
-              <tr><td>Windows rc.5 web market install</td><td>Verified</td><td>Plugin market install flow</td></tr>
+              <tr><td>DSH 0.2.1-rc.3 / rc.5</td><td>Earlier packages verified</td><td>Structure, plugin list and local test suite</td></tr>
+              <tr><td>Windows rc.5 web market install</td><td>Earlier packages verified</td><td>Plugin market install flow</td></tr>
               <tr><td>Linux/macOS market install</td><td>Not verified</td><td>See the README installation matrix</td></tr>
               <tr><td>Other DSH versions</td><td>Not verified</td><td>No hard version gate; behavior not guaranteed</td></tr>
               <tr><td>Team behavior</td><td>Partially unverified</td><td>See "Unverified items" in the README</td></tr>
@@ -465,7 +466,7 @@ dsh plugin --profile desktop list</pre>
           </article>
           <article class="faq-item">
             <h3>Is it free, and which platforms are supported?</h3>
-            <p>It is free and open source under the MIT License. Linux and macOS use tool-bash; Windows uses tool-pwsh. Market install was verified on the Windows rc.5 web client; see the installation matrix for other versions.</p>
+            <p>It is free and open source under the MIT License. Linux and macOS use tool-bash; Windows uses tool-pwsh. Earlier package market install was verified on the Windows rc.5 web client; see the installation matrix for other versions.</p>
           </article>
           <article class="faq-item">
             <h3>Does this site collect analytics?</h3>
@@ -480,7 +481,7 @@ dsh plugin --profile desktop list</pre>
     <div class="container">
       <span>Cabinet Mode · <a href="https://github.com/luodaoyi/dsh-cabinet-mode" target="_blank" rel="noopener">luodaoyi/dsh-cabinet-mode</a></span>
       <span>MIT License</span>
-      <span>v0.5.0 · updated <time datetime="2026-11-06">2026-11-06</time> <!-- update with content --></span>
+      <span>v0.5.1 · updated <time datetime="2026-11-06">2026-11-06</time> <!-- update with content --></span>
       <span class="spacer"></span>
       <span>Produced by <a href="https://rsrs.rs/" target="_blank" rel="noopener" hreflang="en" lang="en">Respire memory system</a></span>
       <span><a href="https://github.com/luodaoyi/dsh-cabinet-mode#readme" target="_blank" rel="noopener">Full docs in the README</a></span>

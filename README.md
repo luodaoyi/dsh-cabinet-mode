@@ -1,5 +1,7 @@
 # Cabinet Mode (内阁模式) for DeepSeek Harness
 
+**Version compatibility (0.5.1):** This release targets DSH 0.2.2-rc.1 preset loading: it removes the obsolete list-agents subpath, enables modelSelection/modelDiscovery and sets tool-fs applyPatch:false. Independent 0.2.2-rc.1 acceptance is pending; CI reports 38 PASS / 0 FAIL / 1 WARN with DSH composition skipped. Earlier rc.3/rc.5 installation, UI and model tests below are historical evidence for earlier packages, not acceptance of 0.5.1. On DSH 0.2.1-rc.3/rc.5, retain the previously verified package (including 0.5.0); do not automatically upgrade to 0.5.1 or unnecessarily downgrade to 0.4.x. Version 0.5.1 omits the separate list_agents entry needed on rc.5. Select the compatible version in the market; the 0.5.1 tarball below is for 0.2.2-rc.1.
+
 [中文](README.zh.md) | English
 
 **Install:** [Use the plugin market (recommended)](#install-from-the-plugin-market-recommended).
@@ -35,9 +37,7 @@ and the rest) come from the profile-level
 ship them**.
 
 This bundle declares **no hard DSH version gate**: no `engines.dsh`, no DSH
-`peerDependencies`, no install-time version check. It was tested on DSH
-**0.2.1-rc.3**; other DSH versions that provide the declarative preset mechanism
-may work, but are **not verified** (see [DSH-side constraints](#dsh-side-constraints)).
+`peerDependencies`, no install-time version check. Earlier package releases were tested on DSH **0.2.1-rc.3**; use the compatibility guidance above for 0.5.1 (see [DSH-side constraints](#dsh-side-constraints)).
 
 ## Cabinet member settings
 
