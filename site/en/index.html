@@ -57,7 +57,7 @@
         "softwareVersion": "0.5.1",
         "applicationCategory": "DeveloperApplication",
         "operatingSystem": "Linux, macOS, Windows",
-        "softwareRequirements": "DeepSeek Harness 0.2.2-rc.1 (0.5.1 target; independent acceptance pending)",
+        "softwareRequirements": "DeepSeek Harness 0.2.2-rc.1 (0.5.1 preset-loading target; per-office model overrides blocked)",
         "license": "https://opensource.org/license/mit",
         "isAccessibleForFree": true,
         "offers": {"@type": "Offer", "price": "0", "priceCurrency": "USD"},
@@ -187,7 +187,7 @@
   </header>
 
   <main>
-<p role="note">Version compatibility (0.5.1): This release targets DSH 0.2.2-rc.1 preset loading: it removes the obsolete list-agents subpath, enables modelSelection/modelDiscovery and sets tool-fs applyPatch:false. Independent 0.2.2-rc.1 acceptance is pending; CI reports 38 PASS / 0 FAIL / 1 WARN with DSH composition skipped. Earlier rc.3/rc.5 installation, UI and model tests below are historical evidence for earlier packages, not acceptance of 0.5.1. On DSH 0.2.1-rc.3/rc.5, retain the previously verified package (including 0.5.0); do not automatically upgrade to 0.5.1 or unnecessarily downgrade to 0.4.x. Version 0.5.1 omits the separate list_agents entry needed on rc.5. Select the compatible version in the market; the 0.5.1 tarball below is for 0.2.2-rc.1.</p>
+<p role="note">Version compatibility (0.5.1): This release targets DSH 0.2.2-rc.1 preset loading: it removes the obsolete list-agents subpath, enables modelSelection/modelDiscovery and sets tool-fs applyPatch:false. Independent 0.2.2-rc.1 checks passed preset composition (43 checks), 29 module resolutions, public-package installation and 12 persona assemblies. However, per-office model overrides remain blocked: rc.1 rejects provider/model/effort changes in agent/request after step preparation. Users relying on per-office models should not upgrade directly. This is a preset-loading fix, not full rc.1 compatibility; old 41-case model tests do not establish rc.1 support. No real model calls were made. CI itself reports 38 PASS / 0 FAIL / 1 WARN with composition skipped. Earlier rc.3/rc.5 installation, UI and model tests below are historical evidence for earlier packages, not acceptance of 0.5.1. On DSH 0.2.1-rc.3/rc.5, retain the previously verified package (including 0.5.0); do not automatically upgrade to 0.5.1 or unnecessarily downgrade to 0.4.x. Version 0.5.1 omits the separate list_agents entry needed on rc.5. Select the compatible version in the market; the 0.5.1 tarball below is for 0.2.2-rc.1.</p>
     <section class="hero">
       <div class="hero-cloud" aria-hidden="true"><img src="../assets/img/cloud-scroll.svg?v=9" width="760" height="230" alt=""></div>
       <div class="container">

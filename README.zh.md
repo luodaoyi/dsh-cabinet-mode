@@ -1,6 +1,6 @@
 # 内阁模式（Cabinet Mode）· DeepSeek Harness 插件
 
-**版本兼容（0.5.1）：** 本版面向 DSH 0.2.2-rc.1 的 preset 加载修复：移除旧 list-agents 子路径，改用 modelSelection/modelDiscovery，并设置 tool-fs applyPatch:false。0.2.2-rc.1 独立验收尚在进行；CI 为 38 PASS / 0 FAIL / 1 WARN，其中 DSH 配置组合跳过。下文 rc.3/rc.5 安装、界面及模型测试均是旧包的历史记录，不代表 0.5.1 已通过。DSH 0.2.1-rc.3/rc.5 用户应保留原先已验证的包（包括 0.5.0），不要自动升级至 0.5.1，也不必降到 0.4.x。0.5.1 移除了 rc.5 所需的独立 list_agents 入口。商店中请选择匹配版本；下文 0.5.1 下载命令面向 0.2.2-rc.1。
+**版本兼容（0.5.1）：** 本版面向 DSH 0.2.2-rc.1 的 preset 加载修复：移除旧 list-agents 子路径，改用 modelSelection/modelDiscovery，并设置 tool-fs applyPatch:false。0.2.2-rc.1 独立检查已通过配置组合（43 项）、29 个模块解析、公开包安装和 12 组 persona 装配。但官职独立模型覆盖仍有兼容阻塞：rc.1 不允许在步骤准备完成后通过 agent/request 修改 provider/model/effort。依赖官职独立模型的用户暂不应直接升级。本版仅修复 preset 加载，不代表完整 rc.1 兼容；旧版 41 项模型测试不能证明 rc.1 支持。未调用真实模型。CI 本身为 38 PASS / 0 FAIL / 1 WARN，配置组合跳过。下文 rc.3/rc.5 安装、界面及模型测试均是旧包的历史记录，不代表 0.5.1 已通过。DSH 0.2.1-rc.3/rc.5 用户应保留原先已验证的包（包括 0.5.0），不要自动升级至 0.5.1，也不必降到 0.4.x。0.5.1 移除了 rc.5 所需的独立 list_agents 入口。商店中请选择匹配版本；下文 0.5.1 下载命令面向 0.2.2-rc.1。
 
 [English](README.md) | 中文
 
