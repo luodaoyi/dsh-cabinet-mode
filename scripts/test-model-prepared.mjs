@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {randomUUID} from 'node:crypto';
-import {attachMemberModel,prepareModelSessionApi} from '../index.js';
+import {attachMemberModel,prepareModelSessionApi,apply,inject} from '../index.js';
 const base=path.join(process.env.DSH_MODULE_ROOT,'@deepseek-ai');
 const load=name=>import(pathToFileURL(path.join(base,name,'lib/index.js')));
 const {Context}=await load('cordis'),{SystemPrompt}=await load('dsh-system-prompt');
@@ -20,7 +20,12 @@ const loopPath=path.join(base,'dsh-agent-loop/lib/index.js');
 const exposed=path.join(path.dirname(loopPath),'cabinet-test-'+randomUUID()+'.mjs');
 fs.writeFileSync(exposed,fs.readFileSync(loopPath,'utf8')+'\nexport { ReactLoopAgent };\n');
 let Loop;try{Loop=(await import(pathToFileURL(exposed))).ReactLoopAgent;}finally{fs.unlinkSync(exposed);}
-let passed=0;
+// Mount the exported declaration through real Cordis; direct apply() tests cannot
+// detect an invalid injection schema that silently leaves the entry pending.
+new SystemPrompt(loaderCtx,{});let mounted=false;
+const entry=loaderCtx.plugin({name:'cabinet-test-entry',inject,apply:async(ctx,cfg)=>{await apply(ctx,cfg);mounted=true;}},{members:[]});
+await entry;assert.ok(mounted,'Cabinet entry activates through actual Cordis inject');
+let passed=1;
 for(const role of ['lead','teammate']){
  const ctx=new Context();new SystemPrompt(ctx,{});
  // The two variable providers registered by the official AgentLoop constructor.

@@ -83,7 +83,7 @@ versions did not record ownership: if an old override is already persisted, sele
 the desired native model once before enabling the new policy; its origin cannot be
 inferred safely from a request header.
 
-Regression scope: 85 rc.1 cases use official Cordis, Session, AgentModel, projections,
+Regression scope: 86 rc.1 cases use official Cordis, Session, AgentModel, projections,
 SystemPrompt and the unchanged preStep/prepareRequest implementations. Team identity,
 inbox and model adapters are fixtures; there are no paid/real model calls and this
 is not a full team/browser end-to-end test. The 41 legacy rc.5 model cases remain

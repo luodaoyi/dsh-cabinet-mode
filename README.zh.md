@@ -56,7 +56,7 @@ rc.1 路径在步骤准备前调用公开 AgentModel.select()，工具、提示�
 请求前报错。旧版本没有归属记录，不能仅凭历史请求头安全推断来源；若旧覆盖已
 持久化，请先用原生模型选择器选回所需模型，再启用新策略。
 
-回归范围：85 项 rc.1 测试使用官方 Cordis、Session、AgentModel、projection、
+回归范围：86 项 rc.1 测试使用官方 Cordis、Session、AgentModel、projection、
 SystemPrompt 及未改动的 preStep/prepareRequest 实现；身份、inbox 和模型适配器为
 测试替身，未调用真实模型，也不是完整团队或浏览器端到端测试。保留旧 rc.5 的
 41 项模型组合回归，但这不代表当前 rc.1 预设已通过旧宿主验收。
