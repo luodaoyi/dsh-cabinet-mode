@@ -163,7 +163,7 @@
 
   <link rel="icon" type="image/png" href="assets/img/lead.png">
   <!-- assets v=N is a site revision: bump N whenever CSS/JS changes -->
-  <link rel="stylesheet" href="assets/css/style.css?v=16">
+  <link rel="stylesheet" href="assets/css/style.css?v=17">
 </head>
 <body>
   <div class="page-frame" aria-hidden="true"></div>
@@ -187,7 +187,6 @@
   </header>
 
   <main>
-<p role="note">版本兼容（0.5.3）： 面向 DSH 0.2.2-rc.1，在宿主固定每步模型前完成官职模型选择；0.5.1/0.5.2 仅修复了预设加载和显示元数据。已使用官方宿主组件与隔离 profile 验证，未调用真实模型；测试范围见 README.zh.md。旧 rc.3/rc.5 的界面及安装记录仅适用于当时的包。DSH 0.2.1-rc.3/rc.5 用户应保留原先已验证版本（包括 0.5.0），当前预设已移除 rc.5 所需的独立 list_agents 入口；请在商店选择匹配版本。</p>
     <section class="hero">
       <div class="hero-cloud" aria-hidden="true"><img src="assets/img/cloud-scroll.svg?v=9" width="760" height="230" alt=""></div>
       <div class="container">
@@ -471,6 +470,20 @@ dsh plugin --profile desktop list</pre>
             <p>本站是纯静态介绍页，不加载第三方统计或广告脚本。插件在本地 DSH profile 中运行，成员设置保存在 DSH_HOME/profile 的 cabinet-ui 命名空间。</p>
           </article>
         </div>
+      </div>
+    </section>
+    <section class="block" id="changelog" aria-labelledby="changelog-title">
+      <div class="container">
+        <h2 id="changelog-title">更新日志</h2>
+        <p class="lead-note">按发布时间由新到旧，记录最近的改进。</p>
+        <ol class="release-timeline">
+          <li><article><div class="release-meta"><h3>v0.5.3</h3><time datetime="2026-11-07">2026-11-07</time></div><p>修复官职模型选择、空消息队列保存及中断恢复，保持原生模型选择。</p><a href="https://github.com/luodaoyi/dsh-cabinet-mode/releases/tag/v0.5.3">查看发布说明 <span class="sr-only">v0.5.3</span> →</a></article></li>
+          <li><article><div class="release-meta"><h3>v0.5.2</h3><time datetime="2026-11-07">2026-11-07</time></div><p>补齐插件中英文名称、说明和头像图标导出。</p><a href="https://github.com/luodaoyi/dsh-cabinet-mode/releases/tag/v0.5.2">查看发布说明 <span class="sr-only">v0.5.2</span> →</a></article></li>
+          <li><article><div class="release-meta"><h3>v0.5.1</h3><time datetime="2026-11-07">2026-11-07</time></div><p>修复 DSH 0.2.2-rc.1 的预设加载与工具配置。</p><a href="https://github.com/luodaoyi/dsh-cabinet-mode/releases/tag/v0.5.1">查看发布说明 <span class="sr-only">v0.5.1</span> →</a></article></li>
+          <li><article><div class="release-meta"><h3>v0.5.0</h3><time datetime="2026-11-06">2026-11-06</time></div><p>新增任务依赖连线、状态动画及减少动态效果支持。</p><a href="https://github.com/luodaoyi/dsh-cabinet-mode/releases/tag/v0.5.0">查看发布说明 <span class="sr-only">v0.5.0</span> →</a></article></li>
+        </ol>
+        <p class="release-note">当前版本面向 DSH 0.2.2-rc.1；旧 rc.3/rc.5 用户请保留已验证的 0.5.0。旧版本没有模型覆盖归属记录，升级时请先用原生模型选择器选回所需模型，再启用新策略。</p>
+        <p><a href="https://github.com/luodaoyi/dsh-cabinet-mode/blob/main/CHANGELOG.md">完整更新日志 →</a></p>
       </div>
     </section>
   </main>
