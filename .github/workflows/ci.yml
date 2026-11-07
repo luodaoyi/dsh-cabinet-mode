@@ -87,6 +87,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
+      - name: Install pnpm for isolated DSH profile composition
+        if: matrix.dsh == '0.2.2-rc.1'
+        run: |
+          npm install --global pnpm@11.13.1
+          pnpm --version
       - run: npm ci --ignore-scripts
       - name: Install isolated official runtime (no model credentials)
         run: npm install --prefix "$RUNNER_TEMP/cabinet-runtime" --ignore-scripts --no-audit --no-fund @deepseek-ai/dsh@${{ matrix.dsh }}
