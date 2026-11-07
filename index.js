@@ -512,8 +512,8 @@ function attachPreparedMemberModel(ctx, config, agent, attached, routeMemory, se
 
 /** Host plugin entry. */
 const name = 'cabinet-ui';
-/** Services read by this entry; `agentTeams` is resolved lazily in apply(). */
-const inject = ['systemPrompt'];
+/** Optional host capabilities remount the policy when their availability changes. */
+const inject = { required: ['systemPrompt'], optional: ['loader', 'sessionProjections'] };
 
 /** Register the runtime member block as a prompt section. */
 async function apply(ctx, config) {

@@ -28,7 +28,7 @@
   <meta property="og:image:alt" content="内阁模式 Cabinet Mode：DeepSeek Harness 的内阁研究团队">
   <meta property="og:locale" content="zh_CN">
   <meta property="og:locale:alternate" content="en_US">
-  <meta property="og:updated_time" content="2026-11-06T00:00:00+08:00">
+  <meta property="og:updated_time" content="2026-11-07T00:00:00+08:00">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="内阁模式 Cabinet Mode｜DeepSeek Harness 多智能体内阁团队">
   <meta name="twitter:description" content="内阁模式（Cabinet Mode）是 DeepSeek Harness 的开源 DSH 插件：首辅统领四司阁臣，研究优先、结论必带出处，附右栏派工面板与成员定制。">
@@ -54,10 +54,10 @@
         "description": "内阁模式是 DeepSeek Harness 的开源 DSH 插件：首辅统领四司阁臣，研究优先，结论必带出处，附右栏派工面板与成员定制。",
         "url": "https://luodaoyi.github.io/dsh-cabinet-mode/",
         "downloadUrl": "https://www.npmjs.com/package/dsh-cabinet-mode",
-        "softwareVersion": "0.5.1",
+        "softwareVersion": "0.5.3",
         "applicationCategory": "DeveloperApplication",
         "operatingSystem": "Linux, macOS, Windows",
-        "softwareRequirements": "DeepSeek Harness 0.2.2-rc.1 (0.5.1 preset-loading target; per-office model overrides blocked)",
+        "softwareRequirements": "DeepSeek Harness 0.2.2-rc.1; official component tests, no real model calls",
         "license": "https://opensource.org/license/mit",
         "isAccessibleForFree": true,
         "offers": {"@type": "Offer", "price": "0", "priceCurrency": "USD"},
@@ -81,7 +81,7 @@
         "name": "dsh-cabinet-mode",
         "codeRepository": "https://github.com/luodaoyi/dsh-cabinet-mode",
         "programmingLanguage": "JavaScript",
-        "version": "0.5.1",
+        "version": "0.5.3",
         "license": "https://opensource.org/license/mit",
         "author": {"@type": "Person", "name": "luodaoyi", "url": "https://github.com/luodaoyi"}
       },
@@ -94,8 +94,8 @@
         "inLanguage": "zh-CN",
         "isPartOf": {"@id": "https://luodaoyi.github.io/dsh-cabinet-mode/#website"},
         "about": {"@id": "https://luodaoyi.github.io/dsh-cabinet-mode/#software"},
-        "datePublished": "2026-11-06",
-        "dateModified": "2026-11-06",
+        "datePublished": "2026-11-07",
+        "dateModified": "2026-11-07",
         "primaryImageOfPage": {
           "@type": "ImageObject",
           "url": "https://luodaoyi.github.io/dsh-cabinet-mode/assets/img/og-card.jpg",
@@ -187,7 +187,7 @@
   </header>
 
   <main>
-<p role="note">版本兼容（0.5.1）： 本版面向 DSH 0.2.2-rc.1 的 preset 加载修复：移除旧 list-agents 子路径，改用 modelSelection/modelDiscovery，并设置 tool-fs applyPatch:false。0.2.2-rc.1 独立检查已通过配置组合（43 项）、29 个模块解析、公开包安装和 12 组 persona 装配。但官职独立模型覆盖仍有兼容阻塞：rc.1 不允许在步骤准备完成后通过 agent/request 修改 provider/model/effort。依赖官职独立模型的用户暂不应直接升级。本版仅修复 preset 加载，不代表完整 rc.1 兼容；旧版 41 项模型测试不能证明 rc.1 支持。未调用真实模型。CI 本身为 38 PASS / 0 FAIL / 1 WARN，配置组合跳过。下文 rc.3/rc.5 安装、界面及模型测试均是旧包的历史记录，不代表 0.5.1 已通过。DSH 0.2.1-rc.3/rc.5 用户应保留原先已验证的包（包括 0.5.0），不要自动升级至 0.5.1，也不必降到 0.4.x。0.5.1 移除了 rc.5 所需的独立 list_agents 入口。商店中请选择匹配版本；下文 0.5.1 下载命令面向 0.2.2-rc.1。</p>
+<p role="note">版本兼容（0.5.3）： 面向 DSH 0.2.2-rc.1，在宿主固定每步模型前完成官职模型选择；0.5.1/0.5.2 仅修复了预设加载和显示元数据。已使用官方宿主组件与隔离 profile 验证，未调用真实模型；测试范围见 README.zh.md。旧 rc.3/rc.5 的界面及安装记录仅适用于当时的包。DSH 0.2.1-rc.3/rc.5 用户应保留原先已验证版本（包括 0.5.0），当前预设已移除 rc.5 所需的独立 list_agents 入口；请在商店选择匹配版本。</p>
     <section class="hero">
       <div class="hero-cloud" aria-hidden="true"><img src="assets/img/cloud-scroll.svg?v=9" width="760" height="230" alt=""></div>
       <div class="container">
@@ -199,7 +199,7 @@
             翰林、工部、大理寺、都察院四司阁臣分司办事。研究优先，结论必带出处。
           </p>
           <div class="badges">
-            <span class="badge"><span class="dot"></span>v0.5.1</span>
+            <span class="badge"><span class="dot"></span>v0.5.3</span>
             <span class="badge">MIT License</span>
             <span class="badge">preset id: cabinet</span>
             <span class="badge">面向 DSH 0.2.2-rc.1</span>
@@ -246,7 +246,7 @@
               <tr><td>产品</td><td>内阁模式（Cabinet Mode）</td></tr>
               <tr><td>类型</td><td>DeepSeek Harness DSH bundle / 多智能体 preset</td></tr>
               <tr><td>preset id</td><td><code>cabinet</code></td></tr>
-              <tr><td>版本</td><td>v0.5.1</td></tr>
+              <tr><td>版本</td><td>v0.5.3</td></tr>
               <tr><td>许可与价格</td><td>MIT License，免费开源</td></tr>
               <tr><td>旧包实测 DSH</td><td>0.2.1-rc.3 / rc.5</td></tr>
               <tr><td>平台</td><td>Linux/macOS（<code>tool-bash</code>）、Windows（<code>tool-pwsh</code>）</td></tr>
@@ -404,7 +404,7 @@ On failure, show the exact error. For $.format must be 1, replace the webpage so
         <p class="lead-note">仅当市场不可用或本地开发时使用；先完全退出桌面 DSH 以释放 profile 锁。</p>
         <div class="codeblock">
           <button class="copy-btn" data-copy-from="tarball-cmd" data-done="已复制">复制</button>
-          <pre id="tarball-cmd">dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.5.1/dsh-cabinet-mode-0.5.1.tgz
+          <pre id="tarball-cmd">dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.5.3/dsh-cabinet-mode-0.5.3.tgz
 dsh plugin --profile desktop list</pre>
         </div>
         <p class="lead-note">方法 A（bundle 安装）与方法 B（node 脚本写 cordis.patch.yml）互斥，同装会使 preset id 重复、声明加载失败。</p>
@@ -479,7 +479,7 @@ dsh plugin --profile desktop list</pre>
     <div class="container">
       <span>内阁模式 Cabinet Mode · <a href="https://github.com/luodaoyi/dsh-cabinet-mode" target="_blank" rel="noopener">luodaoyi/dsh-cabinet-mode</a></span>
       <span>MIT License</span>
-      <span>v0.5.1 · 更新于 <time datetime="2026-11-06">2026-11-06</time> <!-- 随内容更新 --></span>
+      <span>v0.5.3 · 更新于 <time datetime="2026-11-07">2026-11-07</time> <!-- 随内容更新 --></span>
       <span class="spacer"></span>
       <span><a href="https://rsrs.rs/zh/" target="_blank" rel="noopener" hreflang="zh-CN" lang="zh-CN">Respire记忆系统出品</a></span>
       <span><a href="https://github.com/luodaoyi/dsh-cabinet-mode#readme" target="_blank" rel="noopener">完整文档见 README</a></span>

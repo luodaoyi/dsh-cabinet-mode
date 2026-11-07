@@ -1,6 +1,6 @@
 # Cabinet Mode (内阁模式) for DeepSeek Harness
 
-**Version compatibility (0.5.1):** This release targets DSH 0.2.2-rc.1 preset loading: it removes the obsolete list-agents subpath, enables modelSelection/modelDiscovery and sets tool-fs applyPatch:false. Independent 0.2.2-rc.1 checks passed preset composition (43 checks), 29 module resolutions, public-package installation and 12 persona assemblies. However, per-office model overrides remain blocked: rc.1 rejects provider/model/effort changes in agent/request after step preparation. Users relying on per-office models should not upgrade directly. This is a preset-loading fix, not full rc.1 compatibility; old 41-case model tests do not establish rc.1 support. No real model calls were made. CI itself reports 38 PASS / 0 FAIL / 1 WARN with composition skipped. Earlier rc.3/rc.5 installation, UI and model tests below are historical evidence for earlier packages, not acceptance of 0.5.1. On DSH 0.2.1-rc.3/rc.5, retain the previously verified package (including 0.5.0); do not automatically upgrade to 0.5.1 or unnecessarily downgrade to 0.4.x. Version 0.5.1 omits the separate list_agents entry needed on rc.5. Select the compatible version in the market; the 0.5.1 tarball below is for 0.2.2-rc.1.
+**Version compatibility (0.5.3):** Targets DSH **0.2.2-rc.1**. This patch repairs per-office model selection before the host freezes each step; 0.5.1/0.5.2 only repaired preset loading and display metadata. Verified with official host components and isolated profiles, without real model calls; see the model regression scope below. Earlier rc.3/rc.5 UI and installation results are historical evidence for earlier packages. On DSH 0.2.1-rc.3/rc.5 retain the previously verified package, including 0.5.0: the current preset omits the separate list_agents entry required on rc.5. Select the compatible version in the market.
 
 [中文](README.zh.md) | English
 
@@ -37,7 +37,7 @@ and the rest) come from the profile-level
 ship them**.
 
 This bundle declares **no hard DSH version gate**: no `engines.dsh`, no DSH
-`peerDependencies`, no install-time version check. Earlier package releases were tested on DSH **0.2.1-rc.3**; use the compatibility guidance above for 0.5.1 (see [DSH-side constraints](#dsh-side-constraints)).
+`peerDependencies`, no install-time version check. Earlier package releases were tested on DSH **0.2.1-rc.3**; use the compatibility guidance above for 0.5.3 (see [DSH-side constraints](#dsh-side-constraints)).
 
 ## Cabinet member settings
 
@@ -59,23 +59,35 @@ failures do not erase them. If the catalog is unavailable, a manual
 `provider/id` field is offered. IDs may contain +, @, spaces and further slashes;
 only the first slash separates the provider. Invalid input blocks Save.
 
-In **Cabinet mode**, the profile policy takes precedence over the native
-session picker: an explicit member model wins; an empty teammate selection
-uses the configured Lead model, otherwise the current **DSH deployment default**.
-An empty Lead selection uses that deployment default. This is not inheritance
-of a different session's last request. Clearing actively restores this default,
-even when the previous request header recorded an overridden model.
+In **Cabinet mode**, an explicit member model takes precedence; an empty teammate
+selection follows the configured Lead model. On rc.1, a session with no configured
+Cabinet override keeps its native selection. Clearing a previously owned override
+restores the current **DSH deployment default** (not another session's last model).
+A newer native manual selection is preserved when clearing or unloading the policy.
 
-Routes are snapshotted at prompt assembly and paired with the same AgentLoop
-turn signal for requests. Save affects the next assembly, including already-live
-members; in-flight requests keep their snapshot. Actual team roles and the live
-Cabinet preset gate the policy; a teammate named lead cannot gain Lead policy.
-Different models use their adapter's reasoning default; matching routes retain
-native effort. Mode changes during a step abort that step rather than route a
-mismatched prompt. On a live mode exit, a retained plugin override is restored
-to the route recorded before Cabinet took over. Unloading cancels any active routed turn while retaining queued input, then
-removes its listeners; it does not rewrite persisted session history. The default model
-must be available; missing defaults fail explicitly instead of keeping a stale override.
+On rc.1, the plugin calls the public AgentModel.select() before step preparation;
+the host's frozen selection supplies tools, prompt variables and the request together.
+Saving applies to the next step, including live members; an already prepared step
+keeps its selection. Actual team roles and the current preset gate the policy: a
+teammate named lead cannot gain Lead policy. Different routes use the new adapter's
+reasoning default; matching routes retain native effort. Exiting Cabinet restores
+the pre-policy native selection, including its effort. Unloading cancels the active
+managed turn and retains queued input, then restores a still-owned selection.
+
+A host-only Session projection tracks minimal route ownership through public plugin
+records. An intent is recorded before selection; restoration happens before ownership
+is cleared. Interrupted writes can be recovered on reopening, without overwriting a
+later native choice. No credentials or complete configuration are recorded. Missing
+host record APIs reject configured overrides before a model request. Historical
+versions did not record ownership: if an old override is already persisted, select
+the desired native model once before enabling the new policy; its origin cannot be
+inferred safely from a request header.
+
+Regression scope: 85 rc.1 cases use official Cordis, Session, AgentModel, projections,
+SystemPrompt and the unchanged preStep/prepareRequest implementations. Team identity,
+inbox and model adapters are fixtures; there are no paid/real model calls and this
+is not a full team/browser end-to-end test. The 41 legacy rc.5 model cases remain
+covered, but do not certify the current rc.1 preset for older hosts.
 
 Upload PNG/JPEG/WebP up to 2 MB; the browser crops it to a 96×96 PNG (at most
 48 KB data URL). Saved portraits apply to Cabinet cards and native team avatars.
@@ -243,7 +255,7 @@ On failure, show the exact error. For $.format must be 1, replace the webpage so
 Use this only when the market is unavailable or for local development. Fully quit desktop DSH first to release the profile lock, then install the release bundle:
 
 ```sh
-dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.5.2/dsh-cabinet-mode-0.5.2.tgz
+dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.5.3/dsh-cabinet-mode-0.5.3.tgz
 dsh plugin --profile desktop list
 ```
 
@@ -258,7 +270,7 @@ the same install command with the new version URL (or pick the new `.tgz` in the
 plugin page), then fully quit and restart DeepSeek Harness:
 
 ```sh
-dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.5.2/dsh-cabinet-mode-0.5.2.tgz
+dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.5.3/dsh-cabinet-mode-0.5.3.tgz
 ```
 
 `dsh plugin --profile desktop list` should report the new version. Upgrades were
