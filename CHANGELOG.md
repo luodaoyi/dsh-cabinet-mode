@@ -2,6 +2,25 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.5.4] - 2026-11-07
+
+### Fixed
+
+- Draw task dependencies from the blocker to the blocked task; keep the endpoint
+  dot on the blocked task and animate active edges in that direction.
+- Open teammate sessions from task titles and member cards through the optional
+  native workspace service. Current, failed and provisioning members stay inert;
+  lead-owned and unassigned task titles remain plain text.
+
+### Verification
+
+- Passed the existing client regressions and all 43 package/composition checks
+  with the local DSH 0.2.2-rc.1 runtime on Windows.
+- Exercised the installed plugin in an isolated DSH web profile with browser-only
+  team projection fixtures and real empty sessions: measured edge endpoints and
+  animation, then confirmed task-title and member-card clicks selected the target
+  session. No model calls or full agent-team task execution were exercised.
+
 ## [0.5.3] - 2026-11-07
 
 ### Fixed
