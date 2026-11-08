@@ -3942,10 +3942,14 @@ window.__ModuleLoader__.load({
             React.useEffect(() => { token.active = true; return () => { token.active = false; }; }, [token]);
 			const [installedRecord, writeInstalled] = React.useState({manager, value:props?.initialInstalled ?? null});
             const installed = installedRecord.manager === manager ? installedRecord.value : null;
-			const [working, writeWorking] = React.useState(false);
-			const [progress, writeProgress] = React.useState('');
-			const [failure, writeFailure] = React.useState('');
-			const [restart, writeRestart] = React.useState(manager ? memoryPluginRestart.has(manager) : false);
+			const [workingRecord, writeWorking] = React.useState({manager,value:false});
+            const working = workingRecord.manager === manager ? workingRecord.value : (false);
+			const [progressRecord, writeProgress] = React.useState({manager,value:''});
+            const progress = progressRecord.manager === manager ? progressRecord.value : ('');
+			const [failureRecord, writeFailure] = React.useState({manager,value:''});
+            const failure = failureRecord.manager === manager ? failureRecord.value : ('');
+			const [restartRecord, writeRestart] = React.useState({manager,value:manager ? memoryPluginRestart.has(manager) : false});
+            const restart = restartRecord.manager === manager ? restartRecord.value : (manager ? memoryPluginRestart.has(manager) : false);
 			// Optional local-source override, read eagerly so the card face shows
 			// the stored value on first paint.
 			const [specText, writeSpecText] = React.useState(memoryPluginSpecRead());
@@ -3953,16 +3957,17 @@ window.__ModuleLoader__.load({
             const fallbackNotice = fallbackRecord.manager === manager ? fallbackRecord.value : '';
             const setFallbackNotice = value => { if (token.active) writeFallbackNotice({manager,value}); };
             const setInstalled = value => { if (token.active) writeInstalled({manager,value}); };
-            const setWorking = value => { if (token.active) writeWorking(value); };
-            const setProgress = value => { if (token.active) writeProgress(value); };
-            const setFailure = value => { if (token.active) writeFailure(value); };
-            const setRestart = value => { if (token.active) writeRestart(value); };
+            const setWorking = value => { if (token.active) writeWorking({manager,value}); };
+            const setProgress = value => { if (token.active) writeProgress({manager,value}); };
+            const setFailure = value => { if (token.active) writeFailure({manager,value}); };
+            const setRestart = value => { if (token.active) writeRestart({manager,value}); };
             const setSpecText = value => { if (token.active) writeSpecText(value); };
 			React.useEffect(() => {
 				let alive = true;
                 const generation = token.epoch;
                 setInstalled(null);
                 setFallbackNotice('');
+                setWorking(false); setProgress(''); setFailure(''); setRestart(manager ? memoryPluginRestart.has(manager) : false);
 				(async () => {
 					if (!manager || typeof manager.listBundles !== 'function') return;
 					try {
@@ -4018,6 +4023,7 @@ window.__ModuleLoader__.load({
                         const inspectionReply = await pluginDeadline(manager.inspect(spec, {}));
                         canFallback = !before;
                         const inspected = valueOf(inspectionReply);
+                        if (!token.active) return {done:true};
                         if (!inspected || inspected.status !== 'accepted' || inspected.name !== MEMORY_PLUGIN_NAME || inspected.bundle !== true) throw new Error(inspected?.reason || 'Plugin spec refused');
                         canFallback = false;
                         const requestId = globalThis.crypto?.randomUUID?.() || 'cabinet-' + Date.now() + '-' + Math.random().toString(16).slice(2);

@@ -671,6 +671,9 @@ for(const succeeds of [true,false]) {
   if(succeeds)assert.ok(String(nodes.find(n=>n.props?.['data-cabinet-plugin-source']).children.flat()).includes('@rsrsai/dsh@0.1.13'),'success shows host inventory source');
   else assert.ok(nodes.some(n=>n.props?.['data-cabinet-plugin-state']==='error'),'failure remains an error, not success');
   assert.deepEqual(calls,['/tmp/custom-local','@rsrsai/dsh@0.1.13']);
+  settingsCursor=0;const other=elements(settingsClient.MemoryPluginCard({manager:{listBundles:async()=>{throw Error('new connection failed')}},t:k=>k}));
+  assert.equal(other.some(n=>n.props?.['data-cabinet-plugin-fallback']),false,'existing fallback notice cannot cross connection');
+  assert.equal(other.some(n=>n.props?.['data-cabinet-plugin-source']),false,'existing source cannot cross connection');
 }
 
 pluginSpecStore.delete('cabinet.memoryPluginSpec');
@@ -778,4 +781,26 @@ console.log('PASS: late initial inventory cannot overwrite a completed operation
   assert.equal(sourceOf(h.render(b)),undefined,'new connection hides old source immediately');await tick();assert.equal(sourceOf(h.render(b)),undefined,'failed inventory never exposes previous source');
   const c={listBundles:async()=>inventory('0.1.13')};h.render(c);await tick();assert.ok(sourceOf(h.render(c)).includes('settings.plugin.sourceUnknown'),'missing provenance is unknown');
   h.unmount();h.render(a);await tick();assert.ok(sourceOf(h.render(a)).includes('registry-A'),'remount reloads host provenance');h.unmount();
+}
+
+// Switching connections during inspection never locks the new connection or mutates the old one.
+{
+ const h=memoryCardHarness();let finish,mutations=0;
+ const a={listBundles:async()=>({ok:true,value:[]}),inspect:()=>new Promise(r=>finish=r),installBundle:async()=>{mutations++;return {ok:true,value:{application:'applied'}}}};
+ const b={listBundles:async()=>{throw Error('new inventory failed')},inspect:async()=>{},installBundle:async()=>{}};
+ const action=n=>n.find(x=>x.props?.['data-cabinet-plugin-action']);
+ h.render(a);await tick();action(h.render(a)).props.onClick();await tick();assert.equal(action(h.render(a)).props.disabled,true);
+ assert.equal(action(h.render(b)).props.disabled,false,'new connection is not locked by old work');await tick();
+ finish({ok:true,value:{status:'accepted',name:'@rsrsai/dsh',bundle:true}});await tick();
+ assert.equal(action(h.render(b)).props.disabled,false,'late completion cannot lock new UI');assert.equal(mutations,0,'late inspection cannot start installation after connection changed');h.unmount();
+}
+
+{
+ const h=memoryCardHarness();let finish,enabled=0;
+ const a={listBundles:async()=>({ok:true,value:[]}),inspect:async()=>({ok:true,value:{status:'accepted',name:'@rsrsai/dsh',bundle:true}}),installBundle:()=>new Promise(r=>finish=r),setBundleEnabled:async()=>{enabled++;return {ok:true,value:{application:'applied'}}}};
+ const b={listBundles:async()=>({ok:true,value:[]})};const action=n=>n.find(x=>x.props?.['data-cabinet-plugin-action']);
+ h.render(a);await tick();action(h.render(a)).props.onClick();await tick();assert.equal(typeof finish,'function');
+ assert.equal(action(h.render(b)).props.disabled,false);await tick();
+ finish({ok:true,value:{application:'applied',version:'0.1.13'}});await tick();
+ const nodes=h.render(b);assert.equal(action(nodes).props.disabled,false);assert.equal(versionOf(nodes),undefined);assert.equal(enabled,0,'old installation completion must not enable after switching');h.unmount();
 }
