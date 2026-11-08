@@ -768,3 +768,14 @@ console.log('PASS: effectful inventory first mount/remount/channel replacement a
   h.render(manager).find(n=>n.props?.['data-cabinet-plugin-action']==='install').props.onClick();await tick();resolve({ok:true,value:[]});await tick();assert.equal(versionOf(h.render(manager)),'0.1.13','epoch rejects pre-operation inventory response');h.unmount();
 }
 console.log('PASS: late initial inventory cannot overwrite a completed operation');
+
+{
+  const h=memoryCardHarness();
+  const a={listBundles:async()=>({ok:true,value:[{name:'@rsrsai/dsh',installed:true,enabled:true,version:'0.1.13',source:'registry-A'}]})};
+  const b={listBundles:async()=>{throw Error('unavailable')}};
+  const sourceOf=n=>n.find(x=>x.props?.['data-cabinet-plugin-source'])?.children.flat().join('');
+  h.render(a);await tick();assert.ok(sourceOf(h.render(a)).includes('registry-A'));
+  assert.equal(sourceOf(h.render(b)),undefined,'new connection hides old source immediately');await tick();assert.equal(sourceOf(h.render(b)),undefined,'failed inventory never exposes previous source');
+  const c={listBundles:async()=>inventory('0.1.13')};h.render(c);await tick();assert.ok(sourceOf(h.render(c)).includes('settings.plugin.sourceUnknown'),'missing provenance is unknown');
+  h.unmount();h.render(a);await tick();assert.ok(sourceOf(h.render(a)).includes('registry-A'),'remount reloads host provenance');h.unmount();
+}

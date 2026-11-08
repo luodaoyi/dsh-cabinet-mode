@@ -3940,7 +3940,8 @@ window.__ModuleLoader__.load({
             }
             const token = lifetime.current;
             React.useEffect(() => { token.active = true; return () => { token.active = false; }; }, [token]);
-			const [installed, writeInstalled] = React.useState(props?.initialInstalled ?? null);
+			const [installedRecord, writeInstalled] = React.useState({manager, value:props?.initialInstalled ?? null});
+            const installed = installedRecord.manager === manager ? installedRecord.value : null;
 			const [working, writeWorking] = React.useState(false);
 			const [progress, writeProgress] = React.useState('');
 			const [failure, writeFailure] = React.useState('');
@@ -3948,8 +3949,10 @@ window.__ModuleLoader__.load({
 			// Optional local-source override, read eagerly so the card face shows
 			// the stored value on first paint.
 			const [specText, writeSpecText] = React.useState(memoryPluginSpecRead());
-            const [fallbackNotice, writeFallbackNotice] = React.useState('');
-            const setInstalled = value => { if (token.active) writeInstalled(value); };
+            const [fallbackRecord, writeFallbackNotice] = React.useState({manager,value:''});
+            const fallbackNotice = fallbackRecord.manager === manager ? fallbackRecord.value : '';
+            const setFallbackNotice = value => { if (token.active) writeFallbackNotice({manager,value}); };
+            const setInstalled = value => { if (token.active) writeInstalled({manager,value}); };
             const setWorking = value => { if (token.active) writeWorking(value); };
             const setProgress = value => { if (token.active) writeProgress(value); };
             const setFailure = value => { if (token.active) writeFailure(value); };
@@ -3958,6 +3961,8 @@ window.__ModuleLoader__.load({
 			React.useEffect(() => {
 				let alive = true;
                 const generation = token.epoch;
+                setInstalled(null);
+                setFallbackNotice('');
 				(async () => {
 					if (!manager || typeof manager.listBundles !== 'function') return;
 					try {
@@ -4054,7 +4059,7 @@ window.__ModuleLoader__.load({
                 const specNote = (specs) => ' [spec' + (specs.length > 1 ? 's' : '') + ': ' + specs.join(' → ') + ']';
                 try {
                     // spec = stored local-source override, else the registry default.
-                    if (token.active) writeFallbackNotice('');
+                    setFallbackNotice('');
                     const overrideSpec = specText.trim();
                     const primarySpec = overrideSpec !== '' ? overrideSpec : MEMORY_PLUGIN_SPEC;
                     let first;
@@ -4064,7 +4069,7 @@ window.__ModuleLoader__.load({
                         // registry once; an uncertain outcome keeps the upstream
                         // no-second-operation guard (its job stays registered).
                         if (primarySpec !== MEMORY_PLUGIN_SPEC && first.canFallback === true && uncertain !== true && token.active) {
-                            writeFallbackNotice(t('settings.plugin.fallbackNotice') + ' ' + primarySpec + ' → ' + MEMORY_PLUGIN_SPEC);
+                            setFallbackNotice(t('settings.plugin.fallbackNotice') + ' ' + primarySpec + ' → ' + MEMORY_PLUGIN_SPEC);
                             let second;
                             try { second = await attemptSpec(MEMORY_PLUGIN_SPEC); } catch (error) { second = { error: error?.message || String(error) }; }
                             if (second.done !== true) fail(first.error + specNote([primarySpec, MEMORY_PLUGIN_SPEC]) + (second.error && second.error !== first.error ? ' · ' + second.error : ''));
