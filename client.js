@@ -3906,7 +3906,7 @@ window.__ModuleLoader__.load({
 		function memoryPluginInstalledOf(bundles) {
 			if (!Array.isArray(bundles)) return null;
 			const hit = bundles.find((entry) => entry && entry.name === MEMORY_PLUGIN_NAME && entry.installed === true);
-			return hit === undefined ? null : { name: MEMORY_PLUGIN_NAME, version: typeof hit.version === 'string' ? hit.version : '', enabled: hit.enabled === true };
+			return hit === undefined ? null : { name: MEMORY_PLUGIN_NAME, version: typeof hit.version === 'string' ? hit.version : '', enabled: hit.enabled === true, ...(typeof hit.source === 'string' ? {source:hit.source} : {}) };
 		}
 		/** Read/write the optional local-source override. Both are best-effort:
 		 *  private modes and test harnesses may expose no storage at all, and an
@@ -3940,23 +3940,34 @@ window.__ModuleLoader__.load({
             }
             const token = lifetime.current;
             React.useEffect(() => { token.active = true; return () => { token.active = false; }; }, [token]);
-			const [installed, writeInstalled] = React.useState(props?.initialInstalled ?? null);
-			const [working, writeWorking] = React.useState(false);
-			const [progress, writeProgress] = React.useState('');
-			const [failure, writeFailure] = React.useState('');
-			const [restart, writeRestart] = React.useState(manager ? memoryPluginRestart.has(manager) : false);
+			const [installedRecord, writeInstalled] = React.useState({manager, value:props?.initialInstalled ?? null});
+            const installed = installedRecord.manager === manager ? installedRecord.value : null;
+			const [workingRecord, writeWorking] = React.useState({manager,value:false});
+            const working = workingRecord.manager === manager ? workingRecord.value : (false);
+			const [progressRecord, writeProgress] = React.useState({manager,value:''});
+            const progress = progressRecord.manager === manager ? progressRecord.value : ('');
+			const [failureRecord, writeFailure] = React.useState({manager,value:''});
+            const failure = failureRecord.manager === manager ? failureRecord.value : ('');
+			const [restartRecord, writeRestart] = React.useState({manager,value:manager ? memoryPluginRestart.has(manager) : false});
+            const restart = restartRecord.manager === manager ? restartRecord.value : (manager ? memoryPluginRestart.has(manager) : false);
 			// Optional local-source override, read eagerly so the card face shows
 			// the stored value on first paint.
 			const [specText, writeSpecText] = React.useState(memoryPluginSpecRead());
-            const setInstalled = value => { if (token.active) writeInstalled(value); };
-            const setWorking = value => { if (token.active) writeWorking(value); };
-            const setProgress = value => { if (token.active) writeProgress(value); };
-            const setFailure = value => { if (token.active) writeFailure(value); };
-            const setRestart = value => { if (token.active) writeRestart(value); };
+            const [fallbackRecord, writeFallbackNotice] = React.useState({manager,value:''});
+            const fallbackNotice = fallbackRecord.manager === manager ? fallbackRecord.value : '';
+            const setFallbackNotice = value => { if (token.active) writeFallbackNotice({manager,value}); };
+            const setInstalled = value => { if (token.active) writeInstalled({manager,value}); };
+            const setWorking = value => { if (token.active) writeWorking({manager,value}); };
+            const setProgress = value => { if (token.active) writeProgress({manager,value}); };
+            const setFailure = value => { if (token.active) writeFailure({manager,value}); };
+            const setRestart = value => { if (token.active) writeRestart({manager,value}); };
             const setSpecText = value => { if (token.active) writeSpecText(value); };
 			React.useEffect(() => {
 				let alive = true;
                 const generation = token.epoch;
+                setInstalled(null);
+                setFallbackNotice('');
+                setWorking(false); setProgress(''); setFailure(''); setRestart(manager ? memoryPluginRestart.has(manager) : false);
 				(async () => {
 					if (!manager || typeof manager.listBundles !== 'function') return;
 					try {
@@ -3997,8 +4008,10 @@ window.__ModuleLoader__.load({
                  *  inventory confirm) verbatim, but it resolves {done}/{error}
                  *  instead of echoing so run() can annotate and fall back. */
                 const attemptSpec = async (spec) => {
+                    let canFallback = false;
                     try {
                         const before = memoryPluginInstalledOf(valueOf(await pluginDeadline(manager.listBundles())));
+                        if (before && spec !== MEMORY_PLUGIN_SPEC) throw new Error('Local sources support first installation only. Clear the path for a registry update, or use the native plugin manager. No package was changed.');
                         if (before && before.version !== '0.1.13') {
                             // Only known, older stable versions are offered this pinned update.
                             // The official host independently enforces semver.gt(target, installed).
@@ -4007,8 +4020,12 @@ window.__ModuleLoader__.load({
                             const older = values && values.every(Number.isSafeInteger) && values[0] === 0 && (values[1] === 0 || values[1] === 1 && values[2] < 13);
                             if (!older) throw new Error('Installed version is newer than the pinned version or cannot be safely compared. Use the native plugin manager; no package was changed.');
                         }
-                        const inspected = valueOf(await pluginDeadline(manager.inspect(spec, {})));
+                        const inspectionReply = await pluginDeadline(manager.inspect(spec, {}));
+                        canFallback = !before;
+                        const inspected = valueOf(inspectionReply);
+                        if (!token.active) return {done:true};
                         if (!inspected || inspected.status !== 'accepted' || inspected.name !== MEMORY_PLUGIN_NAME || inspected.bundle !== true) throw new Error(inspected?.reason || 'Plugin spec refused');
+                        canFallback = false;
                         const requestId = globalThis.crypto?.randomUUID?.() || 'cabinet-' + Date.now() + '-' + Math.random().toString(16).slice(2);
                         let outcome;
                         if (before && before.version === '0.1.13') {
@@ -4042,13 +4059,14 @@ window.__ModuleLoader__.load({
                         setFailure('');
                         return { done: true };
                     } catch (error) {
-                        return { error: error?.message || String(error) };
+                        return { error: error?.message || String(error), canFallback };
                     }
                 };
                 const specNote = (specs) => ' [spec' + (specs.length > 1 ? 's' : '') + ': ' + specs.join(' → ') + ']';
                 try {
                     // spec = stored local-source override, else the registry default.
-                    const overrideSpec = memoryPluginSpecRead();
+                    setFallbackNotice('');
+                    const overrideSpec = specText.trim();
                     const primarySpec = overrideSpec !== '' ? overrideSpec : MEMORY_PLUGIN_SPEC;
                     let first;
                     try { first = await attemptSpec(primarySpec); } catch (error) { first = { error: error?.message || String(error) }; }
@@ -4056,7 +4074,8 @@ window.__ModuleLoader__.load({
                         // A definitive failure of the local source falls back to the
                         // registry once; an uncertain outcome keeps the upstream
                         // no-second-operation guard (its job stays registered).
-                        if (primarySpec !== MEMORY_PLUGIN_SPEC && uncertain !== true) {
+                        if (primarySpec !== MEMORY_PLUGIN_SPEC && first.canFallback === true && uncertain !== true && token.active) {
+                            setFallbackNotice(t('settings.plugin.fallbackNotice') + ' ' + primarySpec + ' → ' + MEMORY_PLUGIN_SPEC);
                             let second;
                             try { second = await attemptSpec(MEMORY_PLUGIN_SPEC); } catch (error) { second = { error: error?.message || String(error) }; }
                             if (second.done !== true) fail(first.error + specNote([primarySpec, MEMORY_PLUGIN_SPEC]) + (second.error && second.error !== first.error ? ' · ' + second.error : ''));
@@ -4102,7 +4121,9 @@ window.__ModuleLoader__.load({
 						h('button', { key: 'install', 'data-cabinet-plugin-action': 'install', type: 'button', disabled: !manager || working, style: { fontSize: 11, cursor: 'pointer' }, onClick: () => { void run(); } }, working ? t('settings.plugin.installing') : t('settings.plugin.install'))
 					]),
 				!manager ? h('div', { key: 'unavailable', 'data-cabinet-plugin-state': 'unavailable', style: line }, t('settings.plugin.unavailable')) : null,
-				progress !== '' ? h('div', { key: 'progress', 'data-cabinet-plugin-progress': '1', style: line }, progress) : null,
+				fallbackNotice !== '' ? h('div', { key:'fallback', role:'status', 'data-cabinet-plugin-fallback':'1', style:{...line,overflowWrap:'anywhere'} }, fallbackNotice) : null,
+                installed !== null ? h('div', {key:'source', 'data-cabinet-plugin-source':'1',style:{...line,overflowWrap:'anywhere'}}, t('settings.plugin.installedSource') + ' ' + (installed.source || t('settings.plugin.sourceUnknown'))) : null,
+                progress !== '' ? h('div', { key: 'progress', 'data-cabinet-plugin-progress': '1', style: line }, progress) : null,
 				restart ? h('div', { key: 'restart', 'data-cabinet-plugin-state': 'restart', style: { ...line, color: '#d29922' } }, t('settings.plugin.restartRequired')) : null,
 				failure !== '' ? h('div', { key: 'failure', 'data-cabinet-plugin-state': 'error', style: { ...line, color: '#f25a5a' } }, failure) : null
 			]);
@@ -4359,9 +4380,12 @@ window.__ModuleLoader__.load({
 			'settings.plugin.versionFallback': '已安装版本未知',
 			'settings.plugin.restartRequired': '已安装，需重启 DSH 生效',
 			'settings.plugin.unavailable': '安装通道不可用：宿主未提供 remote.pluginManager。可在宿主会话执行 dsh plugin --profile web add <本地路径> 安装。',
-			'settings.plugin.specLabel': '本地源路径（可选，离线安装/更新用）',
+			'settings.plugin.specLabel': '宿主本地源（仅首次安装；依赖可能需要网络）',
 			'settings.plugin.specPlaceholder': '可选：本地源路径；留空则用官方 registry',
 			'settings.plugin.specClear': '清空',
+            'settings.plugin.fallbackNotice': '本地源检查失败，已改用线上源（不是所填本地包）：',
+            'settings.plugin.installedSource': '宿主记录的已安装来源：',
+            'settings.plugin.sourceUnknown': '未知',
 			'settings.plugin.hint1': 'respire/dsh：原生 TypeScript 记忆插件，存储、去重与加密由 rsrs 负责',
 			'settings.plugin.hint2': '自动召回：新会话自动想起早前结论，不用重复交代背景',
 			'settings.plugin.hint3': '本地优先：记忆存本机，引擎故障只提示、主任务照跑',
@@ -4444,9 +4468,12 @@ window.__ModuleLoader__.load({
 			'settings.plugin.versionFallback': 'Installed version unavailable',
 			'settings.plugin.restartRequired': 'Installed; restart DSH to take effect',
 			'settings.plugin.unavailable': 'Install channel unavailable: the host did not expose remote.pluginManager. Run dsh plugin --profile web add <local path> in a host session instead.',
-			'settings.plugin.specLabel': 'Local source path (optional, offline install/update)',
+			'settings.plugin.specLabel': 'Host-local source (first install only; dependencies may need network)',
 			'settings.plugin.specPlaceholder': 'Optional local source path; empty uses the official registry',
 			'settings.plugin.specClear': 'Clear',
+            'settings.plugin.fallbackNotice': 'Local source inspection failed; switched to the registry (not the entered local package):',
+            'settings.plugin.installedSource': 'Installed source reported by host:',
+            'settings.plugin.sourceUnknown': 'Unknown',
 			'settings.plugin.hint1': 'respire/dsh: native TypeScript memory plugin; rsrs owns storage, dedup and encryption',
 			'settings.plugin.hint2': 'Auto-recall: a new session resurfaces earlier conclusions without re-briefing',
 			'settings.plugin.hint3': 'Local first: memories stay on this machine; an engine outage only notices, work continues',

@@ -594,17 +594,88 @@ assert.ok(fallbackErrorText.includes('/tmp/local-source') && fallbackErrorText.i
 // A successful override must not trigger the fallback at all.
 pluginSpecStore.set('cabinet.memoryPluginSpec', '/tmp/ok-source');
 const okSpecCalls = [];
+let localInstalled = false;
 const okSpecManager = {
   inspect: async (spec) => { okSpecCalls.push(spec); return { ok: true, value: { status: 'accepted', name: '@rsrsai/dsh', bundle: true } }; },
-  installBundle: async (spec) => { okSpecCalls.push(spec); return { ok: true, value: { application: 'applied', bundle: '@rsrsai/dsh', version: '0.1.13' } }; },
+  installBundle: async (spec) => { localInstalled = true; okSpecCalls.push(spec); return { ok: true, value: { application: 'applied', bundle: '@rsrsai/dsh', version: '0.1.13' } }; },
   setBundleEnabled: async () => ({ ok: true, value: { application: 'applied' } }),
-  listBundles: async () => ({ ok: true, value: [{ name: '@rsrsai/dsh', installed: true, version: '0.1.13', enabled: true }] }),
+  listBundles: async () => ({ ok: true, value: localInstalled ? [{ name: '@rsrsai/dsh', installed: true, version: '0.1.13', enabled: true }] : [] }),
 };
 settingsState.length = 0; settingsCursor = 0;
 specCard = elements(settingsClient.MemoryPluginCard({ t: (key) => key, manager: okSpecManager }));
 specCard.find((node) => node.props?.['data-cabinet-plugin-action'] === 'install').props.onClick();
 await new Promise((resolve) => setTimeout(resolve, 0));
+assert.equal(okSpecCalls.length, 2, 'inspect and actual install both run');
+assert.ok(localInstalled, 'installation changes inventory');
 assert.ok(okSpecCalls.length > 0 && okSpecCalls.every((spec) => spec === '/tmp/ok-source'), 'a successful override never touches the registry fallback');
+
+// A displayed override remains authoritative even when storage rejects writes.
+for (const scenario of ['storage', 'installed', 'enable-failed']) {
+  pluginSpecStore.clear(); settingsState.length = 0; settingsCursor = 0;
+  let added = false; const calls = [];
+  const manager = {
+    listBundles: async () => ({ok:true,value: (added || scenario === 'installed') ? [{name:'@rsrsai/dsh',installed:true,version:'0.1.13',enabled:false}] : []}),
+    inspect: async spec => { calls.push(['inspect',spec]); return {ok:true,value:{status:'accepted',name:'@rsrsai/dsh',bundle:true}}; },
+    installBundle: async spec => { calls.push(['install',spec]); added=true;return {ok:true,value:{application:'applied',version:'0.1.13'}}; },
+    setBundleEnabled: async () => { calls.push(['enable']); return {ok:true,value:{application:'failed',error:{message:'enable refused'}}}; }
+  };
+  let nodes=elements(settingsClient.MemoryPluginCard({manager,t:k=>k}));
+  const write=pluginSpecStorage.setItem; pluginSpecStorage.setItem=()=>{throw Error('storage denied')};
+  nodes.find(n=>n.props?.['data-cabinet-plugin-spec-input']).props.onChange({target:{value:'/tmp/session-only'}});
+  pluginSpecStorage.setItem=write; settingsCursor=0;
+  nodes=elements(settingsClient.MemoryPluginCard({manager,t:k=>k}));
+  nodes.find(n=>n.props?.['data-cabinet-plugin-action']).props.onClick();
+  await new Promise(r=>setTimeout(r,0));
+  if(scenario==='installed') assert.deepEqual(calls,[], 'local update refuses before any inspection/mutation');
+  else assert.deepEqual(calls,[['inspect','/tmp/session-only'],['install','/tmp/session-only'],['enable']], 'current input survives failed persistence; enable failure never retries');
+}
+
+// Pending or rejected inspection promises must never start a fallback mutation.
+for (const outcome of ['late-accepted', 'late-refused', 'rejected']) {
+  pluginSpecStore.set('cabinet.memoryPluginSpec', '/tmp/pending-source');
+  settingsState.length=0;settingsCursor=0;
+  const calls=[];let resolveInspection;
+  const manager={
+    listBundles:async()=>({ok:true,value:[]}),
+    inspect:spec=>{calls.push(['inspect',spec]);return outcome==='rejected'?Promise.reject(Error('transport failed')):new Promise(resolve=>{resolveInspection=resolve});},
+    installBundle:async()=>{calls.push(['install']);throw Error('must not install');},
+    setBundleEnabled:async()=>{calls.push(['enable']);throw Error('must not enable');}
+  };
+  let nodes=elements(settingsClient.MemoryPluginCard({manager,t:k=>k}));
+  nodes.find(n=>n.props?.['data-cabinet-plugin-action']).props.onClick();
+  await new Promise(r=>setTimeout(r,50));
+  assert.deepEqual(calls,[['inspect','/tmp/pending-source']],outcome+' causes no registry fallback');
+  settingsCursor=0;nodes=elements(settingsClient.MemoryPluginCard({manager,t:k=>k}));
+  assert.ok(nodes.some(n=>n.props?.['data-cabinet-plugin-state']==='error'), 'failure is visible');
+  resolveInspection?.({ok:true,value:{status:outcome==='late-accepted'?'accepted':'refused',name:'@rsrsai/dsh',bundle:true}});
+  await new Promise(r=>setTimeout(r,0));
+  assert.deepEqual(calls,[['inspect','/tmp/pending-source']], 'late response cannot resume installation');
+}
+console.log('PASS: inspection timeout, late acceptance/refusal and transport rejection cause no fallback mutation');
+
+// Fallback remains visible after success or failure; installed source is host evidence.
+for(const succeeds of [true,false]) {
+  pluginSpecStore.set('cabinet.memoryPluginSpec','/tmp/custom-local');
+  settingsState.length=0;settingsCursor=0;let installed=false;const calls=[];
+  const manager={
+    listBundles:async()=>({ok:true,value:installed?[{name:'@rsrsai/dsh',installed:true,enabled:true,version:'0.1.13',source:'@rsrsai/dsh@0.1.13'}]:[]}),
+    inspect:async spec=>{calls.push(spec);return {ok:true,value:spec.startsWith('/tmp')?{status:'refused',reason:'missing local'}:{status:'accepted',name:'@rsrsai/dsh',bundle:true}}},
+    installBundle:async()=>{installed=succeeds;return {ok:true,value:succeeds?{application:'applied',version:'0.1.13'}:{application:'failed',error:{message:'registry failed'}}}},
+    setBundleEnabled:async()=>({ok:true,value:{application:'applied'}})
+  };
+  let nodes=elements(settingsClient.MemoryPluginCard({manager,t:k=>settingsClient.en[k]||k}));
+  nodes.find(n=>n.props?.['data-cabinet-plugin-action']).props.onClick();await new Promise(r=>setTimeout(r,0));
+  settingsCursor=0;nodes=elements(settingsClient.MemoryPluginCard({manager,t:k=>settingsClient.en[k]||k}));
+  const notice=nodes.find(n=>n.props?.['data-cabinet-plugin-fallback']);
+  assert.ok(String(notice.children.flat()).includes('/tmp/custom-local → @rsrsai/dsh@0.1.13'),'actual source switch remains visible');
+  if(succeeds)assert.ok(String(nodes.find(n=>n.props?.['data-cabinet-plugin-source']).children.flat()).includes('@rsrsai/dsh@0.1.13'),'success shows host inventory source');
+  else assert.ok(nodes.some(n=>n.props?.['data-cabinet-plugin-state']==='error'),'failure remains an error, not success');
+  assert.deepEqual(calls,['/tmp/custom-local','@rsrsai/dsh@0.1.13']);
+  settingsCursor=0;const other=elements(settingsClient.MemoryPluginCard({manager:{listBundles:async()=>{throw Error('new connection failed')}},t:k=>k}));
+  assert.equal(other.some(n=>n.props?.['data-cabinet-plugin-fallback']),false,'existing fallback notice cannot cross connection');
+  assert.equal(other.some(n=>n.props?.['data-cabinet-plugin-source']),false,'existing source cannot cross connection');
+}
+
 pluginSpecStore.delete('cabinet.memoryPluginSpec');
 
 // Both dictionaries carry the same settings.* keys (nothing may exist in one
@@ -700,3 +771,36 @@ console.log('PASS: effectful inventory first mount/remount/channel replacement a
   h.render(manager).find(n=>n.props?.['data-cabinet-plugin-action']==='install').props.onClick();await tick();resolve({ok:true,value:[]});await tick();assert.equal(versionOf(h.render(manager)),'0.1.13','epoch rejects pre-operation inventory response');h.unmount();
 }
 console.log('PASS: late initial inventory cannot overwrite a completed operation');
+
+{
+  const h=memoryCardHarness();
+  const a={listBundles:async()=>({ok:true,value:[{name:'@rsrsai/dsh',installed:true,enabled:true,version:'0.1.13',source:'registry-A'}]})};
+  const b={listBundles:async()=>{throw Error('unavailable')}};
+  const sourceOf=n=>n.find(x=>x.props?.['data-cabinet-plugin-source'])?.children.flat().join('');
+  h.render(a);await tick();assert.ok(sourceOf(h.render(a)).includes('registry-A'));
+  assert.equal(sourceOf(h.render(b)),undefined,'new connection hides old source immediately');await tick();assert.equal(sourceOf(h.render(b)),undefined,'failed inventory never exposes previous source');
+  const c={listBundles:async()=>inventory('0.1.13')};h.render(c);await tick();assert.ok(sourceOf(h.render(c)).includes('settings.plugin.sourceUnknown'),'missing provenance is unknown');
+  h.unmount();h.render(a);await tick();assert.ok(sourceOf(h.render(a)).includes('registry-A'),'remount reloads host provenance');h.unmount();
+}
+
+// Switching connections during inspection never locks the new connection or mutates the old one.
+{
+ const h=memoryCardHarness();let finish,mutations=0;
+ const a={listBundles:async()=>({ok:true,value:[]}),inspect:()=>new Promise(r=>finish=r),installBundle:async()=>{mutations++;return {ok:true,value:{application:'applied'}}}};
+ const b={listBundles:async()=>{throw Error('new inventory failed')},inspect:async()=>{},installBundle:async()=>{}};
+ const action=n=>n.find(x=>x.props?.['data-cabinet-plugin-action']);
+ h.render(a);await tick();action(h.render(a)).props.onClick();await tick();assert.equal(action(h.render(a)).props.disabled,true);
+ assert.equal(action(h.render(b)).props.disabled,false,'new connection is not locked by old work');await tick();
+ finish({ok:true,value:{status:'accepted',name:'@rsrsai/dsh',bundle:true}});await tick();
+ assert.equal(action(h.render(b)).props.disabled,false,'late completion cannot lock new UI');assert.equal(mutations,0,'late inspection cannot start installation after connection changed');h.unmount();
+}
+
+{
+ const h=memoryCardHarness();let finish,enabled=0;
+ const a={listBundles:async()=>({ok:true,value:[]}),inspect:async()=>({ok:true,value:{status:'accepted',name:'@rsrsai/dsh',bundle:true}}),installBundle:()=>new Promise(r=>finish=r),setBundleEnabled:async()=>{enabled++;return {ok:true,value:{application:'applied'}}}};
+ const b={listBundles:async()=>({ok:true,value:[]})};const action=n=>n.find(x=>x.props?.['data-cabinet-plugin-action']);
+ h.render(a);await tick();action(h.render(a)).props.onClick();await tick();assert.equal(typeof finish,'function');
+ assert.equal(action(h.render(b)).props.disabled,false);await tick();
+ finish({ok:true,value:{application:'applied',version:'0.1.13'}});await tick();
+ const nodes=h.render(b);assert.equal(action(nodes).props.disabled,false);assert.equal(versionOf(nodes),undefined);assert.equal(enabled,0,'old installation completion must not enable after switching');h.unmount();
+}
