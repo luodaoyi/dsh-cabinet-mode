@@ -88,7 +88,7 @@ $ grep -rn -E '^(<<<<<<<|=======|>>>>>>>)' client.js index.js cordis.patch.yml s
 | scripts/test-prompt-assembly.cjs | **1** | `Error: Set DSH_MODULE_ROOT to the installed official DSH node_modules directory`（脚本 :3 自抛） | **预期失败（基线既有，缺 env）** |
 | scripts/verify.mjs | 0 | 尾行 `Result: PASS=43 FAIL=0 WARN=1` + `Verification passed.` | 通过 |
 
-→ 汇总：**15 项中 11 绿、4 失败，四件失败与任务书预期完全吻合**（test-market-index.mjs / test-model-selection.cjs / test-prompt-assembly.cjs 基线既有 + test-model-prepared.mjs 缺 env）。**无任何新失败**。
+→ 汇总：**15 项中 11 绿、4 失败，四件失败与任务书预期完全吻合**（test-market-index.mjs / test-model-selection.cjs / test-prompt-assembly.cjs 基线既有 + test-model-prepared.mjs 缺 env）。**无预期外失败（含新增 test-model-prepared.mjs 的环境/版本失败，不是本版验收通过证据）**。
 
 verify.mjs 的 WARN 原文（本机口径变化，如实记录）：
 
@@ -118,7 +118,7 @@ ls: cannot access '...': No such file or directory
 ```
 $ ls -d /var/opt/node24/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai   ← 存在
 $ ls -d /opt/node24/lib/node_modules/@deepseek-ai                                     ← 仅此一层（dsh 装在 @deepseek-ai/dsh 下）
-$ node -e "require('/var/opt/node24/lib/node_modules/@deepseek-ai/dsh/package.json').version"
+$ node -p "require('/var/opt/node24/lib/node_modules/@deepseek-ai/dsh/package.json').version"
 0.2.1-rc.5
 ```
 

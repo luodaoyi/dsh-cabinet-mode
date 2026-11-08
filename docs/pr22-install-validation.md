@@ -19,3 +19,10 @@ This supersedes the historical contributor-machine notes. Base: e1f005896122703d
 - Initial test-tool failures (Corepack resolution and a missing pnpm executable path) were corrected using isolated pnpm 11.13.1. Their failed runs are not counted as passes.
 
 The five-tab settings flow retains the existing explicit Save/Cancel member configuration semantics. The memory-plugin operation is a separate explicit action. Historical platform evidence does not certify this preset for old DSH hosts; retain the documented older package there.
+## Independent-review correction (2026-11-08)
+
+The de84b6c inventory effect referenced an undeclared generation variable. The earlier tab renderer did not execute useEffect, and the earlier browser remount observation preceded that final edit; it therefore did not validate de84b6c. That claim is withdrawn for that commit.
+
+The effect now captures token.epoch locally. An effect-running hook regression covers first mount, remount, manager replacement and an initial reply arriving after a completed operation. These are explicitly test doubles.
+
+Real Chrome with React was rerun on the corrected source, using the official rc.1 PluginManager and the task-owned installed profile: first mount and remount both displayed 0.1.13 without initialInstalled. Calling the official updateBundle with target 0.1.12 returned application=failed and diagnostic "0.1.12 is not a version newer than the installed 0.1.13"; final inventory remained version 0.1.13, enabled=true. This confirms the host refuses downgrades; the old frontend call was not proven to downgrade anything. The card now also refuses newer/uncomparable versions before mutation, with seven regression cases. Nonstable or unknown versions are left to the native manager.

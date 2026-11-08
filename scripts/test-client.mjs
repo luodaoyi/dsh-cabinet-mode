@@ -577,3 +577,43 @@ for (const scenario of ['success','install-failed','enable-failed','missing-wait
   if(['timeout','missing-wait'].includes(scenario)) {result.find(n=>n.props?.['data-cabinet-plugin-action']==='install').props.onClick();await new Promise(r=>setTimeout(r,0));assert.equal(installs,1,'unknown operation cannot be duplicated');}
 }
 console.log('PASS: install/enable success, failure, missing wait, deadline, unknown-result duplicate guard and restart state (mock remote)');
+// Lifecycle double executes effects and preserves refs; unlike the tab-only
+// renderer above, this detects broken first inventory reads. Browser evidence
+// remains separate and uses real React.
+function memoryCardHarness() {
+  let hooks=[],cursor=0,effects=[],api,tree;
+  const react={...React,
+    useState(initial){const i=cursor++;if(!(i in hooks))hooks[i]={value:typeof initial==='function'?initial():initial};return [hooks[i].value,v=>{hooks[i].value=typeof v==='function'?v(hooks[i].value):v;}];},
+    useRef(initial){const i=cursor++;return hooks[i]??(hooks[i]={current:initial});},
+    useEffect(fn,deps){const i=cursor++,old=hooks[i];if(!old||deps.some((v,n)=>v!==old.deps[n])){hooks[i]={deps,cleanup:old?.cleanup};effects.push(()=>{hooks[i].cleanup?.();hooks[i].cleanup=fn();});}}
+  };
+  runInNewContext(source.replace(exportPoint,exportList),{setTimeout,clearTimeout,window:{__ModuleLoader__:{load:({factory})=>{api=factory(()=>react);}}}});
+  return {render(manager){cursor=0;effects=[];tree=elements(api.MemoryPluginCard({manager,t:k=>k}));for(const effect of effects)effect();return tree;},unmount(){for(const hook of hooks)hook.cleanup?.();hooks=[];},};
+}
+const inventory=version=>({ok:true,value:[{name:'@rsrsai/dsh',installed:true,enabled:true,version}]});
+const tick=()=>new Promise(r=>setTimeout(r,0));
+const versionOf=nodes=>nodes.find(n=>n.props?.['data-cabinet-plugin-version']!==undefined)?.props['data-cabinet-plugin-version'];
+{
+  const h=memoryCardHarness();const manager={listBundles:async()=>inventory('0.1.13')};
+  h.render(manager);await tick();assert.equal(versionOf(h.render(manager)),'0.1.13','first mount reads actual remote inventory');
+  h.unmount();h.render(manager);await tick();assert.equal(versionOf(h.render(manager)),'0.1.13','remount reads inventory without initialInstalled');h.unmount();
+}
+{
+  const h=memoryCardHarness();let resolve;
+  const old={listBundles:()=>new Promise(r=>resolve=r)},current={listBundles:async()=>inventory('0.1.14')};
+  h.render(old);h.render(current);await tick();resolve(inventory('0.1.12'));await tick();assert.equal(versionOf(h.render(current)),'0.1.14','old channel cannot overwrite the new inventory');h.unmount();
+}
+for(const version of ['0.1.14','0.2.0','1.0.0','','broken','0.1.13-rc.1','9007199254740993.0.0']) {
+  const h=memoryCardHarness();let mutations=0;
+  const manager={listBundles:async()=>inventory(version),inspect:async()=>{throw Error('must reject before inspect')},installBundle:async()=>{mutations++},updateBundle:async()=>{mutations++},setBundleEnabled:async()=>{mutations++}};
+  h.render(manager);await tick();h.render(manager).find(n=>n.props?.['data-cabinet-plugin-action']==='update').props.onClick();await tick();
+  assert.equal(mutations,0,version);assert.ok(h.render(manager).some(n=>n.props?.['data-cabinet-plugin-state']==='error'),version);h.unmount();
+}
+console.log('PASS: effectful inventory first mount/remount/channel replacement and seven conservative non-downgrade cases; hook double, not browser E2E');
+// An initial inventory read that finishes after a clicked operation is stale.
+{
+  const h=memoryCardHarness();let resolve,reads=0;
+  const manager={listBundles:async()=>++reads===1?new Promise(r=>resolve=r):inventory('0.1.13'),inspect:async()=>({ok:true,value:{status:'accepted',name:'@rsrsai/dsh',bundle:true}}),installBundle:async()=>{throw Error('already installed')},setBundleEnabled:async()=>({ok:true,value:{application:'applied'}})};
+  h.render(manager).find(n=>n.props?.['data-cabinet-plugin-action']==='install').props.onClick();await tick();resolve({ok:true,value:[]});await tick();assert.equal(versionOf(h.render(manager)),'0.1.13','epoch rejects pre-operation inventory response');h.unmount();
+}
+console.log('PASS: late initial inventory cannot overwrite a completed operation');

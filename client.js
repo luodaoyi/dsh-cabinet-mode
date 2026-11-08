@@ -3929,6 +3929,7 @@ window.__ModuleLoader__.load({
             const setRestart = value => { if (token.active) writeRestart(value); };
 			React.useEffect(() => {
 				let alive = true;
+                const generation = token.epoch;
 				(async () => {
 					if (!manager || typeof manager.listBundles !== 'function') return;
 					try {
@@ -3967,6 +3968,14 @@ window.__ModuleLoader__.load({
                 };
                 try {
                     const before = memoryPluginInstalledOf(valueOf(await pluginDeadline(manager.listBundles())));
+                    if (before && before.version !== '0.1.13') {
+                        // Only known, older stable versions are offered this pinned update.
+                        // The official host independently enforces semver.gt(target, installed).
+                        const parts = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/.exec(before.version);
+                        const values = parts?.slice(1).map(Number);
+                        const older = values && values.every(Number.isSafeInteger) && values[0] === 0 && (values[1] === 0 || values[1] === 1 && values[2] < 13);
+                        if (!older) throw new Error('Installed version is newer than the pinned version or cannot be safely compared. Use the native plugin manager; no package was changed.');
+                    }
                     const inspected = valueOf(await pluginDeadline(manager.inspect(MEMORY_PLUGIN_SPEC, {})));
                     if (!inspected || inspected.status !== 'accepted' || inspected.name !== MEMORY_PLUGIN_NAME || inspected.bundle !== true) throw new Error(inspected?.reason || 'Plugin spec refused');
                     const requestId = globalThis.crypto?.randomUUID?.() || 'cabinet-' + Date.now() + '-' + Math.random().toString(16).slice(2);
