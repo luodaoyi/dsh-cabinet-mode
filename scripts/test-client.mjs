@@ -594,17 +594,42 @@ assert.ok(fallbackErrorText.includes('/tmp/local-source') && fallbackErrorText.i
 // A successful override must not trigger the fallback at all.
 pluginSpecStore.set('cabinet.memoryPluginSpec', '/tmp/ok-source');
 const okSpecCalls = [];
+let localInstalled = false;
 const okSpecManager = {
   inspect: async (spec) => { okSpecCalls.push(spec); return { ok: true, value: { status: 'accepted', name: '@rsrsai/dsh', bundle: true } }; },
-  installBundle: async (spec) => { okSpecCalls.push(spec); return { ok: true, value: { application: 'applied', bundle: '@rsrsai/dsh', version: '0.1.13' } }; },
+  installBundle: async (spec) => { localInstalled = true; okSpecCalls.push(spec); return { ok: true, value: { application: 'applied', bundle: '@rsrsai/dsh', version: '0.1.13' } }; },
   setBundleEnabled: async () => ({ ok: true, value: { application: 'applied' } }),
-  listBundles: async () => ({ ok: true, value: [{ name: '@rsrsai/dsh', installed: true, version: '0.1.13', enabled: true }] }),
+  listBundles: async () => ({ ok: true, value: localInstalled ? [{ name: '@rsrsai/dsh', installed: true, version: '0.1.13', enabled: true }] : [] }),
 };
 settingsState.length = 0; settingsCursor = 0;
 specCard = elements(settingsClient.MemoryPluginCard({ t: (key) => key, manager: okSpecManager }));
 specCard.find((node) => node.props?.['data-cabinet-plugin-action'] === 'install').props.onClick();
 await new Promise((resolve) => setTimeout(resolve, 0));
+assert.equal(okSpecCalls.length, 2, 'inspect and actual install both run');
+assert.ok(localInstalled, 'installation changes inventory');
 assert.ok(okSpecCalls.length > 0 && okSpecCalls.every((spec) => spec === '/tmp/ok-source'), 'a successful override never touches the registry fallback');
+
+// A displayed override remains authoritative even when storage rejects writes.
+for (const scenario of ['storage', 'installed', 'enable-failed']) {
+  pluginSpecStore.clear(); settingsState.length = 0; settingsCursor = 0;
+  let added = false; const calls = [];
+  const manager = {
+    listBundles: async () => ({ok:true,value: (added || scenario === 'installed') ? [{name:'@rsrsai/dsh',installed:true,version:'0.1.13',enabled:false}] : []}),
+    inspect: async spec => { calls.push(['inspect',spec]); return {ok:true,value:{status:'accepted',name:'@rsrsai/dsh',bundle:true}}; },
+    installBundle: async spec => { calls.push(['install',spec]); added=true;return {ok:true,value:{application:'applied',version:'0.1.13'}}; },
+    setBundleEnabled: async () => { calls.push(['enable']); return {ok:true,value:{application:'failed',error:{message:'enable refused'}}}; }
+  };
+  let nodes=elements(settingsClient.MemoryPluginCard({manager,t:k=>k}));
+  const write=pluginSpecStorage.setItem; pluginSpecStorage.setItem=()=>{throw Error('storage denied')};
+  nodes.find(n=>n.props?.['data-cabinet-plugin-spec-input']).props.onChange({target:{value:'/tmp/session-only'}});
+  pluginSpecStorage.setItem=write; settingsCursor=0;
+  nodes=elements(settingsClient.MemoryPluginCard({manager,t:k=>k}));
+  nodes.find(n=>n.props?.['data-cabinet-plugin-action']).props.onClick();
+  await new Promise(r=>setTimeout(r,0));
+  if(scenario==='installed') assert.deepEqual(calls,[], 'local update refuses before any inspection/mutation');
+  else assert.deepEqual(calls,[['inspect','/tmp/session-only'],['install','/tmp/session-only'],['enable']], 'current input survives failed persistence; enable failure never retries');
+}
+
 pluginSpecStore.delete('cabinet.memoryPluginSpec');
 
 // Both dictionaries carry the same settings.* keys (nothing may exist in one

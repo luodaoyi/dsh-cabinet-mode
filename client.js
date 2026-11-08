@@ -3997,8 +3997,10 @@ window.__ModuleLoader__.load({
                  *  inventory confirm) verbatim, but it resolves {done}/{error}
                  *  instead of echoing so run() can annotate and fall back. */
                 const attemptSpec = async (spec) => {
+                    let canFallback = false;
                     try {
                         const before = memoryPluginInstalledOf(valueOf(await pluginDeadline(manager.listBundles())));
+                        if (before && spec !== MEMORY_PLUGIN_SPEC) throw new Error('Local sources support first installation only. Clear the path for a registry update, or use the native plugin manager. No package was changed.');
                         if (before && before.version !== '0.1.13') {
                             // Only known, older stable versions are offered this pinned update.
                             // The official host independently enforces semver.gt(target, installed).
@@ -4007,8 +4009,10 @@ window.__ModuleLoader__.load({
                             const older = values && values.every(Number.isSafeInteger) && values[0] === 0 && (values[1] === 0 || values[1] === 1 && values[2] < 13);
                             if (!older) throw new Error('Installed version is newer than the pinned version or cannot be safely compared. Use the native plugin manager; no package was changed.');
                         }
+                        canFallback = !before;
                         const inspected = valueOf(await pluginDeadline(manager.inspect(spec, {})));
                         if (!inspected || inspected.status !== 'accepted' || inspected.name !== MEMORY_PLUGIN_NAME || inspected.bundle !== true) throw new Error(inspected?.reason || 'Plugin spec refused');
+                        canFallback = false;
                         const requestId = globalThis.crypto?.randomUUID?.() || 'cabinet-' + Date.now() + '-' + Math.random().toString(16).slice(2);
                         let outcome;
                         if (before && before.version === '0.1.13') {
@@ -4042,13 +4046,13 @@ window.__ModuleLoader__.load({
                         setFailure('');
                         return { done: true };
                     } catch (error) {
-                        return { error: error?.message || String(error) };
+                        return { error: error?.message || String(error), canFallback };
                     }
                 };
                 const specNote = (specs) => ' [spec' + (specs.length > 1 ? 's' : '') + ': ' + specs.join(' → ') + ']';
                 try {
                     // spec = stored local-source override, else the registry default.
-                    const overrideSpec = memoryPluginSpecRead();
+                    const overrideSpec = specText.trim();
                     const primarySpec = overrideSpec !== '' ? overrideSpec : MEMORY_PLUGIN_SPEC;
                     let first;
                     try { first = await attemptSpec(primarySpec); } catch (error) { first = { error: error?.message || String(error) }; }
@@ -4056,7 +4060,7 @@ window.__ModuleLoader__.load({
                         // A definitive failure of the local source falls back to the
                         // registry once; an uncertain outcome keeps the upstream
                         // no-second-operation guard (its job stays registered).
-                        if (primarySpec !== MEMORY_PLUGIN_SPEC && uncertain !== true) {
+                        if (primarySpec !== MEMORY_PLUGIN_SPEC && first.canFallback === true && uncertain !== true && token.active) {
                             let second;
                             try { second = await attemptSpec(MEMORY_PLUGIN_SPEC); } catch (error) { second = { error: error?.message || String(error) }; }
                             if (second.done !== true) fail(first.error + specNote([primarySpec, MEMORY_PLUGIN_SPEC]) + (second.error && second.error !== first.error ? ' · ' + second.error : ''));
@@ -4359,7 +4363,7 @@ window.__ModuleLoader__.load({
 			'settings.plugin.versionFallback': '已安装版本未知',
 			'settings.plugin.restartRequired': '已安装，需重启 DSH 生效',
 			'settings.plugin.unavailable': '安装通道不可用：宿主未提供 remote.pluginManager。可在宿主会话执行 dsh plugin --profile web add <本地路径> 安装。',
-			'settings.plugin.specLabel': '本地源路径（可选，离线安装/更新用）',
+			'settings.plugin.specLabel': '宿主本地源（仅首次安装；依赖可能需要网络）',
 			'settings.plugin.specPlaceholder': '可选：本地源路径；留空则用官方 registry',
 			'settings.plugin.specClear': '清空',
 			'settings.plugin.hint1': 'respire/dsh：原生 TypeScript 记忆插件，存储、去重与加密由 rsrs 负责',
@@ -4444,7 +4448,7 @@ window.__ModuleLoader__.load({
 			'settings.plugin.versionFallback': 'Installed version unavailable',
 			'settings.plugin.restartRequired': 'Installed; restart DSH to take effect',
 			'settings.plugin.unavailable': 'Install channel unavailable: the host did not expose remote.pluginManager. Run dsh plugin --profile web add <local path> in a host session instead.',
-			'settings.plugin.specLabel': 'Local source path (optional, offline install/update)',
+			'settings.plugin.specLabel': 'Host-local source (first install only; dependencies may need network)',
 			'settings.plugin.specPlaceholder': 'Optional local source path; empty uses the official registry',
 			'settings.plugin.specClear': 'Clear',
 			'settings.plugin.hint1': 'respire/dsh: native TypeScript memory plugin; rsrs owns storage, dedup and encryption',

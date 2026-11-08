@@ -566,3 +566,7 @@ and the Windows-tested vs Linux/macOS-inferred split. Sections:
 ## License
 
 [MIT](LICENSE)
+
+### Optional Respire local source
+
+The memory-plugin card accepts a path on the DSH host for **first installation only**. Dependencies may still need network access; this is not a guaranteed offline installer. Installed bundles reject local-source updates: clear the field for the pinned registry action, or manage local packages through the native plugin manager. Browser storage is best-effort; the current field value is used even when persistence fails. Only inspection failure before installation may fall back once to the registry. Installation, enablement, unknown outcomes, and unmount never trigger a second automatic mutation.
