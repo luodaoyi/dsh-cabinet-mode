@@ -1,6 +1,6 @@
 # Cabinet Mode (内阁模式) for DeepSeek Harness
 
-**Version compatibility (0.5.4):** Targets DSH **0.2.2-rc.1**. This patch corrects dependency flow and opens teammate sessions from task titles and member cards; it retains the per-office model selection fix before the host freezes each step; 0.5.1/0.5.2 only repaired preset loading and display metadata. Verified with official host components and isolated profiles, without real model calls; see the model regression scope below. Earlier rc.3/rc.5 UI and installation results are historical evidence for earlier packages. On DSH 0.2.1-rc.3/rc.5 retain the previously verified package, including 0.5.0: the current preset omits the separate list_agents entry required on rc.5. Select the compatible version in the market.
+**Version compatibility (0.6.0):** Targets DSH **0.2.2-rc.1**. This release adds five settings tabs and an optional Respire install card, and retains the per-office model selection fix before the host freezes each step; 0.5.1/0.5.2 only repaired preset loading and display metadata. Verified with official host components and isolated profiles, without real model calls; see the model regression scope below. Earlier rc.3/rc.5 UI and installation results are historical evidence for earlier packages. On DSH 0.2.1-rc.3/rc.5 retain the previously verified package, including 0.5.0: the current preset omits the separate list_agents entry required on rc.5. Select the compatible version in the market.
 
 [中文](README.zh.md) | English
 
@@ -37,7 +37,11 @@ and the rest) come from the profile-level
 ship them**.
 
 This bundle declares **no hard DSH version gate**: no `engines.dsh`, no DSH
-`peerDependencies`, no install-time version check. Earlier package releases were tested on DSH **0.2.1-rc.3**; use the compatibility guidance above for 0.5.4 (see [DSH-side constraints](#dsh-side-constraints)).
+`peerDependencies`, no install-time version check. Earlier package releases were tested on DSH **0.2.1-rc.3**; use the compatibility guidance above for 0.6.0 (see [DSH-side constraints](#dsh-side-constraints)).
+
+## Optional memory plugin
+
+The Plugin tab installs the public pinned `@rsrsai/dsh@0.1.13` package. Installing and enabling are confirmed separately; a restart notice must be followed. Newer versions are not silently downgraded. Unknown versions are reported as unknown. Each remote wait has a two-minute deadline; a timeout does not cancel the host job. If the outcome remains unknown, check the native plugin manager before retrying. Closing the card stops stale UI updates and does not automatically enable a still-installing bundle.
 
 ## Cabinet member settings
 
@@ -258,7 +262,7 @@ On failure, show the exact error. For $.format must be 1, replace the webpage so
 Use this only when the market is unavailable or for local development. Fully quit desktop DSH first to release the profile lock, then install the release bundle:
 
 ```sh
-dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.5.4/dsh-cabinet-mode-0.5.4.tgz
+dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.6.0/dsh-cabinet-mode-0.6.0.tgz
 dsh plugin --profile desktop list
 ```
 
@@ -273,7 +277,7 @@ the same install command with the new version URL (or pick the new `.tgz` in the
 plugin page), then fully quit and restart DeepSeek Harness:
 
 ```sh
-dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.5.4/dsh-cabinet-mode-0.5.4.tgz
+dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.6.0/dsh-cabinet-mode-0.6.0.tgz
 ```
 
 `dsh plugin --profile desktop list` should report the new version. Upgrades were

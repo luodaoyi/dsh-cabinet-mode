@@ -2,6 +2,19 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.6.0] - 2026-11-08
+
+### Added
+
+- Five member-settings tabs and an optional Respire memory-plugin card using the public pinned package source.
+- Lead monitoring guidance that requires confirming stopped writers before reassignment; no runtime watchdog or scheduled wake-up is implied.
+
+### Fixed
+
+- Read official remote result envelopes; use the host update API for installed bundles and confirm installation and enable outcomes separately.
+- Bound remote waits, block duplicate uncertain operations, preserve restart notices across card remounts, and ignore stale UI writes after unmount.
+- Report unknown installed versions honestly rather than substituting a developer-machine snapshot.
+
 ## [0.5.4] - 2026-11-07
 
 ### Fixed

@@ -2531,6 +2531,7 @@ window.__ModuleLoader__.load({
 八、责任到人：缺陷点名到人到行号，不许用「我们」糊过去。
 九、反制糊弄：报「已完成」必追问证据三件（命令输出、路径行号、未验证清单）；报「卡住」必追问三件（已做什么、卡在哪、需要什么）；两次含糊即降级处理（换人、拆小）。
 十、收束：闭环才许说「这一版可以交差」，不许提前许诺功劳。
+十一、监控纠偏：分派时约定回报节点、产物清单和单一交付范围；按实际可用的团队状态与消息工具检查进展，必要时要求回报做了什么、卡在哪里、需要什么。工具未提供时间字段时不得臆造耗时；文件时间戳仅作辅助，须读回产物并结合执行状态。finished、not found 或暂时沉默均不是成功或安全接管的证据。同一命令反复无进展、任务范围过大时先核实原因，再请求中断；中断返回不代表在途工具或写入已结束。必须确认原执行者及其写入停止后才能重派同一工作，无法确认则报告阻塞，不并发增加第二写入者。收窄任务后可重派或换人；超出当前上下文的回访使用宿主明确支持的调度机制，没有该机制不得承诺定时自动唤醒。
 红线（压过全部话术）：只对 AI 阁臣施压，对用户只有敬；不许逼造假、删证据、凑绿；不许人身侮辱辱骂；不许以施压换取违规操作（越权改 live、泄密钥、跳验收）；施压必须落在可核验的时间/交付物/判据上，空口威胁无效。`;
 		/**
 		 * Factory duty prompt for each non-Lead member — the office duties the
@@ -3875,9 +3876,184 @@ window.__ModuleLoader__.load({
   };
 }
 
+		// ---------- memory plugin install card (one-click, 方案A) --------------
+		// Optional install channel: set by the ctx.inject guard in apply() and
+		// cleared on dispose. Without the host's plugin-manager remote the card
+		// renders an explicit unavailable line instead of a dead button — the
+		// same degradation as memberRemote and cabinetOpenSession.
+		let cabinetPluginManager = null;
+		const memoryPluginListeners = new Set();
+        const notifyMemoryPlugin = () => { for (const listener of memoryPluginListeners) listener(); };
+		/** Package this card manages. */
+		const MEMORY_PLUGIN_NAME = '@rsrsai/dsh';
+		/** Public pinned package; inspect and install use the same spec. */
+		const MEMORY_PLUGIN_SPEC = '@rsrsai/dsh@0.1.13';
+		const MEMORY_PLUGIN_SOURCE_VERSION = '';
+		const memoryPluginJobs = new WeakMap();
+        const memoryPluginRestart = new WeakSet();
+		function pluginDeadline(operation, ms = 120000) {
+			let timer;
+			return Promise.race([operation, new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('Plugin operation timed out; outcome may still be pending. Check the native plugin manager before retrying.')), ms); })]).finally(() => clearTimeout(timer));
+		}
+		/** The five settings tabs, in display order. */
+		const SETTINGS_TABS = ['members', 'avatars', 'models', 'prompts', 'plugin'];
+		/** Derive the card's installed state from a listBundles() reply. */
+		function memoryPluginInstalledOf(bundles) {
+			if (!Array.isArray(bundles)) return null;
+			const hit = bundles.find((entry) => entry && entry.name === MEMORY_PLUGIN_NAME && entry.installed === true);
+			return hit === undefined ? null : { name: MEMORY_PLUGIN_NAME, version: typeof hit.version === 'string' ? hit.version : '', enabled: hit.enabled === true };
+		}
+		function MemoryPluginCard(props) {
+            const [, refreshChannel] = React.useState(0);
+            React.useEffect(() => { const listener = () => refreshChannel(n => n + 1); memoryPluginListeners.add(listener); return () => memoryPluginListeners.delete(listener); }, []);
+			const t = typeof props?.t === 'function' ? props.t : memberT;
+			// Explicit props win so a host-driven render (and the tests) can pin the
+			// channel; omitting them reads the injected module state.
+			const manager = props !== undefined && props !== null && Object.hasOwn(props, 'manager') ? props.manager : cabinetPluginManager;
+			const lifetime = React.useRef(null);
+            if (!lifetime.current || lifetime.current.manager !== manager) {
+                if (lifetime.current) lifetime.current.active = false;
+                lifetime.current = {manager, active:true, epoch:0};
+            }
+            const token = lifetime.current;
+            React.useEffect(() => { token.active = true; return () => { token.active = false; }; }, [token]);
+			const [installed, writeInstalled] = React.useState(props?.initialInstalled ?? null);
+			const [working, writeWorking] = React.useState(false);
+			const [progress, writeProgress] = React.useState('');
+			const [failure, writeFailure] = React.useState('');
+			const [restart, writeRestart] = React.useState(manager ? memoryPluginRestart.has(manager) : false);
+            const setInstalled = value => { if (token.active) writeInstalled(value); };
+            const setWorking = value => { if (token.active) writeWorking(value); };
+            const setProgress = value => { if (token.active) writeProgress(value); };
+            const setFailure = value => { if (token.active) writeFailure(value); };
+            const setRestart = value => { if (token.active) writeRestart(value); };
+			React.useEffect(() => {
+				let alive = true;
+                const generation = token.epoch;
+				(async () => {
+					if (!manager || typeof manager.listBundles !== 'function') return;
+					try {
+						const reply = await pluginDeadline(manager.listBundles());
+						const found = reply?.ok === true ? memoryPluginInstalledOf(reply.value) : null;
+						if (alive && generation === token.epoch && reply?.ok === true) setInstalled(found);
+					} catch { /* keep the render-time state; the card still shows */ }
+				})();
+				return () => { alive = false; };
+			}, [manager]);
+			// Failures are echoed verbatim: the raw message is the evidence.
+			const fail = (text) => { setWorking(false); setFailure(typeof text === 'string' && text !== '' ? text : String(text)); };
+
+            const run = async () => {
+                if (!manager || typeof manager.inspect !== 'function' || typeof manager.installBundle !== 'function' || typeof manager.listBundles !== 'function') { fail('pluginManager remote unavailable'); return; }
+                if (memoryPluginJobs.get(manager)?.running) return;
+                if (memoryPluginJobs.get(manager)?.settled === true) memoryPluginJobs.delete(manager);
+                if (memoryPluginJobs.has(manager)) { fail('An operation is pending or its result is unknown. Check the native plugin manager; do not start another installation.'); return; }
+                token.epoch++;
+                const job = {settled:false,running:true}; memoryPluginJobs.set(manager, job);
+                const observe = (operation, update = false) => Promise.resolve(operation).then(reply => {
+                    const outcome = update ? reply?.value?.result : reply?.value;
+                    job.settled = reply?.ok === true && ['applied','restart-required','failed','cancelled'].includes(outcome?.application);
+                    return reply;
+                });
+                let uncertain = false;
+                setWorking(true); setFailure(''); setRestart(memoryPluginRestart.has(manager)); setProgress('');
+                const valueOf = reply => {
+                    if (reply?.ok !== true) throw new Error(reply?.error?.message || 'Plugin manager returned no successful reply');
+                    return reply.value;
+                };
+                const outcomeOf = outcome => {
+                    if (!outcome || !['applied', 'restart-required'].includes(outcome.application)) throw new Error(outcome?.error?.message || outcome?.error?.diagnostic || outcome?.packageResult?.stderr || outcome?.application || 'Unknown plugin application result');
+                    if (outcome.application === 'restart-required') { memoryPluginRestart.add(manager); setRestart(true); }
+                    return outcome;
+                };
+                try {
+                    const before = memoryPluginInstalledOf(valueOf(await pluginDeadline(manager.listBundles())));
+                    if (before && before.version !== '0.1.13') {
+                        // Only known, older stable versions are offered this pinned update.
+                        // The official host independently enforces semver.gt(target, installed).
+                        const parts = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/.exec(before.version);
+                        const values = parts?.slice(1).map(Number);
+                        const older = values && values.every(Number.isSafeInteger) && values[0] === 0 && (values[1] === 0 || values[1] === 1 && values[2] < 13);
+                        if (!older) throw new Error('Installed version is newer than the pinned version or cannot be safely compared. Use the native plugin manager; no package was changed.');
+                    }
+                    const inspected = valueOf(await pluginDeadline(manager.inspect(MEMORY_PLUGIN_SPEC, {})));
+                    if (!inspected || inspected.status !== 'accepted' || inspected.name !== MEMORY_PLUGIN_NAME || inspected.bundle !== true) throw new Error(inspected?.reason || 'Plugin spec refused');
+                    const requestId = globalThis.crypto?.randomUUID?.() || 'cabinet-' + Date.now() + '-' + Math.random().toString(16).slice(2);
+                    let outcome;
+                    if (before && before.version === '0.1.13') {
+                        outcome = { application: 'applied' };
+                    } else {
+                        if (before && typeof manager.updateBundle !== 'function') throw new Error('Use the native plugin manager to update this installed bundle');
+                        uncertain = true;
+                        const operation = before ? manager.updateBundle(MEMORY_PLUGIN_NAME, '0.1.13', {requestId}) : manager.installBundle(MEMORY_PLUGIN_SPEC, {enabled:false,requestId});
+                        let reply = await pluginDeadline(observe(operation, !!before));
+                        if (reply?.ok !== true && !before && typeof manager.waitForInstall === 'function') reply = await pluginDeadline(observe(manager.waitForInstall(requestId)));
+                        const result = valueOf(reply);
+                        if (!result) throw new Error('Install outcome is unknown; check the native plugin manager before retrying');
+                        outcome = before ? result.result : result;
+                        if (!outcome || !['applied','restart-required','failed','cancelled'].includes(outcome.application)) throw new Error('Install outcome is unknown');
+                        uncertain = false;
+                        outcomeOf(outcome);
+                    }
+                    // Installation and enabling are separate operations; neither implies the other succeeded.
+                    setInstalled({name:MEMORY_PLUGIN_NAME,version:outcome.version || before?.version || '',enabled:false});
+                    if (!token.active) return;
+                    if (typeof manager.setBundleEnabled !== 'function') throw new Error('Installed, but enable is unavailable; enable it in the native plugin manager');
+                    uncertain = true; job.settled = false;
+                    const enabled = valueOf(await pluginDeadline(observe(manager.setBundleEnabled(MEMORY_PLUGIN_NAME,true))));
+                    if (!enabled || !['applied','restart-required','failed','cancelled'].includes(enabled.application)) throw new Error('Enable outcome is unknown');
+                    uncertain = false;
+                    outcomeOf(enabled);
+                    const found = memoryPluginInstalledOf(valueOf(await pluginDeadline(manager.listBundles())));
+                    if (!found) throw new Error('Installation cannot be confirmed from the plugin inventory');
+                    setInstalled(found);
+                    if (!found.enabled) throw new Error('Installed, but the plugin inventory reports disabled');
+                    setFailure('');
+                } catch(error) { fail(error?.message || String(error)); }
+                finally {
+                    job.running = false;
+                    if (!uncertain && memoryPluginJobs.get(manager) === job) memoryPluginJobs.delete(manager);
+                    setWorking(false);
+                }
+            };
+			// Version shown on the card: the installed bundle's own version, with
+			// the local source package.json version as display-only fallback.
+			const hasInstalledVersion = installed !== null && typeof installed.version === 'string' && installed.version !== '';
+			const shownVersion = hasInstalledVersion ? installed.version : MEMORY_PLUGIN_SOURCE_VERSION;
+			const line = { fontSize: 11, color: INK3, marginTop: 4 };
+			const border = '1px solid var(--dsw-alias-border-l3, rgba(127,127,127,.28))';
+			return h('div', { 'data-cabinet-plugin-card': 'memory', style: { border, borderRadius: 8, padding: '10px 12px', marginBottom: 10 } }, [
+				h('div', { key: 'head', style: { display: 'flex', alignItems: 'center', gap: 8 } }, [
+					h('span', { key: 'gap', style: { flex: 1 } }),
+					installed !== null ? h('span', { key: 'badge', 'data-cabinet-plugin-state': 'installed', style: { fontSize: 11, color: '#3fb950' } }, t('settings.plugin.installed')) : null
+				]),
+				// Highlight lines replace the old one-line description; the file:
+				// path and the registry spec are install parameters only and are
+				// never rendered on the card face.
+				h('div', { key: 'hints', style: line }, [1, 2, 3, 4, 5].map((n) => h('div', { key: 'hint' + n, 'data-cabinet-plugin-hint': String(n), style: { ...line, marginTop: 3 } }, t('settings.plugin.hint' + n)))),
+				installed !== null
+					? h('div', { key: 'where', style: { display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginTop: 8 } }, [
+						h('span', { key: 'version', 'data-cabinet-plugin-version': shownVersion, style: { fontSize: 11, color: INK2 } }, shownVersion + (hasInstalledVersion ? '' : ' · ' + t('settings.plugin.versionFallback'))),
+						h('span', { key: 'gap2', style: { flex: 1 } }),
+						h('button', { key: 'update', 'data-cabinet-plugin-action': 'update', type: 'button', disabled: !manager || working, style: { fontSize: 11, cursor: 'pointer' }, onClick: () => { void run(); } }, working ? t('settings.plugin.installing') : t('settings.plugin.update'))
+					])
+					: h('div', { key: 'row', style: { display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginTop: 8 } }, [
+						h('button', { key: 'install', 'data-cabinet-plugin-action': 'install', type: 'button', disabled: !manager || working, style: { fontSize: 11, cursor: 'pointer' }, onClick: () => { void run(); } }, working ? t('settings.plugin.installing') : t('settings.plugin.install'))
+					]),
+				!manager ? h('div', { key: 'unavailable', 'data-cabinet-plugin-state': 'unavailable', style: line }, t('settings.plugin.unavailable')) : null,
+				progress !== '' ? h('div', { key: 'progress', 'data-cabinet-plugin-progress': '1', style: line }, progress) : null,
+				restart ? h('div', { key: 'restart', 'data-cabinet-plugin-state': 'restart', style: { ...line, color: '#d29922' } }, t('settings.plugin.restartRequired')) : null,
+				failure !== '' ? h('div', { key: 'failure', 'data-cabinet-plugin-state': 'error', style: { ...line, color: '#f25a5a' } }, failure) : null
+			]);
+		}
+
 		function CabinetMemberSettings(props) {
 			const t = typeof props?.t === 'function' ? props.t : memberT;
             const [, redraw] = React.useState(0);
+            // Active settings tab: session-local state (approved plan A). It is a
+            // navigation preference, not user data, and client.js has no
+            // localStorage precedent — so no second persistence source.
+            const [activeTab, setActiveTab] = React.useState('members');
             const editorRef = React.useRef(null);
             if (!editorRef.current) editorRef.current = createMemberEditor(memberWriter, () => redraw(n => n + 1));
             const editor = editorRef.current;
@@ -3928,7 +4104,7 @@ window.__ModuleLoader__.load({
 							onClick: () => resetMember(key)
 						}, t('member.reset'))
 					]),
-					h('div', { key: 'builtin', style: { display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', marginBottom: 6 } }, [
+					activeTab === 'avatars' ? h('div', { key: 'builtin', style: { display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', marginBottom: 6 } }, [
 						h('span', { key: 'l', style: { fontSize: 11, color: INK3 } }, t('member.builtin')),
 						...(function () {
 							const out = [];
@@ -3956,59 +4132,65 @@ window.__ModuleLoader__.load({
 							t('member.upload')
 						]),
 						avatars[key] ? h('button', { key: 'clear', type: 'button', style: { fontSize: 11, cursor: 'pointer' }, onClick: () => writeAvatar(key, '') }, t('member.avatar.clear')) : null
-					]),
+					]) : null,
 					errors[key] ? h('div', { key: 'e', style: { fontSize: 11, color: '#f25a5a', marginBottom: 4 } }, errors[key] === 'member.error.model' ? t(errors[key]) : errors[key]) : null,
-					h('label', { key: 'name', style: { display: 'block', fontSize: 11, color: INK2, marginBottom: 2 } }, t('member.name')),
-					h('input', {
-						key: 'ni',
-						type: 'text',
-						value: draft[key].name,
-						maxLength: MEMBER_NAME_LIMIT,
-						placeholder: t('member.name.placeholder'),
-						style: inputStyle,
-						onChange: (event) => update(key, { name: event?.target?.value ?? '' })
-					}),
-					h('label', { key: 'ml', style: { display: 'block', fontSize: 11, color: INK2, margin: '8px 0 2px' } }, t('member.model')),
-					modelOptions.length > 0
-						? (function () {
-							const value = draft[key].model || '';
-							const opts = [h('option', { key: '', value: '' }, t(key === 'lead' ? 'member.model.defaultLead' : 'member.model.default'))];
-							if (value !== '' && !modelOptions.some((option) => option.value === value)) opts.push(h('option', { key: 'current', value }, value));
-							for (const option of modelOptions) opts.push(h('option', { key: option.value, value: option.value }, option.label));
-							return h('select', {
+					activeTab === 'members' ? [
+						h('label', { key: 'name', style: { display: 'block', fontSize: 11, color: INK2, marginBottom: 2 } }, t('member.name')),
+						h('input', {
+							key: 'ni',
+							type: 'text',
+							value: draft[key].name,
+							maxLength: MEMBER_NAME_LIMIT,
+							placeholder: t('member.name.placeholder'),
+							style: inputStyle,
+							onChange: (event) => update(key, { name: event?.target?.value ?? '' })
+						})
+					] : null,
+					activeTab === 'models' ? [
+						h('label', { key: 'ml', style: { display: 'block', fontSize: 11, color: INK2, margin: '8px 0 2px' } }, t('member.model')),
+						modelOptions.length > 0
+							? (function () {
+								const value = draft[key].model || '';
+								const opts = [h('option', { key: '', value: '' }, t(key === 'lead' ? 'member.model.defaultLead' : 'member.model.default'))];
+								if (value !== '' && !modelOptions.some((option) => option.value === value)) opts.push(h('option', { key: 'current', value }, value));
+								for (const option of modelOptions) opts.push(h('option', { key: option.value, value: option.value }, option.label));
+								return h('select', {
+									key: 'mi',
+									value,
+									style: inputStyle,
+									onChange: (event) => update(key, { model: event?.target?.value ?? '' })
+								}, opts);
+							}())
+							: h('input', {
 								key: 'mi',
-								value,
+								type: 'text',
+								disabled: modelCatalog === undefined,
+								value: draft[key].model,
+								maxLength: 200,
+								placeholder: 'provider/id',
 								style: inputStyle,
 								onChange: (event) => update(key, { model: event?.target?.value ?? '' })
-							}, opts);
-						}())
-						: h('input', {
-							key: 'mi',
-							type: 'text',
-							disabled: modelCatalog === undefined,
-							value: draft[key].model,
-							maxLength: 200,
-							placeholder: 'provider/id',
-							style: inputStyle,
-							onChange: (event) => update(key, { model: event?.target?.value ?? '' })
+							}),
+						modelCatalog !== undefined && modelOptions.length === 0 ? h('div', { key: 'mh', style: { fontSize: 11, color: INK3, marginTop: 4 } }, t('member.model.unavailable')) : null,
+						h('div', { key: 'mhint', style: { fontSize: 11, color: INK3, marginTop: 4 } }, t('member.model.hint'))
+					] : null,
+					activeTab === 'prompts' ? [
+						h('label', { key: 'prompt', style: { display: 'block', fontSize: 11, color: INK2, margin: '8px 0 2px' } }, t('member.prompt')),
+						h('textarea', {
+							key: 'pi',
+							value: promptOf(key),
+							maxLength: MEMBER_PROMPT_LIMIT,
+							rows: key === 'lead' ? 8 : 3,
+							placeholder: t('member.prompt.placeholder'),
+							style: { ...inputStyle, resize: 'vertical', fontFamily: 'inherit' },
+							onChange: (event) => {
+								const value = event?.target?.value ?? '';
+								const mode = value.trim() === '' ? 'off' : 'custom';
+								update(key, { prompt: value, mode }, false);
+							}
 						}),
-					modelCatalog !== undefined && modelOptions.length === 0 ? h('div', { key: 'mh', style: { fontSize: 11, color: INK3, marginTop: 4 } }, t('member.model.unavailable')) : null,
-					h('div', { key: 'mhint', style: { fontSize: 11, color: INK3, marginTop: 4 } }, t('member.model.hint')),
-					h('label', { key: 'prompt', style: { display: 'block', fontSize: 11, color: INK2, margin: '8px 0 2px' } }, t('member.prompt')),
-					h('textarea', {
-						key: 'pi',
-						value: promptOf(key),
-						maxLength: MEMBER_PROMPT_LIMIT,
-						rows: key === 'lead' ? 8 : 3,
-						placeholder: t('member.prompt.placeholder'),
-						style: { ...inputStyle, resize: 'vertical', fontFamily: 'inherit' },
-						onChange: (event) => {
-							const value = event?.target?.value ?? '';
-							const mode = value.trim() === '' ? 'off' : 'custom';
-							update(key, { prompt: value, mode }, false);
-						}
-					}),
-					key === 'lead' ? h('div', { key: 'hint', style: { fontSize: 11, color: INK3, marginTop: 4 } }, t('member.lead.hint')) : null
+						key === 'lead' ? h('div', { key: 'hint', style: { fontSize: 11, color: INK3, marginTop: 4 } }, t('member.lead.hint')) : null
+					] : null
 				]);
 			});
 			return h('div', { style: { padding: '4px 2px 20px' } }, [
@@ -4021,9 +4203,27 @@ window.__ModuleLoader__.load({
 				!ready ? h('div', { key: 'unavailable', role: 'status' }, t('member.status.unavailable')) : null,
                 status ? h('div', { key: 'status', style: { fontSize: 11, color: INK2, marginBottom: 8 } }, t(status)) : null,
                 conflict ? h('div', { key: 'conflict', role: 'alert' }, t('member.status.conflict')) : null,
-                h('button', { key: 'catalog', type: 'button', onClick: () => refreshCatalog(value => value + 1) }, t('member.model.refresh')),
-                  modelCatalog?.failures?.length ? h('div', { key: 'catalog-errors', role: 'status' }, t('member.model.partial')) : null,
-                  h('fieldset', { key: 'fields', disabled: !ready || busy, style: { border: 0, padding: 0, margin: 0 } }, cards),
+				// Tab bar: session-local active tab, one button per field group.
+				// The catalog refresh only serves the model picker, so it lives
+				// with the models tab instead of the global chrome.
+				h('div', { key: 'tabs', role: 'tablist', style: { display: 'flex', gap: 6, marginBottom: 8, flexWrap: 'wrap' } }, SETTINGS_TABS.map((id) => h('button', {
+					key: id,
+					type: 'button',
+					role: 'tab',
+					'aria-selected': activeTab === id,
+					'data-cabinet-settings-tab': id,
+					'data-cabinet-settings-active': activeTab === id ? '1' : '0',
+					style: { fontSize: 11, cursor: 'pointer', padding: '3px 8px', borderRadius: 6, border: '1px solid var(--dsw-alias-border-l3, rgba(127,127,127,.4))', background: activeTab === id ? 'rgba(79,140,255,.16)' : 'transparent', color: activeTab === id ? INK : INK2 },
+					onClick: () => setActiveTab(id)
+				}, t('settings.tab.' + id)))),
+				activeTab === 'models' ? h('div', { key: 'catalog-row', style: { marginBottom: 8 } }, [
+					h('button', { key: 'catalog', type: 'button', 'data-cabinet-settings-refresh': '1', onClick: () => refreshCatalog(value => value + 1) }, t('member.model.refresh')),
+					modelCatalog?.failures?.length ? h('div', { key: 'catalog-errors', role: 'status' }, t('member.model.partial')) : null
+				]) : null,
+                  activeTab === 'plugin' ? null : h('fieldset', { key: 'fields', disabled: !ready || busy, style: { border: 0, padding: 0, margin: 0 } }, cards),
+				// Memory plugin card: the plugin tab's own content — hidden on every
+				// other tab, so the default view's save/cancel are never preceded by it.
+				activeTab === 'plugin' ? h(MemoryPluginCard, { key: 'memory-plugin', t }) : null,
                 h('button', { key: 'save', type: 'button', disabled: !ready || busy || !dirty || conflict, onClick: () => editor.save() }, t('member.save')),
                 h('button', { key: 'cancel', type: 'button', disabled: busy, onClick: () => editor.cancel() }, t('member.cancel'))
 			]);
@@ -4086,6 +4286,23 @@ window.__ModuleLoader__.load({
 			'member.model.default': '使用首辅配置；未配置时使用 DSH 默认模型',
 			'member.model.defaultLead': '使用 DSH 默认模型',
 			'member.model.refresh': '刷新模型目录',
+			'settings.tab.members': '成员',
+			'settings.tab.avatars': '头像',
+			'settings.tab.models': '模型',
+			'settings.tab.prompts': '提示词',
+			'settings.tab.plugin': '记忆插件',
+			'settings.plugin.install': '一键安装',
+			'settings.plugin.installing': '安装中…',
+			'settings.plugin.installed': '已安装',
+			'settings.plugin.update': '更新',
+			'settings.plugin.versionFallback': '已安装版本未知',
+			'settings.plugin.restartRequired': '已安装，需重启 DSH 生效',
+			'settings.plugin.unavailable': '安装通道不可用：宿主未提供 remote.pluginManager。可在宿主会话执行 dsh plugin --profile web add <本地路径> 安装。',
+			'settings.plugin.hint1': 'respire/dsh：原生 TypeScript 记忆插件，存储、去重与加密由 rsrs 负责',
+			'settings.plugin.hint2': '自动召回：新会话自动想起早前结论，不用重复交代背景',
+			'settings.plugin.hint3': '本地优先：记忆存本机，引擎故障只提示、主任务照跑',
+			'settings.plugin.hint4': '教训入库：报错与教训沉淀成条，同一坑不踩第二次',
+			'settings.plugin.hint5': '结构化记忆：正文分段、判重合并，分类树可挂父子',
 			'member.model.partial': '部分提供方加载失败；现有选择保留。可刷新重试。',
 			'member.error.model': '模型必须为 provider/id，最长 200 字符，不能含控制字符。',
 			'member.model.unavailable': '模型列表暂不可用：请手动输入 provider/id。',
@@ -4151,6 +4368,23 @@ window.__ModuleLoader__.load({
 			'member.model.default': 'Use Lead configuration, otherwise DSH default',
 			'member.model.defaultLead': 'Use DSH default model',
 			'member.model.refresh': 'Refresh model catalog',
+			'settings.tab.members': 'Members',
+			'settings.tab.avatars': 'Avatars',
+			'settings.tab.models': 'Models',
+			'settings.tab.prompts': 'Prompts',
+			'settings.tab.plugin': 'Memory Plugin',
+			'settings.plugin.install': 'Install',
+			'settings.plugin.installing': 'Installing…',
+			'settings.plugin.installed': 'Installed',
+			'settings.plugin.update': 'Update',
+			'settings.plugin.versionFallback': 'Installed version unavailable',
+			'settings.plugin.restartRequired': 'Installed; restart DSH to take effect',
+			'settings.plugin.unavailable': 'Install channel unavailable: the host did not expose remote.pluginManager. Run dsh plugin --profile web add <local path> in a host session instead.',
+			'settings.plugin.hint1': 'respire/dsh: native TypeScript memory plugin; rsrs owns storage, dedup and encryption',
+			'settings.plugin.hint2': 'Auto-recall: a new session resurfaces earlier conclusions without re-briefing',
+			'settings.plugin.hint3': 'Local first: memories stay on this machine; an engine outage only notices, work continues',
+			'settings.plugin.hint4': 'Lessons recorded: errors and pitfalls are stored, to help avoid repeating earlier mistakes',
+			'settings.plugin.hint5': 'Structured memory: sectioned bodies, dedup and merges, a taxonomy tree with parents',
 			'member.model.partial': 'Some providers failed to load; saved choices are retained. Refresh to retry.',
 			'member.error.model': 'Use provider/id, at most 200 characters, without control characters.',
 			'member.model.unavailable': 'Model list unavailable: type provider/id manually.',
@@ -4216,6 +4450,19 @@ window.__ModuleLoader__.load({
 					cabinetOpenSession = opener;
 					return () => { if (cabinetOpenSession === opener) cabinetOpenSession = null; };
 				}, 'cabinet-ui: open teammate session');
+			});
+			// Optional install channel for the memory-plugin card: its own guard, so
+			// a host without the plugin manager leaves the model-catalog remote and
+			// every other channel exactly as it was.
+			ctx.inject(['remote', 'remote.pluginManager'], (scope) => {
+				const remote = scope.remote;
+				const manager = remote !== undefined && remote !== null ? remote.pluginManager : undefined;
+				if (!manager || typeof manager.inspect !== 'function' || typeof manager.installBundle !== 'function') return;
+				scope.effect(() => {
+					cabinetPluginManager = manager;
+					notifyMemoryPlugin();
+					return () => { if (cabinetPluginManager === manager) { cabinetPluginManager = null; notifyMemoryPlugin(); } };
+				}, 'cabinet-ui: memory plugin manager');
 			});
 			// Stage one: declare the page type. No patterns => a page type, opened by kind.
 			ctx.effect(() => ctx.sidebarRightTabs.register({

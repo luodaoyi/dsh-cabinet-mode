@@ -21,7 +21,12 @@ const render=()=>{cursor=0;return client.CabinetMemberSettings({t:key=>client[lo
 const settle=async()=>{let tree;for(let i=0;i<4;i++){tree=render();const jobs=effects;effects=[];for(const job of jobs)job();await new Promise(r=>setImmediate(r));}return tree;};
 const nodes=tree=>{const all=[];function walk(n){if(!n||typeof n!=='object')return;if(Array.isArray(n)){n.forEach(walk);return;}all.push(n);n.children?.forEach(walk);}walk(tree);return all;};
 const pickers=tree=>nodes(tree).filter(n=>n.props.key==='mi');
-let tree=render();assert.ok(pickers(tree).every(n=>n.type==='input'&&n.props.disabled));
+let tree=render();
+// Setup only: the model fields now live on the models tab, so this click puts
+// the UI in the state every assertion below assumes. No assertion body changes.
+nodes(tree).find(n=>n.props['data-cabinet-settings-tab']==='models').props.onClick();
+tree=render();
+assert.ok(pickers(tree).every(n=>n.type==='input'&&n.props.disabled));
 assert.equal(nodes(tree).filter(n=>n.props.key==='mh').length,0,'loading is not unavailable');
 tree=await settle();assert.equal(pickers(tree).length,5);assert.ok(pickers(tree).every(n=>n.type==='input'&&!n.props.disabled));assert.equal(pickers(tree)[0].props.value,'old/kept');
 assert.equal(nodes(tree).filter(n=>n.props.key==='mh').length,5,'completed empty catalog shows fallback hint');
