@@ -3888,6 +3888,11 @@ window.__ModuleLoader__.load({
 		const MEMORY_PLUGIN_NAME = '@rsrsai/dsh';
 		/** Public pinned package; inspect and install use the same spec. */
 		const MEMORY_PLUGIN_SPEC = '@rsrsai/dsh@0.1.13';
+		/** Browser key holding the optional local-source override (empty = none).
+		 *  Machines whose registry is unreachable store a path in the card's
+		 *  local-source box; no machine path may be hardcoded here, and every
+		 *  failure echoes the spec(s) it actually tried. */
+		const MEMORY_PLUGIN_SPEC_STORAGE_KEY = 'cabinet.memoryPluginSpec';
 		const MEMORY_PLUGIN_SOURCE_VERSION = '';
 		const memoryPluginJobs = new WeakMap();
         const memoryPluginRestart = new WeakSet();
@@ -3902,6 +3907,24 @@ window.__ModuleLoader__.load({
 			if (!Array.isArray(bundles)) return null;
 			const hit = bundles.find((entry) => entry && entry.name === MEMORY_PLUGIN_NAME && entry.installed === true);
 			return hit === undefined ? null : { name: MEMORY_PLUGIN_NAME, version: typeof hit.version === 'string' ? hit.version : '', enabled: hit.enabled === true };
+		}
+		/** Read/write the optional local-source override. Both are best-effort:
+		 *  private modes and test harnesses may expose no storage at all, and an
+		 *  empty value is removed rather than persisted as a junk string. */
+		function memoryPluginSpecRead() {
+			try {
+				const value = globalThis.localStorage?.getItem(MEMORY_PLUGIN_SPEC_STORAGE_KEY);
+				return typeof value === 'string' ? value.trim() : '';
+			} catch { return ''; }
+		}
+		function memoryPluginSpecWrite(value) {
+			try {
+				const store = globalThis.localStorage;
+				if (!store) return;
+				const text = typeof value === 'string' ? value.trim() : '';
+				if (text === '') store.removeItem(MEMORY_PLUGIN_SPEC_STORAGE_KEY);
+				else store.setItem(MEMORY_PLUGIN_SPEC_STORAGE_KEY, text);
+			} catch { /* no storage available: the override simply does not persist */ }
 		}
 		function MemoryPluginCard(props) {
             const [, refreshChannel] = React.useState(0);
@@ -3922,11 +3945,15 @@ window.__ModuleLoader__.load({
 			const [progress, writeProgress] = React.useState('');
 			const [failure, writeFailure] = React.useState('');
 			const [restart, writeRestart] = React.useState(manager ? memoryPluginRestart.has(manager) : false);
+			// Optional local-source override, read eagerly so the card face shows
+			// the stored value on first paint.
+			const [specText, writeSpecText] = React.useState(memoryPluginSpecRead());
             const setInstalled = value => { if (token.active) writeInstalled(value); };
             const setWorking = value => { if (token.active) writeWorking(value); };
             const setProgress = value => { if (token.active) writeProgress(value); };
             const setFailure = value => { if (token.active) writeFailure(value); };
             const setRestart = value => { if (token.active) writeRestart(value); };
+            const setSpecText = value => { if (token.active) writeSpecText(value); };
 			React.useEffect(() => {
 				let alive = true;
                 const generation = token.epoch;
@@ -3942,7 +3969,6 @@ window.__ModuleLoader__.load({
 			}, [manager]);
 			// Failures are echoed verbatim: the raw message is the evidence.
 			const fail = (text) => { setWorking(false); setFailure(typeof text === 'string' && text !== '' ? text : String(text)); };
-
             const run = async () => {
                 if (!manager || typeof manager.inspect !== 'function' || typeof manager.installBundle !== 'function' || typeof manager.listBundles !== 'function') { fail('pluginManager remote unavailable'); return; }
                 if (memoryPluginJobs.get(manager)?.running) return;
@@ -3966,51 +3992,81 @@ window.__ModuleLoader__.load({
                     if (outcome.application === 'restart-required') { memoryPluginRestart.add(manager); setRestart(true); }
                     return outcome;
                 };
-                try {
-                    const before = memoryPluginInstalledOf(valueOf(await pluginDeadline(manager.listBundles())));
-                    if (before && before.version !== '0.1.13') {
-                        // Only known, older stable versions are offered this pinned update.
-                        // The official host independently enforces semver.gt(target, installed).
-                        const parts = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/.exec(before.version);
-                        const values = parts?.slice(1).map(Number);
-                        const older = values && values.every(Number.isSafeInteger) && values[0] === 0 && (values[1] === 0 || values[1] === 1 && values[2] < 13);
-                        if (!older) throw new Error('Installed version is newer than the pinned version or cannot be safely compared. Use the native plugin manager; no package was changed.');
-                    }
-                    const inspected = valueOf(await pluginDeadline(manager.inspect(MEMORY_PLUGIN_SPEC, {})));
-                    if (!inspected || inspected.status !== 'accepted' || inspected.name !== MEMORY_PLUGIN_NAME || inspected.bundle !== true) throw new Error(inspected?.reason || 'Plugin spec refused');
-                    const requestId = globalThis.crypto?.randomUUID?.() || 'cabinet-' + Date.now() + '-' + Math.random().toString(16).slice(2);
-                    let outcome;
-                    if (before && before.version === '0.1.13') {
-                        outcome = { application: 'applied' };
-                    } else {
-                        if (before && typeof manager.updateBundle !== 'function') throw new Error('Use the native plugin manager to update this installed bundle');
-                        uncertain = true;
-                        const operation = before ? manager.updateBundle(MEMORY_PLUGIN_NAME, '0.1.13', {requestId}) : manager.installBundle(MEMORY_PLUGIN_SPEC, {enabled:false,requestId});
-                        let reply = await pluginDeadline(observe(operation, !!before));
-                        if (reply?.ok !== true && !before && typeof manager.waitForInstall === 'function') reply = await pluginDeadline(observe(manager.waitForInstall(requestId)));
-                        const result = valueOf(reply);
-                        if (!result) throw new Error('Install outcome is unknown; check the native plugin manager before retrying');
-                        outcome = before ? result.result : result;
-                        if (!outcome || !['applied','restart-required','failed','cancelled'].includes(outcome.application)) throw new Error('Install outcome is unknown');
+                /** One attempt against a concrete spec: the upstream 0.6.0 body
+                 *  (inventory gate, pinned inspect, update/install, enable,
+                 *  inventory confirm) verbatim, but it resolves {done}/{error}
+                 *  instead of echoing so run() can annotate and fall back. */
+                const attemptSpec = async (spec) => {
+                    try {
+                        const before = memoryPluginInstalledOf(valueOf(await pluginDeadline(manager.listBundles())));
+                        if (before && before.version !== '0.1.13') {
+                            // Only known, older stable versions are offered this pinned update.
+                            // The official host independently enforces semver.gt(target, installed).
+                            const parts = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/.exec(before.version);
+                            const values = parts?.slice(1).map(Number);
+                            const older = values && values.every(Number.isSafeInteger) && values[0] === 0 && (values[1] === 0 || values[1] === 1 && values[2] < 13);
+                            if (!older) throw new Error('Installed version is newer than the pinned version or cannot be safely compared. Use the native plugin manager; no package was changed.');
+                        }
+                        const inspected = valueOf(await pluginDeadline(manager.inspect(spec, {})));
+                        if (!inspected || inspected.status !== 'accepted' || inspected.name !== MEMORY_PLUGIN_NAME || inspected.bundle !== true) throw new Error(inspected?.reason || 'Plugin spec refused');
+                        const requestId = globalThis.crypto?.randomUUID?.() || 'cabinet-' + Date.now() + '-' + Math.random().toString(16).slice(2);
+                        let outcome;
+                        if (before && before.version === '0.1.13') {
+                            outcome = { application: 'applied' };
+                        } else {
+                            if (before && typeof manager.updateBundle !== 'function') throw new Error('Use the native plugin manager to update this installed bundle');
+                            uncertain = true;
+                            const operation = before ? manager.updateBundle(MEMORY_PLUGIN_NAME, '0.1.13', {requestId}) : manager.installBundle(spec, {enabled:false,requestId});
+                            let reply = await pluginDeadline(observe(operation, !!before));
+                            if (reply?.ok !== true && !before && typeof manager.waitForInstall === 'function') reply = await pluginDeadline(observe(manager.waitForInstall(requestId)));
+                            const result = valueOf(reply);
+                            if (!result) throw new Error('Install outcome is unknown; check the native plugin manager before retrying');
+                            outcome = before ? result.result : result;
+                            if (!outcome || !['applied','restart-required','failed','cancelled'].includes(outcome.application)) throw new Error('Install outcome is unknown');
+                            uncertain = false;
+                            outcomeOf(outcome);
+                        }
+                        // Installation and enabling are separate operations; neither implies the other succeeded.
+                        setInstalled({name:MEMORY_PLUGIN_NAME,version:outcome.version || before?.version || '',enabled:false});
+                        if (!token.active) return { done: true };
+                        if (typeof manager.setBundleEnabled !== 'function') throw new Error('Installed, but enable is unavailable; enable it in the native plugin manager');
+                        uncertain = true; job.settled = false;
+                        const enabled = valueOf(await pluginDeadline(observe(manager.setBundleEnabled(MEMORY_PLUGIN_NAME,true))));
+                        if (!enabled || !['applied','restart-required','failed','cancelled'].includes(enabled.application)) throw new Error('Enable outcome is unknown');
                         uncertain = false;
-                        outcomeOf(outcome);
+                        outcomeOf(enabled);
+                        const found = memoryPluginInstalledOf(valueOf(await pluginDeadline(manager.listBundles())));
+                        if (!found) throw new Error('Installation cannot be confirmed from the plugin inventory');
+                        setInstalled(found);
+                        if (!found.enabled) throw new Error('Installed, but the plugin inventory reports disabled');
+                        setFailure('');
+                        return { done: true };
+                    } catch (error) {
+                        return { error: error?.message || String(error) };
                     }
-                    // Installation and enabling are separate operations; neither implies the other succeeded.
-                    setInstalled({name:MEMORY_PLUGIN_NAME,version:outcome.version || before?.version || '',enabled:false});
-                    if (!token.active) return;
-                    if (typeof manager.setBundleEnabled !== 'function') throw new Error('Installed, but enable is unavailable; enable it in the native plugin manager');
-                    uncertain = true; job.settled = false;
-                    const enabled = valueOf(await pluginDeadline(observe(manager.setBundleEnabled(MEMORY_PLUGIN_NAME,true))));
-                    if (!enabled || !['applied','restart-required','failed','cancelled'].includes(enabled.application)) throw new Error('Enable outcome is unknown');
-                    uncertain = false;
-                    outcomeOf(enabled);
-                    const found = memoryPluginInstalledOf(valueOf(await pluginDeadline(manager.listBundles())));
-                    if (!found) throw new Error('Installation cannot be confirmed from the plugin inventory');
-                    setInstalled(found);
-                    if (!found.enabled) throw new Error('Installed, but the plugin inventory reports disabled');
-                    setFailure('');
-                } catch(error) { fail(error?.message || String(error)); }
-                finally {
+                };
+                const specNote = (specs) => ' [spec' + (specs.length > 1 ? 's' : '') + ': ' + specs.join(' → ') + ']';
+                try {
+                    // spec = stored local-source override, else the registry default.
+                    const overrideSpec = memoryPluginSpecRead();
+                    const primarySpec = overrideSpec !== '' ? overrideSpec : MEMORY_PLUGIN_SPEC;
+                    let first;
+                    try { first = await attemptSpec(primarySpec); } catch (error) { first = { error: error?.message || String(error) }; }
+                    if (first.done !== true) {
+                        // A definitive failure of the local source falls back to the
+                        // registry once; an uncertain outcome keeps the upstream
+                        // no-second-operation guard (its job stays registered).
+                        if (primarySpec !== MEMORY_PLUGIN_SPEC && uncertain !== true) {
+                            let second;
+                            try { second = await attemptSpec(MEMORY_PLUGIN_SPEC); } catch (error) { second = { error: error?.message || String(error) }; }
+                            if (second.done !== true) fail(first.error + specNote([primarySpec, MEMORY_PLUGIN_SPEC]) + (second.error && second.error !== first.error ? ' · ' + second.error : ''));
+                        } else {
+                            fail(first.error + specNote([primarySpec]));
+                        }
+                    }
+                } catch (error) {
+                    fail(error !== null && error !== undefined && typeof error.message === 'string' ? error.message : String(error));
+                } finally {
                     job.running = false;
                     if (!uncertain && memoryPluginJobs.get(manager) === job) memoryPluginJobs.delete(manager);
                     setWorking(false);
@@ -4027,10 +4083,15 @@ window.__ModuleLoader__.load({
 					h('span', { key: 'gap', style: { flex: 1 } }),
 					installed !== null ? h('span', { key: 'badge', 'data-cabinet-plugin-state': 'installed', style: { fontSize: 11, color: '#3fb950' } }, t('settings.plugin.installed')) : null
 				]),
-				// Highlight lines replace the old one-line description; the file:
-				// path and the registry spec are install parameters only and are
-				// never rendered on the card face.
+				// Highlight lines replace the old one-line description; install
+				// specs stay off the card face — the local-source box below is
+				// where a path belongs, and only when the user opts in.
 				h('div', { key: 'hints', style: line }, [1, 2, 3, 4, 5].map((n) => h('div', { key: 'hint' + n, 'data-cabinet-plugin-hint': String(n), style: { ...line, marginTop: 3 } }, t('settings.plugin.hint' + n)))),
+				h('div', { key: 'specRow', style: { ...line, marginTop: 8, display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' } }, [
+					h('label', { key: 'specLabel', style: { fontSize: 11, color: INK2 } }, t('settings.plugin.specLabel')),
+					h('input', { key: 'specInput', 'data-cabinet-plugin-spec-input': '1', type: 'text', value: specText, placeholder: t('settings.plugin.specPlaceholder'), style: { flex: 1, minWidth: 160, fontSize: 11 }, onChange: (event) => { const next = event !== null && event !== undefined && typeof event.target?.value === 'string' ? event.target.value : ''; setSpecText(next); memoryPluginSpecWrite(next); } }),
+					h('button', { key: 'specClear', 'data-cabinet-plugin-spec-clear': '1', type: 'button', disabled: specText === '', style: { fontSize: 11, cursor: 'pointer' }, onClick: () => { setSpecText(''); memoryPluginSpecWrite(''); } }, t('settings.plugin.specClear'))
+				]),
 				installed !== null
 					? h('div', { key: 'where', style: { display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginTop: 8 } }, [
 						h('span', { key: 'version', 'data-cabinet-plugin-version': shownVersion, style: { fontSize: 11, color: INK2 } }, shownVersion + (hasInstalledVersion ? '' : ' · ' + t('settings.plugin.versionFallback'))),
@@ -4051,8 +4112,8 @@ window.__ModuleLoader__.load({
 			const t = typeof props?.t === 'function' ? props.t : memberT;
             const [, redraw] = React.useState(0);
             // Active settings tab: session-local state (approved plan A). It is a
-            // navigation preference, not user data, and client.js has no
-            // localStorage precedent — so no second persistence source.
+            // navigation preference, not user data; the only persisted settings
+            // value is the plugin card's local-source override.
             const [activeTab, setActiveTab] = React.useState('members');
             const editorRef = React.useRef(null);
             if (!editorRef.current) editorRef.current = createMemberEditor(memberWriter, () => redraw(n => n + 1));
@@ -4298,6 +4359,9 @@ window.__ModuleLoader__.load({
 			'settings.plugin.versionFallback': '已安装版本未知',
 			'settings.plugin.restartRequired': '已安装，需重启 DSH 生效',
 			'settings.plugin.unavailable': '安装通道不可用：宿主未提供 remote.pluginManager。可在宿主会话执行 dsh plugin --profile web add <本地路径> 安装。',
+			'settings.plugin.specLabel': '本地源路径（可选，离线安装/更新用）',
+			'settings.plugin.specPlaceholder': '可选：本地源路径；留空则用官方 registry',
+			'settings.plugin.specClear': '清空',
 			'settings.plugin.hint1': 'respire/dsh：原生 TypeScript 记忆插件，存储、去重与加密由 rsrs 负责',
 			'settings.plugin.hint2': '自动召回：新会话自动想起早前结论，不用重复交代背景',
 			'settings.plugin.hint3': '本地优先：记忆存本机，引擎故障只提示、主任务照跑',
@@ -4380,6 +4444,9 @@ window.__ModuleLoader__.load({
 			'settings.plugin.versionFallback': 'Installed version unavailable',
 			'settings.plugin.restartRequired': 'Installed; restart DSH to take effect',
 			'settings.plugin.unavailable': 'Install channel unavailable: the host did not expose remote.pluginManager. Run dsh plugin --profile web add <local path> in a host session instead.',
+			'settings.plugin.specLabel': 'Local source path (optional, offline install/update)',
+			'settings.plugin.specPlaceholder': 'Optional local source path; empty uses the official registry',
+			'settings.plugin.specClear': 'Clear',
 			'settings.plugin.hint1': 'respire/dsh: native TypeScript memory plugin; rsrs owns storage, dedup and encryption',
 			'settings.plugin.hint2': 'Auto-recall: a new session resurfaces earlier conclusions without re-briefing',
 			'settings.plugin.hint3': 'Local first: memories stay on this machine; an engine outage only notices, work continues',
