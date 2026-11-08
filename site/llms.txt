@@ -17,7 +17,7 @@ Last updated: 2026-11-08
 - Product: Cabinet Mode / 内阁模式
 - Type: declarative DSH bundle and agent-team preset
 - Preset id: cabinet
-- Version: 0.6.0
+- Version: 0.6.1
 - License: MIT
 - Price: free
 - Publisher: Respire (https://rsrs.rs/)
@@ -44,7 +44,7 @@ Cabinet Mode organizes a DeepSeek Harness session as a Ming-style research cabin
 
 ## Version compatibility
 
-Version compatibility (0.6.0): Targets DSH 0.2.2-rc.1. This patch corrects dependency flow and opens teammate sessions from task titles and member cards; it retains the per-office model selection fix before the host freezes each step; 0.5.1/0.5.2 only repaired preset loading and display metadata. Verified with official host components and isolated profiles, without real model calls; see README.md for the model regression scope. Earlier rc.3/rc.5 UI and installation results are historical evidence for earlier packages. On DSH 0.2.1-rc.3/rc.5 retain the previously verified package, including 0.5.0: the current preset omits the separate list_agents entry required on rc.5. Select the compatible version in the market.
+Version compatibility (0.6.1): Targets DSH 0.2.2-rc.1. This patch corrects dependency flow and opens teammate sessions from task titles and member cards; it retains the per-office model selection fix before the host freezes each step; 0.5.1/0.5.2 only repaired preset loading and display metadata. Verified with official host components and isolated profiles, without real model calls; see README.md for the model regression scope. Earlier rc.3/rc.5 UI and installation results are historical evidence for earlier packages. On DSH 0.2.1-rc.3/rc.5 retain the previously verified package, including 0.5.0: the current preset omits the separate list_agents entry required on rc.5. Select the compatible version in the market.
 
 ## Install
 
@@ -61,7 +61,7 @@ Use the GitHub blob or tree page URL only for reading; DSH needs the raw JSON UR
 Fallback release tarball:
 
 ```sh
-dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.6.0/dsh-cabinet-mode-0.6.0.tgz
+dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.6.1/dsh-cabinet-mode-0.6.1.tgz
 dsh plugin --profile desktop list
 ```
 

@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.6.1] - 2026-11-08
+
+### Fixed
+
+- Add an optional host-local source for first-time Respire installation; dependencies can still require network access. Local-source updates are explicitly refused by the card.
+- Use the current input even when browser storage fails; allow registry fallback only for pre-install inspection failure, never after installation or enablement.
+- Exercise actual install calls and storage-denied, existing-install and enable-failure regressions.
+
 ## [0.6.0] - 2026-11-08
 
 ### Added
