@@ -54,7 +54,7 @@
         "description": "内阁模式是 DeepSeek Harness 的开源 DSH 插件：首辅统领四司阁臣，研究优先，结论必带出处，附右栏派工面板与成员定制。",
         "url": "https://luodaoyi.github.io/dsh-cabinet-mode/",
         "downloadUrl": "https://www.npmjs.com/package/dsh-cabinet-mode",
-        "softwareVersion": "0.5.4",
+        "softwareVersion": "0.6.0",
         "applicationCategory": "DeveloperApplication",
         "operatingSystem": "Linux, macOS, Windows",
         "softwareRequirements": "DeepSeek Harness 0.2.2-rc.1; official component tests, no real model calls",
@@ -81,7 +81,7 @@
         "name": "dsh-cabinet-mode",
         "codeRepository": "https://github.com/luodaoyi/dsh-cabinet-mode",
         "programmingLanguage": "JavaScript",
-        "version": "0.5.4",
+        "version": "0.6.0",
         "license": "https://opensource.org/license/mit",
         "author": {"@type": "Person", "name": "luodaoyi", "url": "https://github.com/luodaoyi"}
       },
@@ -199,7 +199,7 @@
             翰林、工部、大理寺、都察院四司阁臣分司办事。研究优先，结论必带出处。
           </p>
           <div class="badges">
-            <span class="badge"><span class="dot"></span>v0.5.4</span>
+            <span class="badge"><span class="dot"></span>v0.6.0</span>
             <span class="badge">MIT License</span>
             <span class="badge">preset id: cabinet</span>
             <span class="badge">面向 DSH 0.2.2-rc.1</span>
@@ -246,7 +246,7 @@
               <tr><td>产品</td><td>内阁模式（Cabinet Mode）</td></tr>
               <tr><td>类型</td><td>DeepSeek Harness DSH bundle / 多智能体 preset</td></tr>
               <tr><td>preset id</td><td><code>cabinet</code></td></tr>
-              <tr><td>版本</td><td>v0.5.4</td></tr>
+              <tr><td>版本</td><td>v0.6.0</td></tr>
               <tr><td>许可与价格</td><td>MIT License，免费开源</td></tr>
               <tr><td>旧包实测 DSH</td><td>0.2.1-rc.3 / rc.5</td></tr>
               <tr><td>平台</td><td>Linux/macOS（<code>tool-bash</code>）、Windows（<code>tool-pwsh</code>）</td></tr>
@@ -404,7 +404,7 @@ On failure, show the exact error. For $.format must be 1, replace the webpage so
         <p class="lead-note">仅当市场不可用或本地开发时使用；先完全退出桌面 DSH 以释放 profile 锁。</p>
         <div class="codeblock">
           <button class="copy-btn" data-copy-from="tarball-cmd" data-done="已复制">复制</button>
-          <pre id="tarball-cmd">dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.5.4/dsh-cabinet-mode-0.5.4.tgz
+          <pre id="tarball-cmd">dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.6.0/dsh-cabinet-mode-0.6.0.tgz
 dsh plugin --profile desktop list</pre>
         </div>
         <p class="lead-note">方法 A（bundle 安装）与方法 B（node 脚本写 cordis.patch.yml）互斥，同装会使 preset id 重复、声明加载失败。</p>
@@ -509,6 +509,7 @@ dsh plugin --profile desktop list</pre>
         <h2 id="changelog-title">更新日志</h2>
         <p class="lead-note">按发布时间由新到旧，记录最近的改进。</p>
         <ol class="release-timeline">
+<li><article><div class="release-meta"><h3>v0.6.0</h3><time datetime="2026-11-08">2026-11-08</time></div><p>新增五个设置页签，使用公开源安装及更新记忆插件，限制等待时间并核实启用状态。</p><a href="https://github.com/luodaoyi/dsh-cabinet-mode/releases/tag/v0.6.0">查看发布说明 v0.6.0 →</a></article></li>
           <li><article><div class="release-meta"><h3>v0.5.4</h3><time datetime="2026-11-07">2026-11-07</time></div><p>修正任务依赖连线方向，点击任务名和成员卡可打开对应会话；保留官职模型选择修复。</p><a href="https://github.com/luodaoyi/dsh-cabinet-mode/releases/tag/v0.5.4">查看发布说明 <span class="sr-only">v0.5.4</span> →</a></article></li>
           <li><article><div class="release-meta"><h3>v0.5.2</h3><time datetime="2026-11-07">2026-11-07</time></div><p>补齐插件中英文名称、说明和头像图标导出。</p><a href="https://github.com/luodaoyi/dsh-cabinet-mode/releases/tag/v0.5.2">查看发布说明 <span class="sr-only">v0.5.2</span> →</a></article></li>
           <li><article><div class="release-meta"><h3>v0.5.1</h3><time datetime="2026-11-07">2026-11-07</time></div><p>修复 DSH 0.2.2-rc.1 的预设加载与工具配置。</p><a href="https://github.com/luodaoyi/dsh-cabinet-mode/releases/tag/v0.5.1">查看发布说明 <span class="sr-only">v0.5.1</span> →</a></article></li>
@@ -524,7 +525,7 @@ dsh plugin --profile desktop list</pre>
     <div class="container">
       <span>内阁模式 Cabinet Mode · <a href="https://github.com/luodaoyi/dsh-cabinet-mode" target="_blank" rel="noopener">luodaoyi/dsh-cabinet-mode</a></span>
       <span>MIT License</span>
-      <span>v0.5.4 · 更新于 <time datetime="2026-11-07">2026-11-07</time> <!-- 随内容更新 --></span>
+      <span>v0.6.0 · 更新于 <time datetime="2026-11-07">2026-11-07</time> <!-- 随内容更新 --></span>
       <span class="spacer"></span>
       <span><a href="https://rsrs.rs/zh/" target="_blank" rel="noopener" hreflang="zh-CN" lang="zh-CN">Respire记忆系统出品</a></span>
       <span><a href="https://github.com/luodaoyi/dsh-cabinet-mode#readme" target="_blank" rel="noopener">完整文档见 README</a></span>

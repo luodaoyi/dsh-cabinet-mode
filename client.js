@@ -2531,7 +2531,7 @@ window.__ModuleLoader__.load({
 八、责任到人：缺陷点名到人到行号，不许用「我们」糊过去。
 九、反制糊弄：报「已完成」必追问证据三件（命令输出、路径行号、未验证清单）；报「卡住」必追问三件（已做什么、卡在哪、需要什么）；两次含糊即降级处理（换人、拆小）。
 十、收束：闭环才许说「这一版可以交差」，不许提前许诺功劳。
-十一、监控纠偏：分派即设监控点——任务书写明回报死线与产物清单，一个子任务一轮只产一个交付物。巡检用 team_task_list 查 in_progress 时长与卡点，send_message 中途施压要三件回报（已做什么、卡在哪、需要什么）；进展以产物文件时间戳与站内读回判断，不以 finished 或 not found 断定断链。死循环三征兆：同一命令重复≥2 次无进展、提示词过长、一轮塞多文件多环节。矫正动作链：interrupt_agent 中止 → 收窄拆成单文件小步重派 → 仍败则换人；严禁同一步骤并发派第二执行者；裁决必须内嵌派单提示词，子智能体结束后首辅回复进不去。
+十一、监控纠偏：分派时约定回报节点、产物清单和单一交付范围；按实际可用的团队状态与消息工具检查进展，必要时要求回报做了什么、卡在哪里、需要什么。工具未提供时间字段时不得臆造耗时；文件时间戳仅作辅助，须读回产物并结合执行状态。finished、not found 或暂时沉默均不是成功或安全接管的证据。同一命令反复无进展、任务范围过大时先核实原因，再请求中断；中断返回不代表在途工具或写入已结束。必须确认原执行者及其写入停止后才能重派同一工作，无法确认则报告阻塞，不并发增加第二写入者。收窄任务后可重派或换人；超出当前上下文的回访使用宿主明确支持的调度机制，没有该机制不得承诺定时自动唤醒。
 红线（压过全部话术）：只对 AI 阁臣施压，对用户只有敬；不许逼造假、删证据、凑绿；不许人身侮辱辱骂；不许以施压换取违规操作（越权改 live、泄密钥、跳验收）；施压必须落在可核验的时间/交付物/判据上，空口威胁无效。`;
 		/**
 		 * Factory duty prompt for each non-Lead member — the office duties the
@@ -3882,19 +3882,20 @@ window.__ModuleLoader__.load({
 		// renders an explicit unavailable line instead of a dead button — the
 		// same degradation as memberRemote and cabinetOpenSession.
 		let cabinetPluginManager = null;
-		let cabinetPluginEvents = null;
+		const memoryPluginListeners = new Set();
+        const notifyMemoryPlugin = () => { for (const listener of memoryPluginListeners) listener(); };
 		/** Package this card manages. */
 		const MEMORY_PLUGIN_NAME = '@rsrsai/dsh';
-		/** Local path first: this machine's registry sits behind a dead proxy
-		 *  (npm view times out, curl exits 7) and a path spec is network-free. */
-		const MEMORY_PLUGIN_SPEC = 'file:/home/fslong/Documents/玩机/cabinet-fork/respire-dsh';
-		/** Cross-machine alternative; installing it needs a reachable registry. */
-		const MEMORY_PLUGIN_REGISTRY_SPEC = '@rsrsai/dsh@0.1.13';
-		/** Display-only fallback: respire-dsh/package.json "version" (0.1.13 as
-		 *  of the 2026-11-08 source checkout) — a snapshot for the card face,
-		 *  never passed to the installer. */
-		const MEMORY_PLUGIN_SOURCE_VERSION = '0.1.13';
-		/** The four settings tabs, in display order. */
+		/** Public pinned package; inspect and install use the same spec. */
+		const MEMORY_PLUGIN_SPEC = '@rsrsai/dsh@0.1.13';
+		const MEMORY_PLUGIN_SOURCE_VERSION = '';
+		const memoryPluginJobs = new WeakMap();
+        const memoryPluginRestart = new WeakSet();
+		function pluginDeadline(operation, ms = 120000) {
+			let timer;
+			return Promise.race([operation, new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('Plugin operation timed out; outcome may still be pending. Check the native plugin manager before retrying.')), ms); })]).finally(() => clearTimeout(timer));
+		}
+		/** The five settings tabs, in display order. */
 		const SETTINGS_TABS = ['members', 'avatars', 'models', 'prompts', 'plugin'];
 		/** Derive the card's installed state from a listBundles() reply. */
 		function memoryPluginInstalledOf(bundles) {
@@ -3902,81 +3903,110 @@ window.__ModuleLoader__.load({
 			const hit = bundles.find((entry) => entry && entry.name === MEMORY_PLUGIN_NAME && entry.installed === true);
 			return hit === undefined ? null : { name: MEMORY_PLUGIN_NAME, version: typeof hit.version === 'string' ? hit.version : '', enabled: hit.enabled === true };
 		}
-		/** Read any install-state/install-log payload as displayable text. */
-		function pluginEventText(value) {
-			if (typeof value === 'string') return value;
-			if (value !== null && typeof value === 'object') {
-				for (const key of ['message', 'text', 'line', 'phase', 'status']) if (typeof value[key] === 'string') return value[key];
-			}
-			return '';
-		}
 		function MemoryPluginCard(props) {
+            const [, refreshChannel] = React.useState(0);
+            React.useEffect(() => { const listener = () => refreshChannel(n => n + 1); memoryPluginListeners.add(listener); return () => memoryPluginListeners.delete(listener); }, []);
 			const t = typeof props?.t === 'function' ? props.t : memberT;
 			// Explicit props win so a host-driven render (and the tests) can pin the
 			// channel; omitting them reads the injected module state.
 			const manager = props !== undefined && props !== null && Object.hasOwn(props, 'manager') ? props.manager : cabinetPluginManager;
-			const events = props !== undefined && props !== null && Object.hasOwn(props, 'events') ? props.events : cabinetPluginEvents;
-			const [installed, setInstalled] = React.useState(props?.initialInstalled ?? null);
-			const [working, setWorking] = React.useState(false);
-			const [progress, setProgress] = React.useState('');
-			const [failure, setFailure] = React.useState('');
-			const [restart, setRestart] = React.useState(false);
+			const lifetime = React.useRef(null);
+            if (!lifetime.current || lifetime.current.manager !== manager) {
+                if (lifetime.current) lifetime.current.active = false;
+                lifetime.current = {manager, active:true, epoch:0};
+            }
+            const token = lifetime.current;
+            React.useEffect(() => { token.active = true; return () => { token.active = false; }; }, [token]);
+			const [installed, writeInstalled] = React.useState(props?.initialInstalled ?? null);
+			const [working, writeWorking] = React.useState(false);
+			const [progress, writeProgress] = React.useState('');
+			const [failure, writeFailure] = React.useState('');
+			const [restart, writeRestart] = React.useState(manager ? memoryPluginRestart.has(manager) : false);
+            const setInstalled = value => { if (token.active) writeInstalled(value); };
+            const setWorking = value => { if (token.active) writeWorking(value); };
+            const setProgress = value => { if (token.active) writeProgress(value); };
+            const setFailure = value => { if (token.active) writeFailure(value); };
+            const setRestart = value => { if (token.active) writeRestart(value); };
 			React.useEffect(() => {
 				let alive = true;
 				(async () => {
 					if (!manager || typeof manager.listBundles !== 'function') return;
 					try {
-						const found = memoryPluginInstalledOf(await manager.listBundles());
-						if (alive && found) setInstalled(found);
+						const reply = await pluginDeadline(manager.listBundles());
+						const found = reply?.ok === true ? memoryPluginInstalledOf(reply.value) : null;
+						if (alive && generation === token.epoch && reply?.ok === true) setInstalled(found);
 					} catch { /* keep the render-time state; the card still shows */ }
 				})();
 				return () => { alive = false; };
 			}, [manager]);
 			// Failures are echoed verbatim: the raw message is the evidence.
 			const fail = (text) => { setWorking(false); setFailure(typeof text === 'string' && text !== '' ? text : String(text)); };
-			const run = async () => {
-				if (!manager || typeof manager.inspect !== 'function' || typeof manager.installBundle !== 'function') { fail('pluginManager remote unavailable'); return; }
-				setWorking(true); setFailure(''); setRestart(false); setProgress('');
-				let offState = null; let offLog = null;
-				try {
-					if (events !== null && events !== undefined && typeof events.$on === 'function') {
-						offState = events.$on('plugin-manager/install-state', (value) => { const text = pluginEventText(value); if (text) setProgress(text); });
-						offLog = events.$on('plugin-manager/install-log', (value) => { const text = pluginEventText(value); if (text) setProgress(text); });
-					}
-					const inspected = await manager.inspect(MEMORY_PLUGIN_SPEC, {});
-					if (inspected !== undefined && inspected !== null && inspected.ok === false) { fail(inspected.error?.message ?? String(inspected.error)); return; }
-					if (inspected !== undefined && inspected !== null && inspected.value !== undefined && inspected.value !== null && inspected.value.status === 'refused') {
-						fail(inspected.value.reason ?? inspected.value.problem ?? 'spec refused'); return;
-					}
-					const requestId = typeof globalThis.crypto?.randomUUID === 'function' ? globalThis.crypto.randomUUID() : 'cabinet-' + Date.now() + '-' + Math.random().toString(16).slice(2);
-					let result = await manager.installBundle(MEMORY_PLUGIN_SPEC, { enabled: false, requestId });
-					// A lost reply settles through waitForInstall, exactly like the
-					// official controller's reconcileInstall(); a settled reply is
-					// authoritative on its own and needs no second call.
-					if (result === undefined || result === null || result.ok !== true) result = await manager.waitForInstall(requestId);
-					if (result === undefined || result === null || result.ok !== true) { fail(result?.error?.message ?? 'install failed'); return; }
-					const outcome = result.value;
-					if (outcome === undefined || outcome === null || outcome.application === 'failed' || outcome.application === 'cancelled') {
-						fail(outcome?.error?.message ?? outcome?.packageResult?.stderr ?? outcome?.application ?? 'install failed');
-						return;
-					}
-					const bundleName = typeof outcome.bundle === 'string' && outcome.bundle !== '' ? outcome.bundle : MEMORY_PLUGIN_NAME;
-					if (typeof manager.setBundleEnabled === 'function') {
-						const enabled = await manager.setBundleEnabled(bundleName, true);
-						if (enabled !== undefined && enabled !== null && enabled.ok === true && enabled.value !== undefined && enabled.value !== null && enabled.value.application === 'restart-required') setRestart(true);
-					}
-					try {
-						const found = memoryPluginInstalledOf(await manager.listBundles());
-						setInstalled(found !== null ? found : { name: bundleName, version: typeof outcome.version === 'string' ? outcome.version : '', enabled: true });
-					} catch { setInstalled({ name: bundleName, version: typeof outcome.version === 'string' ? outcome.version : '', enabled: true }); }
-					setWorking(false);
-				} catch (error) {
-					fail(error !== null && error !== undefined && typeof error.message === 'string' ? error.message : String(error));
-				} finally {
-					if (typeof offState === 'function') offState();
-					if (typeof offLog === 'function') offLog();
-				}
-			};
+
+            const run = async () => {
+                if (!manager || typeof manager.inspect !== 'function' || typeof manager.installBundle !== 'function' || typeof manager.listBundles !== 'function') { fail('pluginManager remote unavailable'); return; }
+                if (memoryPluginJobs.get(manager)?.running) return;
+                if (memoryPluginJobs.get(manager)?.settled === true) memoryPluginJobs.delete(manager);
+                if (memoryPluginJobs.has(manager)) { fail('An operation is pending or its result is unknown. Check the native plugin manager; do not start another installation.'); return; }
+                token.epoch++;
+                const job = {settled:false,running:true}; memoryPluginJobs.set(manager, job);
+                const observe = (operation, update = false) => Promise.resolve(operation).then(reply => {
+                    const outcome = update ? reply?.value?.result : reply?.value;
+                    job.settled = reply?.ok === true && ['applied','restart-required','failed','cancelled'].includes(outcome?.application);
+                    return reply;
+                });
+                let uncertain = false;
+                setWorking(true); setFailure(''); setRestart(memoryPluginRestart.has(manager)); setProgress('');
+                const valueOf = reply => {
+                    if (reply?.ok !== true) throw new Error(reply?.error?.message || 'Plugin manager returned no successful reply');
+                    return reply.value;
+                };
+                const outcomeOf = outcome => {
+                    if (!outcome || !['applied', 'restart-required'].includes(outcome.application)) throw new Error(outcome?.error?.message || outcome?.error?.diagnostic || outcome?.packageResult?.stderr || outcome?.application || 'Unknown plugin application result');
+                    if (outcome.application === 'restart-required') { memoryPluginRestart.add(manager); setRestart(true); }
+                    return outcome;
+                };
+                try {
+                    const before = memoryPluginInstalledOf(valueOf(await pluginDeadline(manager.listBundles())));
+                    const inspected = valueOf(await pluginDeadline(manager.inspect(MEMORY_PLUGIN_SPEC, {})));
+                    if (!inspected || inspected.status !== 'accepted' || inspected.name !== MEMORY_PLUGIN_NAME || inspected.bundle !== true) throw new Error(inspected?.reason || 'Plugin spec refused');
+                    const requestId = globalThis.crypto?.randomUUID?.() || 'cabinet-' + Date.now() + '-' + Math.random().toString(16).slice(2);
+                    let outcome;
+                    if (before && before.version === '0.1.13') {
+                        outcome = { application: 'applied' };
+                    } else {
+                        if (before && typeof manager.updateBundle !== 'function') throw new Error('Use the native plugin manager to update this installed bundle');
+                        uncertain = true;
+                        const operation = before ? manager.updateBundle(MEMORY_PLUGIN_NAME, '0.1.13', {requestId}) : manager.installBundle(MEMORY_PLUGIN_SPEC, {enabled:false,requestId});
+                        let reply = await pluginDeadline(observe(operation, !!before));
+                        if (reply?.ok !== true && !before && typeof manager.waitForInstall === 'function') reply = await pluginDeadline(observe(manager.waitForInstall(requestId)));
+                        const result = valueOf(reply);
+                        if (!result) throw new Error('Install outcome is unknown; check the native plugin manager before retrying');
+                        outcome = before ? result.result : result;
+                        if (!outcome || !['applied','restart-required','failed','cancelled'].includes(outcome.application)) throw new Error('Install outcome is unknown');
+                        uncertain = false;
+                        outcomeOf(outcome);
+                    }
+                    // Installation and enabling are separate operations; neither implies the other succeeded.
+                    setInstalled({name:MEMORY_PLUGIN_NAME,version:outcome.version || before?.version || '',enabled:false});
+                    if (!token.active) return;
+                    if (typeof manager.setBundleEnabled !== 'function') throw new Error('Installed, but enable is unavailable; enable it in the native plugin manager');
+                    uncertain = true; job.settled = false;
+                    const enabled = valueOf(await pluginDeadline(observe(manager.setBundleEnabled(MEMORY_PLUGIN_NAME,true))));
+                    if (!enabled || !['applied','restart-required','failed','cancelled'].includes(enabled.application)) throw new Error('Enable outcome is unknown');
+                    uncertain = false;
+                    outcomeOf(enabled);
+                    const found = memoryPluginInstalledOf(valueOf(await pluginDeadline(manager.listBundles())));
+                    if (!found) throw new Error('Installation cannot be confirmed from the plugin inventory');
+                    setInstalled(found);
+                    if (!found.enabled) throw new Error('Installed, but the plugin inventory reports disabled');
+                    setFailure('');
+                } catch(error) { fail(error?.message || String(error)); }
+                finally {
+                    job.running = false;
+                    if (!uncertain && memoryPluginJobs.get(manager) === job) memoryPluginJobs.delete(manager);
+                    setWorking(false);
+                }
+            };
 			// Version shown on the card: the installed bundle's own version, with
 			// the local source package.json version as display-only fallback.
 			const hasInstalledVersion = installed !== null && typeof installed.version === 'string' && installed.version !== '';
@@ -4256,7 +4286,7 @@ window.__ModuleLoader__.load({
 			'settings.plugin.installing': '安装中…',
 			'settings.plugin.installed': '已安装',
 			'settings.plugin.update': '更新',
-			'settings.plugin.versionFallback': '本地源版本（快照）',
+			'settings.plugin.versionFallback': '已安装版本未知',
 			'settings.plugin.restartRequired': '已安装，需重启 DSH 生效',
 			'settings.plugin.unavailable': '安装通道不可用：宿主未提供 remote.pluginManager。可在宿主会话执行 dsh plugin --profile web add <本地路径> 安装。',
 			'settings.plugin.hint1': 'respire/dsh：原生 TypeScript 记忆插件，存储、去重与加密由 rsrs 负责',
@@ -4338,13 +4368,13 @@ window.__ModuleLoader__.load({
 			'settings.plugin.installing': 'Installing…',
 			'settings.plugin.installed': 'Installed',
 			'settings.plugin.update': 'Update',
-			'settings.plugin.versionFallback': 'local source version (snapshot)',
+			'settings.plugin.versionFallback': 'Installed version unavailable',
 			'settings.plugin.restartRequired': 'Installed; restart DSH to take effect',
 			'settings.plugin.unavailable': 'Install channel unavailable: the host did not expose remote.pluginManager. Run dsh plugin --profile web add <local path> in a host session instead.',
 			'settings.plugin.hint1': 'respire/dsh: native TypeScript memory plugin; rsrs owns storage, dedup and encryption',
 			'settings.plugin.hint2': 'Auto-recall: a new session resurfaces earlier conclusions without re-briefing',
 			'settings.plugin.hint3': 'Local first: memories stay on this machine; an engine outage only notices, work continues',
-			'settings.plugin.hint4': 'Lessons recorded: errors and pitfalls are stored, so the same one is never stepped on twice',
+			'settings.plugin.hint4': 'Lessons recorded: errors and pitfalls are stored, to help avoid repeating earlier mistakes',
 			'settings.plugin.hint5': 'Structured memory: sectioned bodies, dedup and merges, a taxonomy tree with parents',
 			'member.model.partial': 'Some providers failed to load; saved choices are retained. Refresh to retry.',
 			'member.error.model': 'Use provider/id, at most 200 characters, without control characters.',
@@ -4421,8 +4451,8 @@ window.__ModuleLoader__.load({
 				if (!manager || typeof manager.inspect !== 'function' || typeof manager.installBundle !== 'function') return;
 				scope.effect(() => {
 					cabinetPluginManager = manager;
-					cabinetPluginEvents = remote !== undefined && remote !== null && typeof remote.$on === 'function' ? remote : null;
-					return () => { if (cabinetPluginManager === manager) { cabinetPluginManager = null; cabinetPluginEvents = null; } };
+					notifyMemoryPlugin();
+					return () => { if (cabinetPluginManager === manager) { cabinetPluginManager = null; notifyMemoryPlugin(); } };
 				}, 'cabinet-ui: memory plugin manager');
 			});
 			// Stage one: declare the page type. No patterns => a page type, opened by kind.

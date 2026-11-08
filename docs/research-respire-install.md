@@ -1,3 +1,5 @@
+> Historical contributor notes from PR #22 head e1f0058. These are not release acceptance evidence. Local file sources, version fallbacks and install-chain claims below are superseded by `pr22-install-validation.md`.
+
 # 调研：配置页点击安装 respire/dsh 记忆插件的实现通道（task-8）
 
 - 任务：task-8（翰林院编修，只读）

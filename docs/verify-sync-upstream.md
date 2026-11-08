@@ -1,3 +1,5 @@
+> Historical contributor notes from PR #22 head e1f0058. These are not release acceptance evidence. Local file sources, version fallbacks and install-chain claims below are superseded by `pr22-install-validation.md`.
+
 # 复验报告：upstream/main ff 合入与全套门禁（task-9 独立核验）
 
 - 复验人：大理寺卿（二）dalisi-qing-2，受首辅 lead 节制

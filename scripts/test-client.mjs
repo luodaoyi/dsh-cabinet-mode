@@ -16,7 +16,7 @@ const React = {
 };
 const exportList = 'return { inject, apply, avatarFor, displayName, CabinetPanel, MemberCard, TaskLine, TaskEdgeLayer, buildTaskEdges, taskEdgesEqual, zh, en, BUREAUX, AVATARS, setMemberConfig, memberLabel, configuredAvatar, configuredPrompt, factoryPromptFor, DEFAULT_MEMBER_PROMPTS, DEFAULT_LEAD_PROMPT, CabinetMemberSettings, MemoryPluginCard, memoryPluginInstalledOf, SETTINGS_TABS };';
 runInNewContext(source.replace(exportPoint, exportList), {
-  window: { __ModuleLoader__: { load: ({ factory }) => {
+  setTimeout: (fn, ms) => setTimeout(fn, ms === 120000 ? 20 : ms), clearTimeout, window: { __ModuleLoader__: { load: ({ factory }) => {
     client = factory((name) => { assert.equal(name, 'react'); return React; });
   } } },
 });
@@ -89,7 +89,7 @@ for (const key of ['hanlin', 'works', 'dali', 'yushi']) {
   assert.ok(client.factoryPromptFor(key).length <= 400, `${key} factory prompt must stay under 400 chars`);
 }
 assert.ok(client.DEFAULT_LEAD_PROMPT.includes('御下术'));
-for (const clause of ['监控纠偏', 'team_task_list', 'send_message', 'interrupt_agent', '并发派第二执行者', '文件时间戳', '单文件小步重派', '内嵌派单提示词']) {
+for (const clause of ['监控纠偏', '中断返回不代表', '写入停止后', '不并发增加第二写入者', '没有该机制不得承诺定时自动唤醒']) {
   assert.ok(client.DEFAULT_LEAD_PROMPT.includes(clause), `lead prompt carries the monitoring/correction clause: ${clause}`);
 }
 client.setMemberConfig({ members: [{ key: 'hanlin', name: '张翰林', prompt: '', mode: '' }] });
@@ -408,7 +408,7 @@ const SettingsReact = {
   },
 };
 runInNewContext(source.replace(exportPoint, exportList), {
-  window: { __ModuleLoader__: { load: ({ factory }) => { settingsClient = factory((name) => { assert.equal(name, 'react'); return SettingsReact; }); } } },
+  setTimeout: (fn, ms) => setTimeout(fn, ms === 120000 ? 20 : ms), clearTimeout, window: { __ModuleLoader__: { load: ({ factory }) => { settingsClient = factory((name) => { assert.equal(name, 'react'); return SettingsReact; }); } } },
 });
 const mountSettings = (props) => {
   settingsState.length = 0;
@@ -486,7 +486,7 @@ assert.ok(!faceTextOf(cardNodes).includes('@rsrsai/dsh@'), 'the registry spec st
 settingsState.length = 0; settingsCursor = 0;
 cardNodes = elements(settingsClient.MemoryPluginCard({ t: (key) => key, initialInstalled: { name: '@rsrsai/dsh', version: '', enabled: true } }));
 const fallbackVersionNode = cardNodes.find((node) => node.props?.['data-cabinet-plugin-version'] !== undefined);
-assert.ok(fallbackVersionNode && String(fallbackVersionNode.children.flat().join('')).includes('0.1.13'), 'a missing installed version falls back to the local source package.json version');
+assert.ok(fallbackVersionNode && !String(fallbackVersionNode.children.flat().join('')).includes('0.1.13'), 'unknown installed version must not claim the source version');
 assert.ok(fallbackVersionNode && String(fallbackVersionNode.children.flat().join('')).includes('settings.plugin.versionFallback'), 'the version fallback is marked on the card');
 
 const mappedInstalled = settingsClient.memoryPluginInstalledOf([{ name: '@rsrsai/dsh', installed: true, version: '0.1.13', enabled: true }]);
@@ -502,7 +502,7 @@ settingsState.length = 0; settingsCursor = 0;
 const failingManager = {
   inspect: async () => ({ ok: false, error: { message: 'boom: registry unreachable' } }),
   installBundle: async () => ({ ok: false, error: { message: 'unreachable' } }),
-  listBundles: async () => [],
+  listBundles: async () => ({ok:true,value:[]}),
 };
 cardNodes = elements(settingsClient.MemoryPluginCard({ t: (key) => key, manager: failingManager }));
 const installButton = cardNodes.find((node) => node.props?.['data-cabinet-plugin-action'] === 'install');
@@ -546,3 +546,34 @@ for (const n of [1, 2, 3, 4, 5]) {
   assert.ok(enSettingsKeys.includes(key), 'highlight line copy present in en: ' + key);
 }
 console.log('PASS: five settings tabs switch by section; the plugin card keeps specs off its face, renders highlight lines, offers update with a visible version, and echoes failures verbatim; bilingual settings keys match');
+
+// Installation state machine uses the real remote Result envelope.
+for (const scenario of ['success','install-failed','enable-failed','missing-wait','timeout','restart','update','missing-enable','wait-null','wait-failed']) {
+  settingsState.length=0;settingsCursor=0;
+  let installs=0,enabled=false,installed=scenario==='update', version=scenario==='update'?'0.1.12':'0.1.13';
+  const ok=value=>({ok:true,value});
+  const manager={
+    listBundles:async()=>ok(installed?[{name:'@rsrsai/dsh',installed:true,version,enabled}]:[]),
+    inspect:async(spec)=>{assert.equal(spec,'@rsrsai/dsh@0.1.13');return ok({status:'accepted',name:'@rsrsai/dsh',bundle:true});},
+    installBundle:async(spec)=>{installs++;assert.equal(spec,'@rsrsai/dsh@0.1.13');
+      if(scenario==='timeout')return new Promise(()=>{});
+      if(['missing-wait','wait-null','wait-failed'].includes(scenario))return {ok:false,error:{message:'lost reply'}};
+      if(scenario==='install-failed')return ok({application:'failed',error:{message:'install failed'}});
+      installed=true;return ok({application:'applied',version:'0.1.13'});
+    },
+    updateBundle:async(name,target)=>{assert.equal(name,'@rsrsai/dsh');assert.equal(target,'0.1.13');version=target;return ok({result:{application:'restart-required',version:target}});},
+    setBundleEnabled:async()=>{if(scenario==='enable-failed')return {ok:false,error:{message:'enable failed'}};enabled=true;return ok({application:scenario==='restart'?'restart-required':'applied'});}
+  };
+  if(scenario==='missing-enable')delete manager.setBundleEnabled;
+  if(scenario==='wait-null')manager.waitForInstall=async()=>ok(null);
+  if(scenario==='wait-failed')manager.waitForInstall=async()=>ok({application:'failed'});
+  const render=()=>{settingsCursor=0;return elements(settingsClient.MemoryPluginCard({manager,t:key=>key}));};
+  const initial=render();initial.find(n=>n.props?.['data-cabinet-plugin-action']==='install').props.onClick();
+  await new Promise(r=>setTimeout(r,45));
+  const result=render();const error=result.find(n=>n.props?.['data-cabinet-plugin-state']==='error');
+  assert.equal(!!error,!['success','restart','update'].includes(scenario),scenario);
+  assert.equal(enabled,['success','restart','update'].includes(scenario),scenario);
+  assert.equal(!!result.find(n=>n.props?.['data-cabinet-plugin-state']==='restart'),['restart','update'].includes(scenario));
+  if(['timeout','missing-wait'].includes(scenario)) {result.find(n=>n.props?.['data-cabinet-plugin-action']==='install').props.onClick();await new Promise(r=>setTimeout(r,0));assert.equal(installs,1,'unknown operation cannot be duplicated');}
+}
+console.log('PASS: install/enable success, failure, missing wait, deadline, unknown-result duplicate guard and restart state (mock remote)');

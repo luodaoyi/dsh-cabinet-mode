@@ -1,3 +1,5 @@
+> Historical contributor notes from PR #22 head e1f0058. These are not release acceptance evidence. Local file sources, version fallbacks and install-chain claims below are superseded by `pr22-install-validation.md`.
+
 # 调研：ssh 拉上游 main 差异与冲突预判（task-7）
 
 - 任务：task-7（翰林院编修，只读调研 + 一次 ssh fetch）
