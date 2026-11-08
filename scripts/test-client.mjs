@@ -630,6 +630,29 @@ for (const scenario of ['storage', 'installed', 'enable-failed']) {
   else assert.deepEqual(calls,[['inspect','/tmp/session-only'],['install','/tmp/session-only'],['enable']], 'current input survives failed persistence; enable failure never retries');
 }
 
+// Pending or rejected inspection promises must never start a fallback mutation.
+for (const outcome of ['late-accepted', 'late-refused', 'rejected']) {
+  pluginSpecStore.set('cabinet.memoryPluginSpec', '/tmp/pending-source');
+  settingsState.length=0;settingsCursor=0;
+  const calls=[];let resolveInspection;
+  const manager={
+    listBundles:async()=>({ok:true,value:[]}),
+    inspect:spec=>{calls.push(['inspect',spec]);return outcome==='rejected'?Promise.reject(Error('transport failed')):new Promise(resolve=>{resolveInspection=resolve});},
+    installBundle:async()=>{calls.push(['install']);throw Error('must not install');},
+    setBundleEnabled:async()=>{calls.push(['enable']);throw Error('must not enable');}
+  };
+  let nodes=elements(settingsClient.MemoryPluginCard({manager,t:k=>k}));
+  nodes.find(n=>n.props?.['data-cabinet-plugin-action']).props.onClick();
+  await new Promise(r=>setTimeout(r,50));
+  assert.deepEqual(calls,[['inspect','/tmp/pending-source']],outcome+' causes no registry fallback');
+  settingsCursor=0;nodes=elements(settingsClient.MemoryPluginCard({manager,t:k=>k}));
+  assert.ok(nodes.some(n=>n.props?.['data-cabinet-plugin-state']==='error'), 'failure is visible');
+  resolveInspection?.({ok:true,value:{status:outcome==='late-accepted'?'accepted':'refused',name:'@rsrsai/dsh',bundle:true}});
+  await new Promise(r=>setTimeout(r,0));
+  assert.deepEqual(calls,[['inspect','/tmp/pending-source']], 'late response cannot resume installation');
+}
+console.log('PASS: inspection timeout, late acceptance/refusal and transport rejection cause no fallback mutation');
+
 pluginSpecStore.delete('cabinet.memoryPluginSpec');
 
 // Both dictionaries carry the same settings.* keys (nothing may exist in one

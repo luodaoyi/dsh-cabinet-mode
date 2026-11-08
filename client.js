@@ -4009,8 +4009,9 @@ window.__ModuleLoader__.load({
                             const older = values && values.every(Number.isSafeInteger) && values[0] === 0 && (values[1] === 0 || values[1] === 1 && values[2] < 13);
                             if (!older) throw new Error('Installed version is newer than the pinned version or cannot be safely compared. Use the native plugin manager; no package was changed.');
                         }
+                        const inspectionReply = await pluginDeadline(manager.inspect(spec, {}));
                         canFallback = !before;
-                        const inspected = valueOf(await pluginDeadline(manager.inspect(spec, {})));
+                        const inspected = valueOf(inspectionReply);
                         if (!inspected || inspected.status !== 'accepted' || inspected.name !== MEMORY_PLUGIN_NAME || inspected.bundle !== true) throw new Error(inspected?.reason || 'Plugin spec refused');
                         canFallback = false;
                         const requestId = globalThis.crypto?.randomUUID?.() || 'cabinet-' + Date.now() + '-' + Math.random().toString(16).slice(2);
