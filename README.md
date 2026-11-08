@@ -570,3 +570,5 @@ and the Windows-tested vs Linux/macOS-inferred split. Sections:
 ### Optional Respire local source
 
 The memory-plugin card accepts a path on the DSH host for **first installation only**. Dependencies may still need network access; this is not a guaranteed offline installer. Installed bundles reject local-source updates: clear the field for the pinned registry action, or manage local packages through the native plugin manager. Browser storage is best-effort; the current field value is used even when persistence fails. Only inspection failure before installation may fall back once to the registry. Installation, enablement, unknown outcomes, and unmount never trigger a second automatic mutation.
+
+When local inspection fails and the card falls back, a persistent notice names both attempted sources. The installed-source line uses the host inventory, not the input field; absent host metadata is shown as unknown.

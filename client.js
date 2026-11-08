@@ -3906,7 +3906,7 @@ window.__ModuleLoader__.load({
 		function memoryPluginInstalledOf(bundles) {
 			if (!Array.isArray(bundles)) return null;
 			const hit = bundles.find((entry) => entry && entry.name === MEMORY_PLUGIN_NAME && entry.installed === true);
-			return hit === undefined ? null : { name: MEMORY_PLUGIN_NAME, version: typeof hit.version === 'string' ? hit.version : '', enabled: hit.enabled === true };
+			return hit === undefined ? null : { name: MEMORY_PLUGIN_NAME, version: typeof hit.version === 'string' ? hit.version : '', enabled: hit.enabled === true, ...(typeof hit.source === 'string' ? {source:hit.source} : {}) };
 		}
 		/** Read/write the optional local-source override. Both are best-effort:
 		 *  private modes and test harnesses may expose no storage at all, and an
@@ -3948,6 +3948,7 @@ window.__ModuleLoader__.load({
 			// Optional local-source override, read eagerly so the card face shows
 			// the stored value on first paint.
 			const [specText, writeSpecText] = React.useState(memoryPluginSpecRead());
+            const [fallbackNotice, writeFallbackNotice] = React.useState('');
             const setInstalled = value => { if (token.active) writeInstalled(value); };
             const setWorking = value => { if (token.active) writeWorking(value); };
             const setProgress = value => { if (token.active) writeProgress(value); };
@@ -4053,6 +4054,7 @@ window.__ModuleLoader__.load({
                 const specNote = (specs) => ' [spec' + (specs.length > 1 ? 's' : '') + ': ' + specs.join(' → ') + ']';
                 try {
                     // spec = stored local-source override, else the registry default.
+                    if (token.active) writeFallbackNotice('');
                     const overrideSpec = specText.trim();
                     const primarySpec = overrideSpec !== '' ? overrideSpec : MEMORY_PLUGIN_SPEC;
                     let first;
@@ -4062,6 +4064,7 @@ window.__ModuleLoader__.load({
                         // registry once; an uncertain outcome keeps the upstream
                         // no-second-operation guard (its job stays registered).
                         if (primarySpec !== MEMORY_PLUGIN_SPEC && first.canFallback === true && uncertain !== true && token.active) {
+                            writeFallbackNotice(t('settings.plugin.fallbackNotice') + ' ' + primarySpec + ' → ' + MEMORY_PLUGIN_SPEC);
                             let second;
                             try { second = await attemptSpec(MEMORY_PLUGIN_SPEC); } catch (error) { second = { error: error?.message || String(error) }; }
                             if (second.done !== true) fail(first.error + specNote([primarySpec, MEMORY_PLUGIN_SPEC]) + (second.error && second.error !== first.error ? ' · ' + second.error : ''));
@@ -4107,7 +4110,9 @@ window.__ModuleLoader__.load({
 						h('button', { key: 'install', 'data-cabinet-plugin-action': 'install', type: 'button', disabled: !manager || working, style: { fontSize: 11, cursor: 'pointer' }, onClick: () => { void run(); } }, working ? t('settings.plugin.installing') : t('settings.plugin.install'))
 					]),
 				!manager ? h('div', { key: 'unavailable', 'data-cabinet-plugin-state': 'unavailable', style: line }, t('settings.plugin.unavailable')) : null,
-				progress !== '' ? h('div', { key: 'progress', 'data-cabinet-plugin-progress': '1', style: line }, progress) : null,
+				fallbackNotice !== '' ? h('div', { key:'fallback', role:'status', 'data-cabinet-plugin-fallback':'1', style:{...line,overflowWrap:'anywhere'} }, fallbackNotice) : null,
+                installed !== null ? h('div', {key:'source', 'data-cabinet-plugin-source':'1',style:{...line,overflowWrap:'anywhere'}}, t('settings.plugin.installedSource') + ' ' + (installed.source || t('settings.plugin.sourceUnknown'))) : null,
+                progress !== '' ? h('div', { key: 'progress', 'data-cabinet-plugin-progress': '1', style: line }, progress) : null,
 				restart ? h('div', { key: 'restart', 'data-cabinet-plugin-state': 'restart', style: { ...line, color: '#d29922' } }, t('settings.plugin.restartRequired')) : null,
 				failure !== '' ? h('div', { key: 'failure', 'data-cabinet-plugin-state': 'error', style: { ...line, color: '#f25a5a' } }, failure) : null
 			]);
@@ -4367,6 +4372,9 @@ window.__ModuleLoader__.load({
 			'settings.plugin.specLabel': '宿主本地源（仅首次安装；依赖可能需要网络）',
 			'settings.plugin.specPlaceholder': '可选：本地源路径；留空则用官方 registry',
 			'settings.plugin.specClear': '清空',
+            'settings.plugin.fallbackNotice': '本地源检查失败，已改用线上源（不是所填本地包）：',
+            'settings.plugin.installedSource': '宿主记录的已安装来源：',
+            'settings.plugin.sourceUnknown': '未知',
 			'settings.plugin.hint1': 'respire/dsh：原生 TypeScript 记忆插件，存储、去重与加密由 rsrs 负责',
 			'settings.plugin.hint2': '自动召回：新会话自动想起早前结论，不用重复交代背景',
 			'settings.plugin.hint3': '本地优先：记忆存本机，引擎故障只提示、主任务照跑',
@@ -4452,6 +4460,9 @@ window.__ModuleLoader__.load({
 			'settings.plugin.specLabel': 'Host-local source (first install only; dependencies may need network)',
 			'settings.plugin.specPlaceholder': 'Optional local source path; empty uses the official registry',
 			'settings.plugin.specClear': 'Clear',
+            'settings.plugin.fallbackNotice': 'Local source inspection failed; switched to the registry (not the entered local package):',
+            'settings.plugin.installedSource': 'Installed source reported by host:',
+            'settings.plugin.sourceUnknown': 'Unknown',
 			'settings.plugin.hint1': 'respire/dsh: native TypeScript memory plugin; rsrs owns storage, dedup and encryption',
 			'settings.plugin.hint2': 'Auto-recall: a new session resurfaces earlier conclusions without re-briefing',
 			'settings.plugin.hint3': 'Local first: memories stay on this machine; an engine outage only notices, work continues',

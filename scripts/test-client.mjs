@@ -653,6 +653,26 @@ for (const outcome of ['late-accepted', 'late-refused', 'rejected']) {
 }
 console.log('PASS: inspection timeout, late acceptance/refusal and transport rejection cause no fallback mutation');
 
+// Fallback remains visible after success or failure; installed source is host evidence.
+for(const succeeds of [true,false]) {
+  pluginSpecStore.set('cabinet.memoryPluginSpec','/tmp/custom-local');
+  settingsState.length=0;settingsCursor=0;let installed=false;const calls=[];
+  const manager={
+    listBundles:async()=>({ok:true,value:installed?[{name:'@rsrsai/dsh',installed:true,enabled:true,version:'0.1.13',source:'@rsrsai/dsh@0.1.13'}]:[]}),
+    inspect:async spec=>{calls.push(spec);return {ok:true,value:spec.startsWith('/tmp')?{status:'refused',reason:'missing local'}:{status:'accepted',name:'@rsrsai/dsh',bundle:true}}},
+    installBundle:async()=>{installed=succeeds;return {ok:true,value:succeeds?{application:'applied',version:'0.1.13'}:{application:'failed',error:{message:'registry failed'}}}},
+    setBundleEnabled:async()=>({ok:true,value:{application:'applied'}})
+  };
+  let nodes=elements(settingsClient.MemoryPluginCard({manager,t:k=>settingsClient.en[k]||k}));
+  nodes.find(n=>n.props?.['data-cabinet-plugin-action']).props.onClick();await new Promise(r=>setTimeout(r,0));
+  settingsCursor=0;nodes=elements(settingsClient.MemoryPluginCard({manager,t:k=>settingsClient.en[k]||k}));
+  const notice=nodes.find(n=>n.props?.['data-cabinet-plugin-fallback']);
+  assert.ok(String(notice.children.flat()).includes('/tmp/custom-local → @rsrsai/dsh@0.1.13'),'actual source switch remains visible');
+  if(succeeds)assert.ok(String(nodes.find(n=>n.props?.['data-cabinet-plugin-source']).children.flat()).includes('@rsrsai/dsh@0.1.13'),'success shows host inventory source');
+  else assert.ok(nodes.some(n=>n.props?.['data-cabinet-plugin-state']==='error'),'failure remains an error, not success');
+  assert.deepEqual(calls,['/tmp/custom-local','@rsrsai/dsh@0.1.13']);
+}
+
 pluginSpecStore.delete('cabinet.memoryPluginSpec');
 
 // Both dictionaries carry the same settings.* keys (nothing may exist in one
