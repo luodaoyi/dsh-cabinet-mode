@@ -6,6 +6,16 @@ let client;
 const source = readFileSync(new URL('../client.js', import.meta.url), 'utf8');
 const exportPoint = 'return { inject, apply };';
 assert.equal(source.split(exportPoint).length, 2);
+// PR#22 coderabbit Major: client.js must not hardcode a machine home path.
+assert.ok(!source.includes('/home/fslong'), 'client.js source carries no hardcoded home path');
+// The card persists its optional local-source override in localStorage; both
+// VM realms below get a minimal store so the save/clear paths are observable.
+const pluginSpecStore = new Map();
+const pluginSpecStorage = {
+  getItem: (key) => (pluginSpecStore.has(key) ? pluginSpecStore.get(key) : null),
+  setItem: (key, value) => { pluginSpecStore.set(key, String(value)); },
+  removeItem: (key) => { pluginSpecStore.delete(key); },
+};
 const React = {
   useId: () => 'test-mask',
   createElement: (type, props, ...children) => ({ type, props, children }),
@@ -16,7 +26,7 @@ const React = {
 };
 const exportList = 'return { inject, apply, avatarFor, displayName, CabinetPanel, MemberCard, TaskLine, TaskEdgeLayer, buildTaskEdges, taskEdgesEqual, zh, en, BUREAUX, AVATARS, setMemberConfig, memberLabel, configuredAvatar, configuredPrompt, factoryPromptFor, DEFAULT_MEMBER_PROMPTS, DEFAULT_LEAD_PROMPT, CabinetMemberSettings, MemoryPluginCard, memoryPluginInstalledOf, SETTINGS_TABS };';
 runInNewContext(source.replace(exportPoint, exportList), {
-  setTimeout: (fn, ms) => setTimeout(fn, ms === 120000 ? 20 : ms), clearTimeout, window: { __ModuleLoader__: { load: ({ factory }) => {
+  setTimeout: (fn, ms) => setTimeout(fn, ms === 120000 ? 20 : ms), clearTimeout, localStorage: pluginSpecStorage, window: { __ModuleLoader__: { load: ({ factory }) => {
     client = factory((name) => { assert.equal(name, 'react'); return React; });
   } } },
 });
@@ -408,7 +418,7 @@ const SettingsReact = {
   },
 };
 runInNewContext(source.replace(exportPoint, exportList), {
-  setTimeout: (fn, ms) => setTimeout(fn, ms === 120000 ? 20 : ms), clearTimeout, window: { __ModuleLoader__: { load: ({ factory }) => { settingsClient = factory((name) => { assert.equal(name, 'react'); return SettingsReact; }); } } },
+  setTimeout: (fn, ms) => setTimeout(fn, ms === 120000 ? 20 : ms), clearTimeout, localStorage: pluginSpecStorage, window: { __ModuleLoader__: { load: ({ factory }) => { settingsClient = factory((name) => { assert.equal(name, 'react'); return SettingsReact; }); } } },
 });
 const mountSettings = (props) => {
   settingsState.length = 0;
@@ -528,6 +538,100 @@ cardNodes = elements(settingsClient.MemoryPluginCard({ t: (key) => key, manager:
 const updateError = cardNodes.find((node) => node.props?.['data-cabinet-plugin-state'] === 'error');
 assert.ok(updateError && String(updateError.children.flat().join('')).includes('boom: registry unreachable'), 'the update button reuses the install chain and echoes its failure verbatim');
 
+// PR#22 coderabbit Major follow-up: no hardcoded machine path — the card reads
+// its optional local-source override from localStorage (cabinet.memoryPluginSpec),
+// tries it before the registry default, falls back once, and notes the specs.
+pluginSpecStore.clear();
+settingsState.length = 0; settingsCursor = 0;
+let specCard = elements(settingsClient.MemoryPluginCard({ t: (key) => key, manager: failingManager }));
+const specInput = specCard.find((node) => node.props?.['data-cabinet-plugin-spec-input']);
+assert.ok(specInput, 'the card renders the optional local-source input');
+assert.equal(specInput.props.value, '', 'the input starts empty with no stored override');
+specInput.props.onChange({ target: { value: '/tmp/local-source' } });
+assert.equal(pluginSpecStore.get('cabinet.memoryPluginSpec'), '/tmp/local-source', 'typing saves the override to localStorage');
+settingsState.length = 0; settingsCursor = 0;
+specCard = elements(settingsClient.MemoryPluginCard({ t: (key) => key, manager: failingManager }));
+assert.equal(specCard.find((node) => node.props?.['data-cabinet-plugin-spec-input']).props.value, '/tmp/local-source', 'a stored override is shown on the card');
+const specClear = specCard.find((node) => node.props?.['data-cabinet-plugin-spec-clear']);
+assert.ok(specClear && specClear.props.disabled === false, 'the clear button is offered once a value is stored');
+specClear.props.onClick();
+assert.equal(pluginSpecStore.has('cabinet.memoryPluginSpec'), false, 'clearing removes the key instead of persisting an empty string');
+
+// Spec selection: no override goes straight to the registry default; a stored
+// override is tried first and the registry default is the single fallback.
+const specCalls = [];
+const specRefusingManager = {
+  inspect: async (spec) => { specCalls.push(spec); return { ok: false, error: { message: 'refused: ' + spec } }; },
+  installBundle: async (spec) => { specCalls.push(spec); return { ok: false, error: { message: 'unreachable' } }; },
+  listBundles: async () => ({ ok: true, value: [] }),
+};
+settingsState.length = 0; settingsCursor = 0;
+specCard = elements(settingsClient.MemoryPluginCard({ t: (key) => key, manager: specRefusingManager }));
+specCard.find((node) => node.props?.['data-cabinet-plugin-action'] === 'install').props.onClick();
+await new Promise((resolve) => setTimeout(resolve, 0));
+assert.deepEqual(specCalls.slice(), ['@rsrsai/dsh@0.1.13'], 'without an override the run chain goes straight to the registry default');
+settingsCursor = 0;
+specCard = elements(settingsClient.MemoryPluginCard({ t: (key) => key, manager: specRefusingManager }));
+const defaultError = specCard.find((node) => node.props?.['data-cabinet-plugin-state'] === 'error');
+const defaultErrorText = String(defaultError.children.flat().join(''));
+assert.ok(defaultErrorText.includes('refused: @rsrsai/dsh@0.1.13'), 'the single-spec failure is echoed verbatim');
+assert.ok(defaultErrorText.includes('[spec: @rsrsai/dsh@0.1.13]'), 'the failure notes the spec it tried');
+
+pluginSpecStore.set('cabinet.memoryPluginSpec', '/tmp/local-source');
+specCalls.length = 0;
+settingsState.length = 0; settingsCursor = 0;
+specCard = elements(settingsClient.MemoryPluginCard({ t: (key) => key, manager: specRefusingManager }));
+specCard.find((node) => node.props?.['data-cabinet-plugin-action'] === 'install').props.onClick();
+await new Promise((resolve) => setTimeout(resolve, 0));
+assert.deepEqual(specCalls.slice(), ['/tmp/local-source', '@rsrsai/dsh@0.1.13'], 'a failing override falls back to the registry default exactly once, in order');
+settingsCursor = 0;
+specCard = elements(settingsClient.MemoryPluginCard({ t: (key) => key, manager: specRefusingManager }));
+const fallbackError = specCard.find((node) => node.props?.['data-cabinet-plugin-state'] === 'error');
+const fallbackErrorText = String(fallbackError.children.flat().join(''));
+assert.ok(fallbackErrorText.includes('refused: /tmp/local-source'), 'the override error is echoed verbatim');
+assert.ok(fallbackErrorText.includes('/tmp/local-source') && fallbackErrorText.includes('@rsrsai/dsh@0.1.13'), 'both tried specs are noted when both attempts fail');
+
+// A successful override must not trigger the fallback at all.
+pluginSpecStore.set('cabinet.memoryPluginSpec', '/tmp/ok-source');
+const okSpecCalls = [];
+let localInstalled = false;
+const okSpecManager = {
+  inspect: async (spec) => { okSpecCalls.push(spec); return { ok: true, value: { status: 'accepted', name: '@rsrsai/dsh', bundle: true } }; },
+  installBundle: async (spec) => { localInstalled = true; okSpecCalls.push(spec); return { ok: true, value: { application: 'applied', bundle: '@rsrsai/dsh', version: '0.1.13' } }; },
+  setBundleEnabled: async () => ({ ok: true, value: { application: 'applied' } }),
+  listBundles: async () => ({ ok: true, value: localInstalled ? [{ name: '@rsrsai/dsh', installed: true, version: '0.1.13', enabled: true }] : [] }),
+};
+settingsState.length = 0; settingsCursor = 0;
+specCard = elements(settingsClient.MemoryPluginCard({ t: (key) => key, manager: okSpecManager }));
+specCard.find((node) => node.props?.['data-cabinet-plugin-action'] === 'install').props.onClick();
+await new Promise((resolve) => setTimeout(resolve, 0));
+assert.equal(okSpecCalls.length, 2, 'inspect and actual install both run');
+assert.ok(localInstalled, 'installation changes inventory');
+assert.ok(okSpecCalls.length > 0 && okSpecCalls.every((spec) => spec === '/tmp/ok-source'), 'a successful override never touches the registry fallback');
+
+// A displayed override remains authoritative even when storage rejects writes.
+for (const scenario of ['storage', 'installed', 'enable-failed']) {
+  pluginSpecStore.clear(); settingsState.length = 0; settingsCursor = 0;
+  let added = false; const calls = [];
+  const manager = {
+    listBundles: async () => ({ok:true,value: (added || scenario === 'installed') ? [{name:'@rsrsai/dsh',installed:true,version:'0.1.13',enabled:false}] : []}),
+    inspect: async spec => { calls.push(['inspect',spec]); return {ok:true,value:{status:'accepted',name:'@rsrsai/dsh',bundle:true}}; },
+    installBundle: async spec => { calls.push(['install',spec]); added=true;return {ok:true,value:{application:'applied',version:'0.1.13'}}; },
+    setBundleEnabled: async () => { calls.push(['enable']); return {ok:true,value:{application:'failed',error:{message:'enable refused'}}}; }
+  };
+  let nodes=elements(settingsClient.MemoryPluginCard({manager,t:k=>k}));
+  const write=pluginSpecStorage.setItem; pluginSpecStorage.setItem=()=>{throw Error('storage denied')};
+  nodes.find(n=>n.props?.['data-cabinet-plugin-spec-input']).props.onChange({target:{value:'/tmp/session-only'}});
+  pluginSpecStorage.setItem=write; settingsCursor=0;
+  nodes=elements(settingsClient.MemoryPluginCard({manager,t:k=>k}));
+  nodes.find(n=>n.props?.['data-cabinet-plugin-action']).props.onClick();
+  await new Promise(r=>setTimeout(r,0));
+  if(scenario==='installed') assert.deepEqual(calls,[], 'local update refuses before any inspection/mutation');
+  else assert.deepEqual(calls,[['inspect','/tmp/session-only'],['install','/tmp/session-only'],['enable']], 'current input survives failed persistence; enable failure never retries');
+}
+
+pluginSpecStore.delete('cabinet.memoryPluginSpec');
+
 // Both dictionaries carry the same settings.* keys (nothing may exist in one
 // language only) and every tab id is translatable.
 const zhSettingsKeys = Object.keys(client.zh).filter((key) => key.startsWith('settings.'));
@@ -545,7 +649,11 @@ for (const n of [1, 2, 3, 4, 5]) {
   assert.ok(zhSettingsKeys.includes(key), 'highlight line copy present: ' + key);
   assert.ok(enSettingsKeys.includes(key), 'highlight line copy present in en: ' + key);
 }
-console.log('PASS: five settings tabs switch by section; the plugin card keeps specs off its face, renders highlight lines, offers update with a visible version, and echoes failures verbatim; bilingual settings keys match');
+for (const key of ['settings.plugin.specLabel', 'settings.plugin.specPlaceholder', 'settings.plugin.specClear']) {
+  assert.ok(zhSettingsKeys.includes(key), 'local-source copy present: ' + key);
+  assert.ok(enSettingsKeys.includes(key), 'local-source copy present in en: ' + key);
+}
+console.log('PASS: five settings tabs switch by section; the plugin card keeps specs off its face, renders highlight lines and the local-source override box, offers update with a visible version, falls back from a failing override to the registry default, and echoes failures verbatim with the tried specs; bilingual settings keys match');
 
 // Installation state machine uses the real remote Result envelope.
 for (const scenario of ['success','install-failed','enable-failed','missing-wait','timeout','restart','update','missing-enable','wait-null','wait-failed']) {
