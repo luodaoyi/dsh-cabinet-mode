@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.6.3] - 2026-11-08
+
+### Changed
+
+- Shorten default Lead/member prompts while preserving authorized writes, evidence, stopped-writer and truthful-reporting requirements.
+- Permit risk-based sampling without replacing required gates or independent review. Reused results must match the final exact commit, configuration and environment; changes require affected checks to rerun.
+- Keep explicit task budgets and stop conditions. Historical token observations are not reproducible savings evidence; no model-token reduction is claimed.
+
 ## [0.6.2] - 2026-11-08
 
 ### Fixed
