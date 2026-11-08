@@ -8,7 +8,8 @@ const cabinet=require('../index.js');
 const patch=fs.readFileSync(path.join(__dirname,'../cordis.patch.yml'),'utf8').replaceAll('\r\n','\n');
 const lines=patch.split('prefix: |-\n')[1].split('\n');const kept=[];
 for(const line of lines){if(line.trim()&&!line.startsWith('                '))break;kept.push(line.slice(16));}
-const prefix=kept.join('\n').trimEnd();assert.ok(prefix.includes('≤100'));
+const policyChecks=['任务书须写明工具调用上限与停止条件','禁止无上限轮询等待','不得省略必要门禁与独立审计','最终交付精确提交','重跑受影响检查','未验证不得视为通过'];
+const prefix=kept.join('\n').trimEnd();assert.ok(prefix.includes('≤100'));for(const rule of policyChecks)assert.ok(prefix.includes(rule),rule);
 (async()=>{
  const ctx=new Context();new SystemPrompt(ctx,{});
  const presets=new WeakMap();ctx.provide('agentPresets',{composedPreset:c=>presets.get(c)});
@@ -21,7 +22,7 @@ const prefix=kept.join('\n').trimEnd();assert.ok(prefix.includes('≤100'));
    const name=role==='lead'?'lead':'dalisi-pingshi';config.members=[{key:role==='lead'?'lead':'dali',mode,prompt:'CUSTOM {{literal}}'}];
    const agent={ctx:scope.ctx,testMember:{role,name}};
    const assembly=await ctx.systemPrompt.assemble({scope:key,agent});const rendered=renderPrompt(assembly);
-   assert.equal(rendered.includes('分派预算约定'),preset==='cabinet');
+   assert.equal(rendered.includes('分派预算约定'),preset==='cabinet');for(const rule of policyChecks)assert.equal(rendered.includes(rule),preset==='cabinet',rule);
    assert.equal(rendered.includes('CUSTOM {{literal}}'),preset==='cabinet'&&mode==='custom');
    assert.equal(rendered.includes('【御下术'),preset==='cabinet'&&role==='lead'&&mode==='');
    const extra=assembly.sections.find(s=>s.name==='cabinet:member')?.text||'';
