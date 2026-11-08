@@ -1,6 +1,6 @@
 # Cabinet Mode (内阁模式) for DeepSeek Harness
 
-**Version compatibility (0.6.2):** Targets DSH **0.2.2-rc.1**. This release adds five settings tabs and an optional Respire install card, and retains the per-office model selection fix before the host freezes each step; 0.5.1/0.5.2 only repaired preset loading and display metadata. Verified with official host components and isolated profiles, without real model calls; see the model regression scope below. Earlier rc.3/rc.5 UI and installation results are historical evidence for earlier packages. On DSH 0.2.1-rc.3/rc.5 retain the previously verified package, including 0.5.0: the current preset omits the separate list_agents entry required on rc.5. Select the compatible version in the market.
+**Version compatibility (0.6.2):** Targets DSH **0.2.2-rc.1**. This release discloses installation source and isolates state across host connections, and retains the per-office model selection fix before the host freezes each step; 0.5.1/0.5.2 only repaired preset loading and display metadata. Verified with official host components and isolated profiles, without real model calls; see the model regression scope below. Earlier rc.3/rc.5 UI and installation results are historical evidence for earlier packages. On DSH 0.2.1-rc.3/rc.5 retain the previously verified package, including 0.5.0: the current preset omits the separate list_agents entry required on rc.5. Select the compatible version in the market.
 
 [中文](README.zh.md) | English
 
