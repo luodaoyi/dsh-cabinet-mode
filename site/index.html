@@ -95,7 +95,7 @@
         "isPartOf": {"@id": "https://luodaoyi.github.io/dsh-cabinet-mode/#website"},
         "about": {"@id": "https://luodaoyi.github.io/dsh-cabinet-mode/#software"},
         "datePublished": "2026-11-07",
-        "dateModified": "2026-11-07",
+        "dateModified": "2026-11-08",
         "primaryImageOfPage": {
           "@type": "ImageObject",
           "url": "https://luodaoyi.github.io/dsh-cabinet-mode/assets/img/og-card.jpg",
@@ -180,6 +180,7 @@
         <a href="#team">团队</a>
         <a href="#faq">常见问题</a>
         <a href="#install">安装</a>
+        <a href="#memory">记忆</a>
         <a class="repo-link" href="https://github.com/luodaoyi/dsh-cabinet-mode" target="_blank" rel="noopener">GitHub</a>
         <a class="lang-switch" href="en/" hreflang="en" lang="en">English</a>
       </nav>
@@ -407,6 +408,37 @@ On failure, show the exact error. For $.format must be 1, replace the webpage so
 dsh plugin --profile desktop list</pre>
         </div>
         <p class="lead-note">方法 A（bundle 安装）与方法 B（node 脚本写 cordis.patch.yml）互斥，同装会使 preset id 重复、声明加载失败。</p>
+      </div>
+    </section>
+
+    <section class="block" id="memory">
+      <div class="container">
+        <h2>搭配记忆插件</h2>
+        <p class="lead-note">内阁模式常跑多成员、长跨度的任务。上一轮的决策、死路和文件位置默认不会带进新会话；记忆插件会在相关回合开头自动召回，省去重复推导。</p>
+        <p class="definition">下面两个同源方案<b>二选一</b>。两者都会注入记忆规则并在每轮前置召回；同时启用会让两套规则与召回叠加，通常没有必要。</p>
+        <div class="table-wrap">
+          <table>
+            <caption class="sr-only">推荐的 DSH 持久记忆插件</caption>
+            <thead>
+              <tr><th scope="col">插件</th><th scope="col">适合</th><th scope="col">机制</th><th scope="col">链接</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><b>respire-dsh</b><br><code>@rsrsai/dsh</code></td>
+                <td>已在用 <code>rsrs</code>，或需要加密库、账号同步、跨宿主共用一份记忆。</td>
+                <td>调用 <code>rsrs</code> CLI 与运行中的宿主 runtime；存储、去重、加密、模型推理、账号与同步由 Respire 负责。要求 Node.js 24+、已配置 <code>rsrs</code> 与运行中的 runtime；README 的兼容基线为 DSH 0.2.1-rc.5。</td>
+                <td><a href="https://github.com/risense-ai/respire-dsh" target="_blank" rel="noopener">GitHub</a><br><a href="https://www.npmjs.com/package/@rsrsai/dsh" target="_blank" rel="noopener">npm</a></td>
+              </tr>
+              <tr>
+                <td><b>dsh-memlite</b><br><code>@rsrsai/dsh-memlite</code></td>
+                <td>想零外部服务起步，或需要可直接读写 JSONL 的记忆库。</td>
+                <td>进程内运行 <code>@rsrsai/memlite</code>：默认 BM25、本地 JSONL 因果树、Obsidian 导入导出与 git 同步。要求 Node.js 18+，不需要 <code>rsrs</code>。</td>
+                <td><a href="https://github.com/risense-ai/dsh-memlite" target="_blank" rel="noopener">GitHub</a><br><a href="https://risense-ai.github.io/dsh-memlite/" target="_blank" rel="noopener">介绍页</a></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="lead-note">安装命令与当前支持的 DSH 版本以各自仓库 README 为准；两者装完都需要重启 DSH。</p>
       </div>
     </section>
 

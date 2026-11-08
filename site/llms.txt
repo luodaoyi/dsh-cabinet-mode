@@ -2,7 +2,7 @@
 
 > Cabinet Mode is a free, open-source DSH bundle for DeepSeek Harness. A grand-secretary Lead directs four bureau members, research comes first, and every conclusion must cite a source. It ships with a right-sidebar dispatch panel and member customization.
 
-Last updated: 2026-11-07
+Last updated: 2026-11-08
 
 ## Canonical pages
 
@@ -64,6 +64,13 @@ Fallback release tarball:
 dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.5.4/dsh-cabinet-mode-0.5.4.tgz
 dsh plugin --profile desktop list
 ```
+
+## Companion memory plugins
+
+Cabinet Mode runs long, multi-member sessions. A DSH memory plugin keeps decisions, dead ends and file locations across sessions. Pick one; both inject memory rules and perform pre-step recall, so enabling both stacks two sets of rules and recall:
+
+- [respire-dsh](https://github.com/risense-ai/respire-dsh): full Respire engine through the `rsrs` CLI; encrypted library, account sync and cross-host memory. Requires Node.js 24+ and a running rsrs runtime.
+- [dsh-memlite](https://github.com/risense-ai/dsh-memlite): in-process memlite; BM25 by default, local JSONL causal tree, Obsidian bridge and git sync. Requires Node.js 18+ and no rsrs.
 
 ## Verification scope
 

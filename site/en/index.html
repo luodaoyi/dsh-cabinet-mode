@@ -95,7 +95,7 @@
         "isPartOf": {"@id": "https://luodaoyi.github.io/dsh-cabinet-mode/#website"},
         "about": {"@id": "https://luodaoyi.github.io/dsh-cabinet-mode/#software"},
         "datePublished": "2026-11-07",
-        "dateModified": "2026-11-07",
+        "dateModified": "2026-11-08",
         "primaryImageOfPage": {
           "@type": "ImageObject",
           "url": "https://luodaoyi.github.io/dsh-cabinet-mode/assets/img/og-card.jpg",
@@ -180,6 +180,7 @@
         <a href="#team">Team</a>
         <a href="#faq">FAQ</a>
         <a href="#install">Install</a>
+        <a href="#memory">Memory</a>
         <a class="repo-link" href="https://github.com/luodaoyi/dsh-cabinet-mode" target="_blank" rel="noopener">GitHub</a>
         <a class="lang-switch" href="../" hreflang="zh-CN" lang="zh-CN">中文</a>
       </nav>
@@ -409,6 +410,37 @@ On failure, show the exact error. For $.format must be 1, replace the webpage so
 dsh plugin --profile desktop list</pre>
         </div>
         <p class="lead-note">Method A (bundle install) and Method B (node scripts writing cordis.patch.yml) are mutually exclusive; installing both duplicates the preset id and the declaration fails to load.</p>
+      </div>
+    </section>
+
+    <section class="block" id="memory">
+      <div class="container">
+        <h2>Companion memory</h2>
+        <p class="lead-note">Cabinet Mode runs long, multi-member sessions. Decisions, dead ends and file locations from one session are not carried into the next by default; a memory plugin recalls them automatically at the start of a relevant turn, so the cabinet does not re-derive the same context.</p>
+        <p class="definition">Pick <b>one</b> of these companion plugins. Both inject memory rules and perform pre-step recall; enabling both stacks two sets of rules and recall, which is usually unnecessary.</p>
+        <div class="table-wrap">
+          <table>
+            <caption class="sr-only">Recommended DSH persistent-memory plugins</caption>
+            <thead>
+              <tr><th scope="col">Plugin</th><th scope="col">Best for</th><th scope="col">How it works</th><th scope="col">Links</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><b>respire-dsh</b><br><code>@rsrsai/dsh</code></td>
+                <td>You already use <code>rsrs</code>, or need encrypted storage, account sync and one library across hosts.</td>
+                <td>Calls the <code>rsrs</code> CLI and a running host runtime; Respire owns storage, deduplication, encryption, model inference, accounts and sync. Requires Node.js 24+, a configured <code>rsrs</code> and a running runtime; the README baseline is DSH 0.2.1-rc.5.</td>
+                <td><a href="https://github.com/risense-ai/respire-dsh" target="_blank" rel="noopener">GitHub</a><br><a href="https://www.npmjs.com/package/@rsrsai/dsh" target="_blank" rel="noopener">npm</a></td>
+              </tr>
+              <tr>
+                <td><b>dsh-memlite</b><br><code>@rsrsai/dsh-memlite</code></td>
+                <td>You want a zero-service local start, or a library you can read and edit as JSONL.</td>
+                <td>Runs <code>@rsrsai/memlite</code> in-process: BM25 by default, local JSONL causal tree, Obsidian import/export and git sync. Requires Node.js 18+ and no <code>rsrs</code>.</td>
+                <td><a href="https://github.com/risense-ai/dsh-memlite" target="_blank" rel="noopener">GitHub</a><br><a href="https://risense-ai.github.io/dsh-memlite/" target="_blank" rel="noopener">Website</a></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="lead-note">Follow each repository's README for the current install command and supported DSH version; both require a restart to take effect.</p>
       </div>
     </section>
 

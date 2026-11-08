@@ -209,6 +209,20 @@ v0.1.2 → v0.1.3 走内嵌 pnpm（DSH 0.2.1-rc.5）。
 
 ---
 
+## 推荐搭配：持久记忆插件
+
+内阁模式常跑多成员、长跨度的任务。上一轮的决策、死路和文件位置默认不会带进新会话；
+记忆插件会在相关回合开头自动召回，省去重复推导。
+
+以下两个同源方案**二选一**。两者都会注入记忆规则并在每轮前置召回，同时启用会让两套规则与召回叠加，通常没有必要。
+
+| 插件 | 适合 | 机制 | 链接 |
+|---|---|---|---|
+| **respire-dsh**（`@rsrsai/dsh`） | 已在用 `rsrs`，或需要加密库、账号同步、跨宿主共用一份记忆。 | 调用 `rsrs` CLI 与运行中的宿主 runtime；存储、去重、加密、模型推理、账号与同步由 Respire 负责。要求 Node.js 24+、已配置 `rsrs` 与运行中的 runtime；README 的兼容基线为 DSH 0.2.1-rc.5。 | [GitHub](https://github.com/risense-ai/respire-dsh) · [npm](https://www.npmjs.com/package/@rsrsai/dsh) |
+| **dsh-memlite**（`@rsrsai/dsh-memlite`） | 想零外部服务起步，或需要可直接读写 JSONL 的记忆库。 | 进程内运行 `@rsrsai/memlite`：默认 BM25、本地 JSONL 因果树、Obsidian 导入导出与 git 同步。要求 Node.js 18+，不需要 `rsrs`。 | [GitHub](https://github.com/risense-ai/dsh-memlite) · [介绍页](https://risense-ai.github.io/dsh-memlite/) |
+
+安装命令与当前支持的 DSH 版本以各自仓库 README 为准；两者装完都需要重启 DSH。
+
 ## 你会得到什么
 
 | | |

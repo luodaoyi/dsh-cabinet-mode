@@ -283,6 +283,25 @@ on DSH 0.2.1-rc.5.
 
 ---
 
+## Recommended companion: persistent memory
+
+Cabinet Mode runs long, multi-member sessions. Decisions, dead ends and file
+locations from one session are not carried into the next by default. A DSH
+memory plugin recalls those facts automatically at the start of a relevant turn,
+so the cabinet does not re-derive the same context.
+
+Pick **one** of these companion plugins. Both inject memory rules and perform
+pre-step recall; enabling both stacks two sets of rules and recall, which is
+usually unnecessary.
+
+| Plugin | Best for | How it works | Links |
+|---|---|---|---|
+| **respire-dsh** (`@rsrsai/dsh`) | You already use `rsrs`, or need encrypted storage, account sync and one library across hosts. | Calls the `rsrs` CLI and a running host runtime; Respire owns storage, deduplication, encryption, model inference, accounts and sync. Requires Node.js 24+, a configured `rsrs`, and a running runtime; the README baseline is DSH 0.2.1-rc.5. | [GitHub](https://github.com/risense-ai/respire-dsh) · [npm](https://www.npmjs.com/package/@rsrsai/dsh) |
+| **dsh-memlite** (`@rsrsai/dsh-memlite`) | You want a zero-service local start, or a library you can read and edit as JSONL. | Runs `@rsrsai/memlite` in-process: BM25 by default, local JSONL causal tree, Obsidian import/export and git sync. Requires Node.js 18+ and no `rsrs`. | [GitHub](https://github.com/risense-ai/dsh-memlite) · [website](https://risense-ai.github.io/dsh-memlite/) |
+
+Follow each repository's README for the current install command and supported
+DSH version; both require a restart to take effect.
+
 ## What you get
 
 | | |
