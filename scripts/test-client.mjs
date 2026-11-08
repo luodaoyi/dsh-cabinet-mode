@@ -653,6 +653,29 @@ for (const outcome of ['late-accepted', 'late-refused', 'rejected']) {
 }
 console.log('PASS: inspection timeout, late acceptance/refusal and transport rejection cause no fallback mutation');
 
+// Fallback remains visible after success or failure; installed source is host evidence.
+for(const succeeds of [true,false]) {
+  pluginSpecStore.set('cabinet.memoryPluginSpec','/tmp/custom-local');
+  settingsState.length=0;settingsCursor=0;let installed=false;const calls=[];
+  const manager={
+    listBundles:async()=>({ok:true,value:installed?[{name:'@rsrsai/dsh',installed:true,enabled:true,version:'0.1.13',source:'@rsrsai/dsh@0.1.13'}]:[]}),
+    inspect:async spec=>{calls.push(spec);return {ok:true,value:spec.startsWith('/tmp')?{status:'refused',reason:'missing local'}:{status:'accepted',name:'@rsrsai/dsh',bundle:true}}},
+    installBundle:async()=>{installed=succeeds;return {ok:true,value:succeeds?{application:'applied',version:'0.1.13'}:{application:'failed',error:{message:'registry failed'}}}},
+    setBundleEnabled:async()=>({ok:true,value:{application:'applied'}})
+  };
+  let nodes=elements(settingsClient.MemoryPluginCard({manager,t:k=>settingsClient.en[k]||k}));
+  nodes.find(n=>n.props?.['data-cabinet-plugin-action']).props.onClick();await new Promise(r=>setTimeout(r,0));
+  settingsCursor=0;nodes=elements(settingsClient.MemoryPluginCard({manager,t:k=>settingsClient.en[k]||k}));
+  const notice=nodes.find(n=>n.props?.['data-cabinet-plugin-fallback']);
+  assert.ok(String(notice.children.flat()).includes('/tmp/custom-local → @rsrsai/dsh@0.1.13'),'actual source switch remains visible');
+  if(succeeds)assert.ok(String(nodes.find(n=>n.props?.['data-cabinet-plugin-source']).children.flat()).includes('@rsrsai/dsh@0.1.13'),'success shows host inventory source');
+  else assert.ok(nodes.some(n=>n.props?.['data-cabinet-plugin-state']==='error'),'failure remains an error, not success');
+  assert.deepEqual(calls,['/tmp/custom-local','@rsrsai/dsh@0.1.13']);
+  settingsCursor=0;const other=elements(settingsClient.MemoryPluginCard({manager:{listBundles:async()=>{throw Error('new connection failed')}},t:k=>k}));
+  assert.equal(other.some(n=>n.props?.['data-cabinet-plugin-fallback']),false,'existing fallback notice cannot cross connection');
+  assert.equal(other.some(n=>n.props?.['data-cabinet-plugin-source']),false,'existing source cannot cross connection');
+}
+
 pluginSpecStore.delete('cabinet.memoryPluginSpec');
 
 // Both dictionaries carry the same settings.* keys (nothing may exist in one
@@ -748,3 +771,36 @@ console.log('PASS: effectful inventory first mount/remount/channel replacement a
   h.render(manager).find(n=>n.props?.['data-cabinet-plugin-action']==='install').props.onClick();await tick();resolve({ok:true,value:[]});await tick();assert.equal(versionOf(h.render(manager)),'0.1.13','epoch rejects pre-operation inventory response');h.unmount();
 }
 console.log('PASS: late initial inventory cannot overwrite a completed operation');
+
+{
+  const h=memoryCardHarness();
+  const a={listBundles:async()=>({ok:true,value:[{name:'@rsrsai/dsh',installed:true,enabled:true,version:'0.1.13',source:'registry-A'}]})};
+  const b={listBundles:async()=>{throw Error('unavailable')}};
+  const sourceOf=n=>n.find(x=>x.props?.['data-cabinet-plugin-source'])?.children.flat().join('');
+  h.render(a);await tick();assert.ok(sourceOf(h.render(a)).includes('registry-A'));
+  assert.equal(sourceOf(h.render(b)),undefined,'new connection hides old source immediately');await tick();assert.equal(sourceOf(h.render(b)),undefined,'failed inventory never exposes previous source');
+  const c={listBundles:async()=>inventory('0.1.13')};h.render(c);await tick();assert.ok(sourceOf(h.render(c)).includes('settings.plugin.sourceUnknown'),'missing provenance is unknown');
+  h.unmount();h.render(a);await tick();assert.ok(sourceOf(h.render(a)).includes('registry-A'),'remount reloads host provenance');h.unmount();
+}
+
+// Switching connections during inspection never locks the new connection or mutates the old one.
+{
+ const h=memoryCardHarness();let finish,mutations=0;
+ const a={listBundles:async()=>({ok:true,value:[]}),inspect:()=>new Promise(r=>finish=r),installBundle:async()=>{mutations++;return {ok:true,value:{application:'applied'}}}};
+ const b={listBundles:async()=>{throw Error('new inventory failed')},inspect:async()=>{},installBundle:async()=>{}};
+ const action=n=>n.find(x=>x.props?.['data-cabinet-plugin-action']);
+ h.render(a);await tick();action(h.render(a)).props.onClick();await tick();assert.equal(action(h.render(a)).props.disabled,true);
+ assert.equal(action(h.render(b)).props.disabled,false,'new connection is not locked by old work');await tick();
+ finish({ok:true,value:{status:'accepted',name:'@rsrsai/dsh',bundle:true}});await tick();
+ assert.equal(action(h.render(b)).props.disabled,false,'late completion cannot lock new UI');assert.equal(mutations,0,'late inspection cannot start installation after connection changed');h.unmount();
+}
+
+{
+ const h=memoryCardHarness();let finish,enabled=0;
+ const a={listBundles:async()=>({ok:true,value:[]}),inspect:async()=>({ok:true,value:{status:'accepted',name:'@rsrsai/dsh',bundle:true}}),installBundle:()=>new Promise(r=>finish=r),setBundleEnabled:async()=>{enabled++;return {ok:true,value:{application:'applied'}}}};
+ const b={listBundles:async()=>({ok:true,value:[]})};const action=n=>n.find(x=>x.props?.['data-cabinet-plugin-action']);
+ h.render(a);await tick();action(h.render(a)).props.onClick();await tick();assert.equal(typeof finish,'function');
+ assert.equal(action(h.render(b)).props.disabled,false);await tick();
+ finish({ok:true,value:{application:'applied',version:'0.1.13'}});await tick();
+ const nodes=h.render(b);assert.equal(action(nodes).props.disabled,false);assert.equal(versionOf(nodes),undefined);assert.equal(enabled,0,'old installation completion must not enable after switching');h.unmount();
+}

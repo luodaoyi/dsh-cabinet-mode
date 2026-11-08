@@ -1,6 +1,6 @@
 # Cabinet Mode (内阁模式) for DeepSeek Harness
 
-**Version compatibility (0.6.1):** Targets DSH **0.2.2-rc.1**. This release adds five settings tabs and an optional Respire install card, and retains the per-office model selection fix before the host freezes each step; 0.5.1/0.5.2 only repaired preset loading and display metadata. Verified with official host components and isolated profiles, without real model calls; see the model regression scope below. Earlier rc.3/rc.5 UI and installation results are historical evidence for earlier packages. On DSH 0.2.1-rc.3/rc.5 retain the previously verified package, including 0.5.0: the current preset omits the separate list_agents entry required on rc.5. Select the compatible version in the market.
+**Version compatibility (0.6.2):** Targets DSH **0.2.2-rc.1**. This release discloses installation source and isolates state across host connections, and retains the per-office model selection fix before the host freezes each step; 0.5.1/0.5.2 only repaired preset loading and display metadata. Verified with official host components and isolated profiles, without real model calls; see the model regression scope below. Earlier rc.3/rc.5 UI and installation results are historical evidence for earlier packages. On DSH 0.2.1-rc.3/rc.5 retain the previously verified package, including 0.5.0: the current preset omits the separate list_agents entry required on rc.5. Select the compatible version in the market.
 
 [中文](README.zh.md) | English
 
@@ -37,7 +37,7 @@ and the rest) come from the profile-level
 ship them**.
 
 This bundle declares **no hard DSH version gate**: no `engines.dsh`, no DSH
-`peerDependencies`, no install-time version check. Earlier package releases were tested on DSH **0.2.1-rc.3**; use the compatibility guidance above for 0.6.1 (see [DSH-side constraints](#dsh-side-constraints)).
+`peerDependencies`, no install-time version check. Earlier package releases were tested on DSH **0.2.1-rc.3**; use the compatibility guidance above for 0.6.2 (see [DSH-side constraints](#dsh-side-constraints)).
 
 ## Optional memory plugin
 
@@ -262,7 +262,7 @@ On failure, show the exact error. For $.format must be 1, replace the webpage so
 Use this only when the market is unavailable or for local development. Fully quit desktop DSH first to release the profile lock, then install the release bundle:
 
 ```sh
-dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.6.1/dsh-cabinet-mode-0.6.1.tgz
+dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.6.2/dsh-cabinet-mode-0.6.2.tgz
 dsh plugin --profile desktop list
 ```
 
@@ -277,7 +277,7 @@ the same install command with the new version URL (or pick the new `.tgz` in the
 plugin page), then fully quit and restart DeepSeek Harness:
 
 ```sh
-dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.6.1/dsh-cabinet-mode-0.6.1.tgz
+dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.6.2/dsh-cabinet-mode-0.6.2.tgz
 ```
 
 `dsh plugin --profile desktop list` should report the new version. Upgrades were
@@ -570,3 +570,5 @@ and the Windows-tested vs Linux/macOS-inferred split. Sections:
 ### Optional Respire local source
 
 The memory-plugin card accepts a path on the DSH host for **first installation only**. Dependencies may still need network access; this is not a guaranteed offline installer. Installed bundles reject local-source updates: clear the field for the pinned registry action, or manage local packages through the native plugin manager. Browser storage is best-effort; the current field value is used even when persistence fails. Only inspection failure before installation may fall back once to the registry. Installation, enablement, unknown outcomes, and unmount never trigger a second automatic mutation.
+
+When local inspection fails and the card falls back, a notice names both attempted sources for the current mounted card and connection (until the next operation). The installed-source line uses the host inventory, not the input field; absent host metadata is shown as unknown.

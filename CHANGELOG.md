@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.6.2] - 2026-11-08
+
+### Fixed
+
+- Disclose local-source fallback to the registry and show installed provenance from the host inventory, or Unknown when absent.
+- Scope installed source, fallback notices and operation state to their connection; late replies cannot lock or mutate a replacement connection.
+- Retain timeout/no-fallback safeguards and test connection changes during inspection and installation.
+
 ## [0.6.1] - 2026-11-08
 
 ### Fixed
