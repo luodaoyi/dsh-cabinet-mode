@@ -14,8 +14,8 @@ const React = {
   useCallback: (callback) => callback,
   useLayoutEffect: () => {}, useEffect: () => {},
 };
-runInNewContext(source.replace(exportPoint,
-  'return { inject, apply, avatarFor, displayName, CabinetPanel, MemberCard, TaskLine, TaskEdgeLayer, buildTaskEdges, taskEdgesEqual, zh, en, BUREAUX, AVATARS, setMemberConfig, memberLabel, configuredAvatar, configuredPrompt, factoryPromptFor, DEFAULT_MEMBER_PROMPTS, DEFAULT_LEAD_PROMPT };'), {
+const exportList = 'return { inject, apply, avatarFor, displayName, CabinetPanel, MemberCard, TaskLine, TaskEdgeLayer, buildTaskEdges, taskEdgesEqual, zh, en, BUREAUX, AVATARS, setMemberConfig, memberLabel, configuredAvatar, configuredPrompt, factoryPromptFor, DEFAULT_MEMBER_PROMPTS, DEFAULT_LEAD_PROMPT, CabinetMemberSettings, MemoryPluginCard, memoryPluginInstalledOf, SETTINGS_TABS };';
+runInNewContext(source.replace(exportPoint, exportList), {
   window: { __ModuleLoader__: { load: ({ factory }) => {
     client = factory((name) => { assert.equal(name, 'react'); return React; });
   } } },
@@ -89,6 +89,9 @@ for (const key of ['hanlin', 'works', 'dali', 'yushi']) {
   assert.ok(client.factoryPromptFor(key).length <= 400, `${key} factory prompt must stay under 400 chars`);
 }
 assert.ok(client.DEFAULT_LEAD_PROMPT.includes('御下术'));
+for (const clause of ['监控纠偏', 'team_task_list', 'send_message', 'interrupt_agent', '并发派第二执行者', '文件时间戳', '单文件小步重派', '内嵌派单提示词']) {
+  assert.ok(client.DEFAULT_LEAD_PROMPT.includes(clause), `lead prompt carries the monitoring/correction clause: ${clause}`);
+}
 client.setMemberConfig({ members: [{ key: 'hanlin', name: '张翰林', prompt: '', mode: '' }] });
 assert.equal(client.memberLabel('hanlin'), '张翰林 · hanlin');
 assert.equal(client.configuredPrompt('hanlin'), client.factoryPromptFor('hanlin'), 'unconfigured mode keeps the factory prompt');
@@ -388,3 +391,158 @@ assert.equal(adjacent.length,1);assert.notEqual(adjacent[0].s[1],adjacent[0].e[1
 assert.ok(adjacent[0].c1[0]>adjacent[0].s[0]);
 console.log('PASS: adjacent same-column rows retain a nonzero gutter curve');
 console.log('PASS: edge direction blocker → blocked (start on blocker row, dot on blocked row) and click-to-open binding rules (lead/unassigned/inert never bind)');
+
+// --- settings page: four tabs + the memory-plugin card ----------------------
+// The shared React double above keeps useState inert; this second instance gives
+// the settings page a stateful double so a tab click can be observed by
+// re-rendering the same component with the updated state store.
+let settingsClient;
+const settingsState = [];
+let settingsCursor = 0;
+const SettingsReact = {
+  ...React,
+  useState: (initial) => {
+    const index = settingsCursor++;
+    if (!(index in settingsState)) settingsState[index] = initial;
+    return [settingsState[index], (next) => { settingsState[index] = typeof next === 'function' ? next(settingsState[index]) : next; }];
+  },
+};
+runInNewContext(source.replace(exportPoint, exportList), {
+  window: { __ModuleLoader__: { load: ({ factory }) => { settingsClient = factory((name) => { assert.equal(name, 'react'); return SettingsReact; }); } } },
+});
+const mountSettings = (props) => {
+  settingsState.length = 0;
+  settingsCursor = 0;
+  return () => { settingsCursor = 0; return elements(settingsClient.CabinetMemberSettings(props)); };
+};
+const tabButton = (nodes, id) => nodes.find((node) => node.props?.['data-cabinet-settings-tab'] === id);
+
+const renderSettings = mountSettings({ t: (key) => key });
+let nodes = renderSettings();
+assert.deepEqual(['members', 'avatars', 'models', 'prompts', 'plugin'].map((id) => tabButton(nodes, id)?.props['data-cabinet-settings-tab']),
+  ['members', 'avatars', 'models', 'prompts', 'plugin'], 'the settings page exposes five tabs in order');
+assert.equal(tabButton(nodes, 'members').props['data-cabinet-settings-active'], '1', 'the members tab starts active');
+assert.ok(nodes.some((node) => node.props?.key === 'name'), 'members tab shows the name field');
+assert.ok(!nodes.some((node) => node.props?.key === 'pi'), 'prompt textarea is not on the members tab');
+assert.ok(!nodes.some((node) => node.props?.key === 'builtin'), 'avatar row is not on the members tab');
+assert.ok(nodes.some((node) => node.props?.key === 'head'), 'row head stays visible so members remain identifiable');
+// The card lives inside the plugin tab now: absent by default, shown while the
+// tab is active, and it is still the content directly above save/cancel there.
+assert.equal(nodes.findIndex((node) => node.props?.['data-cabinet-plugin-card']), -1, 'the memory-plugin card is not on the default members tab');
+tabButton(nodes, 'plugin').props.onClick();
+nodes = renderSettings();
+const cardAt = nodes.findIndex((node) => node.props?.['data-cabinet-plugin-card']);
+const saveAt = nodes.findIndex((node) => node.props?.key === 'save');
+assert.ok(cardAt >= 0, 'clicking the plugin tab shows the memory-plugin card');
+assert.ok(saveAt > cardAt, 'the card sits directly above the save/cancel row while its tab is active');
+assert.ok(!nodes.some((node) => node.props?.key === 'fields'), 'the plugin tab renders no members fieldset: its own content is the plugin card, and member shells without their sections would only be empty head rows');
+tabButton(nodes, 'members').props.onClick();
+nodes = renderSettings();
+assert.ok(!nodes.some((node) => node.props?.['data-cabinet-plugin-card']), 'leaving the plugin tab hides the card again');
+assert.ok(nodes.some((node) => node.props?.key === 'cancel'), 'cancel survives the restructure');
+
+tabButton(nodes, 'models').props.onClick();
+nodes = renderSettings();
+assert.equal(tabButton(nodes, 'models').props['data-cabinet-settings-active'], '1', 'clicking a tab activates it');
+assert.ok(nodes.some((node) => node.props?.['data-cabinet-settings-refresh'] === '1'), 'the catalog refresh moved into the models tab');
+assert.ok(nodes.some((node) => node.props?.key === 'ml'), 'models tab shows the model field');
+assert.ok(!nodes.some((node) => node.props?.key === 'name'), 'name field is not on the models tab');
+
+tabButton(nodes, 'prompts').props.onClick();
+nodes = renderSettings();
+assert.ok(nodes.some((node) => node.props?.key === 'pi'), 'prompts tab shows the prompt textarea');
+assert.ok(!nodes.some((node) => node.props?.key === 'ml'), 'model field is not on the prompts tab');
+
+tabButton(nodes, 'avatars').props.onClick();
+nodes = renderSettings();
+assert.ok(nodes.some((node) => node.props?.key === 'builtin'), 'avatars tab shows the portrait row');
+assert.ok(!nodes.some((node) => node.props?.key === 'pi'), 'prompt textarea is not on the avatars tab');
+assert.ok(nodes.some((node) => node.props?.key === 'head'), 'row head stays visible on every member tab');
+
+// Memory-plugin card: no channel degrades loudly, the installed state offers
+// update (never one-click install), specs stay off the card face, the version
+// falls back to the local source package.json, and failures echo verbatim.
+settingsState.length = 0; settingsCursor = 0;
+let cardNodes = elements(settingsClient.MemoryPluginCard({ t: (key) => key }));
+assert.ok(cardNodes.some((node) => node.props?.['data-cabinet-plugin-state'] === 'unavailable'), 'a missing channel is stated, not silent');
+const deadButton = cardNodes.find((node) => node.props?.['data-cabinet-plugin-action'] === 'install');
+assert.ok(deadButton && deadButton.props.disabled === true, 'the install button stays disabled without a channel');
+const faceTextOf = (rendered) => JSON.stringify(rendered.map((node) => node.props));
+assert.ok(!faceTextOf(cardNodes).includes('file:'), 'the local file: spec is never rendered on the card');
+assert.ok(!faceTextOf(cardNodes).includes('@rsrsai/dsh@'), 'the registry spec is never rendered on the card');
+assert.ok(cardNodes.some((node) => node.props?.['data-cabinet-plugin-hint'] !== undefined), 'the highlight list renders on the card face');
+
+settingsState.length = 0; settingsCursor = 0;
+cardNodes = elements(settingsClient.MemoryPluginCard({ t: (key) => key, initialInstalled: { name: '@rsrsai/dsh', version: '0.1.13', enabled: true } }));
+assert.ok(cardNodes.some((node) => node.props?.['data-cabinet-plugin-state'] === 'installed'), 'the installed state is announced');
+assert.ok(!cardNodes.some((node) => node.props?.['data-cabinet-plugin-action'] === 'install'), 'the installed state shows no one-click install button');
+const updateButton = cardNodes.find((node) => node.props?.['data-cabinet-plugin-action'] === 'update');
+assert.ok(updateButton && updateButton.props.disabled === true, 'the installed state offers an update button, disabled without a channel');
+const versionNode = cardNodes.find((node) => node.props?.['data-cabinet-plugin-version'] !== undefined);
+assert.ok(versionNode && String(versionNode.children.flat().join('')).includes('0.1.13'), 'the installed version is visible on the card');
+assert.ok(!faceTextOf(cardNodes).includes('file:'), 'the file: spec stays hidden in the installed state');
+assert.ok(!faceTextOf(cardNodes).includes('@rsrsai/dsh@'), 'the registry spec stays hidden in the installed state');
+
+settingsState.length = 0; settingsCursor = 0;
+cardNodes = elements(settingsClient.MemoryPluginCard({ t: (key) => key, initialInstalled: { name: '@rsrsai/dsh', version: '', enabled: true } }));
+const fallbackVersionNode = cardNodes.find((node) => node.props?.['data-cabinet-plugin-version'] !== undefined);
+assert.ok(fallbackVersionNode && String(fallbackVersionNode.children.flat().join('')).includes('0.1.13'), 'a missing installed version falls back to the local source package.json version');
+assert.ok(fallbackVersionNode && String(fallbackVersionNode.children.flat().join('')).includes('settings.plugin.versionFallback'), 'the version fallback is marked on the card');
+
+const mappedInstalled = settingsClient.memoryPluginInstalledOf([{ name: '@rsrsai/dsh', installed: true, version: '0.1.13', enabled: true }]);
+// Field-by-field: the module lives in its own realm, so deepStrictEqual would
+// compare a foreign Object.prototype and fail on identical fields.
+assert.equal(mappedInstalled && mappedInstalled.name, '@rsrsai/dsh', 'listBundles shape maps to the card state');
+assert.equal(mappedInstalled && mappedInstalled.version, '0.1.13', 'the installed version is carried through');
+assert.equal(mappedInstalled && mappedInstalled.enabled, true, 'the enabled flag is carried through');
+assert.equal(settingsClient.memoryPluginInstalledOf([{ name: 'other', installed: true }]), null, 'other bundles never count as ours');
+assert.equal(settingsClient.memoryPluginInstalledOf('junk'), null, 'malformed replies never throw');
+
+settingsState.length = 0; settingsCursor = 0;
+const failingManager = {
+  inspect: async () => ({ ok: false, error: { message: 'boom: registry unreachable' } }),
+  installBundle: async () => ({ ok: false, error: { message: 'unreachable' } }),
+  listBundles: async () => [],
+};
+cardNodes = elements(settingsClient.MemoryPluginCard({ t: (key) => key, manager: failingManager }));
+const installButton = cardNodes.find((node) => node.props?.['data-cabinet-plugin-action'] === 'install');
+assert.ok(installButton && installButton.props.disabled === false, 'a live channel offers the install button');
+installButton.props.onClick();
+await new Promise((resolve) => setTimeout(resolve, 0));
+settingsCursor = 0;
+cardNodes = elements(settingsClient.MemoryPluginCard({ t: (key) => key, manager: failingManager }));
+const errorNode = cardNodes.find((node) => node.props?.['data-cabinet-plugin-state'] === 'error');
+assert.ok(errorNode, 'a failed install is visible');
+assert.ok(String(errorNode.children.flat().join('')).includes('boom: registry unreachable'), 'the raw error text is echoed verbatim');
+
+settingsState.length = 0; settingsCursor = 0;
+const updateInstalled = { name: '@rsrsai/dsh', version: '0.1.13', enabled: true };
+cardNodes = elements(settingsClient.MemoryPluginCard({ t: (key) => key, manager: failingManager, initialInstalled: updateInstalled }));
+const updateClick = cardNodes.find((node) => node.props?.['data-cabinet-plugin-action'] === 'update');
+assert.ok(updateClick, 'the installed state wires the update action');
+assert.ok(updateClick && updateClick.props.disabled === false, 'a live channel enables the update action');
+updateClick.props.onClick();
+await new Promise((resolve) => setTimeout(resolve, 0));
+settingsCursor = 0;
+cardNodes = elements(settingsClient.MemoryPluginCard({ t: (key) => key, manager: failingManager, initialInstalled: updateInstalled }));
+const updateError = cardNodes.find((node) => node.props?.['data-cabinet-plugin-state'] === 'error');
+assert.ok(updateError && String(updateError.children.flat().join('')).includes('boom: registry unreachable'), 'the update button reuses the install chain and echoes its failure verbatim');
+
+// Both dictionaries carry the same settings.* keys (nothing may exist in one
+// language only) and every tab id is translatable.
+const zhSettingsKeys = Object.keys(client.zh).filter((key) => key.startsWith('settings.'));
+const enSettingsKeys = Object.keys(client.en).filter((key) => key.startsWith('settings.'));
+assert.ok(zhSettingsKeys.length >= 17, 'settings copy exists in zh, got ' + zhSettingsKeys.length);
+assert.deepEqual(zhSettingsKeys.slice().sort(), enSettingsKeys.slice().sort(), 'zh and en settings keys must match exactly');
+for (const id of ['members', 'avatars', 'models', 'prompts', 'plugin']) {
+  assert.ok(zhSettingsKeys.includes('settings.tab.' + id), 'tab label present in zh: ' + id);
+}
+for (const key of ['settings.plugin.install', 'settings.plugin.installing', 'settings.plugin.installed', 'settings.plugin.update', 'settings.plugin.versionFallback', 'settings.plugin.restartRequired', 'settings.plugin.unavailable']) {
+  assert.ok(zhSettingsKeys.includes(key), 'plugin card copy present: ' + key);
+}
+for (const n of [1, 2, 3, 4, 5]) {
+  const key = 'settings.plugin.hint' + n;
+  assert.ok(zhSettingsKeys.includes(key), 'highlight line copy present: ' + key);
+  assert.ok(enSettingsKeys.includes(key), 'highlight line copy present in en: ' + key);
+}
+console.log('PASS: five settings tabs switch by section; the plugin card keeps specs off its face, renders highlight lines, offers update with a visible version, and echoes failures verbatim; bilingual settings keys match');
