@@ -2585,10 +2585,11 @@ window.__ModuleLoader__.load({
 		 * and simply prints its em dash.
 		 */
 		let cabinetSessions = null;
+		const cabinetSessionsListeners = new Set();
 		/**
-		 * Refresh cadence for member usage while somebody is running. The refresh is
-		 * a local projection RPC (`sessions.refreshProjections`) that reads the
-		 * session store — it never sends a model request, so it spends no tokens.
+		 * Retry cadence for public projection reads while a member is running.
+		 * Ready snapshots can be cached by the host; this is not forced polling.
+		 * The sessions service does not issue model requests.
 		 */
 		const PROJECTION_REFRESH_MS = 5000;
 		/**
@@ -3114,7 +3115,7 @@ window.__ModuleLoader__.load({
 			if (usage === undefined || usage === null || typeof usage !== 'object') return undefined;
 			const buckets = ['uncachedInputTokens', 'outputTokens', 'cacheReadTokens', 'cacheWriteTokens']
 				.map((key) => usage[key])
-				.filter((value) => typeof value === 'number' && Number.isFinite(value));
+				.filter((value) => typeof value === 'number' && Number.isFinite(value) && value >= 0);
 			if (buckets.length === 0) return undefined;
 			return buckets.reduce((sum, value) => sum + value, 0);
 		}
@@ -3126,7 +3127,7 @@ window.__ModuleLoader__.load({
 		 */
 		function usageFor(values, now) {
 			const source = values !== undefined && values !== null && typeof values === 'object' ? values : {};
-			const tokens = tokenTotalOf(source.tokenUsage);
+			const tokens = tokenTotalOf(source.tokenUsage?.totals ?? source.tokenUsage);
 			let elapsedMs;
 			const timing = source.subagentTiming;
 			if (timing !== undefined && timing !== null && typeof timing === 'object') {
@@ -3140,10 +3141,10 @@ window.__ModuleLoader__.load({
 				}
 			}
 			const pressure = source.contextPressure;
-			const breakdown = source.contextBreakdown;
+			const breakdown = source.contextBreakdown?.breakdown ?? source.contextBreakdown;
 			const projected = pressure !== undefined && pressure !== null && typeof pressure.projectedTokens === 'number' && Number.isFinite(pressure.projectedTokens)
-				? pressure.projectedTokens : undefined;
-			const contextWindow = pressure !== undefined && pressure !== null && typeof pressure.contextWindow === 'number' && pressure.contextWindow > 0
+				&& pressure.projectedTokens >= 0 ? pressure.projectedTokens : undefined;
+			const contextWindow = pressure !== undefined && pressure !== null && typeof pressure.contextWindow === 'number' && Number.isFinite(pressure.contextWindow) && pressure.contextWindow > 0
 				? pressure.contextWindow : undefined;
 			const parts = breakdown !== undefined && breakdown !== null && typeof breakdown === 'object'
 				? [
@@ -3172,8 +3173,8 @@ window.__ModuleLoader__.load({
 		 * Time-based, not once-per-mount: a running member's numbers have to keep
 		 * moving, so an id becomes eligible again once `throttleMs` has passed since
 		 * its last request. `lastRequestedAt` is the caller's Map<id, timestamp>; the
-		 * panel only ever passes running members, so a settled member is never
-		 * re-requested and keeps its final value.
+		 * helper applies only a time threshold; lifecycle transitions are handled
+		 * separately by the panel, including initial and settled reads.
 		 */
 		function planProjectionRequests(ids, lastRequestedAt, now, throttleMs) {
 			const planned = [];
@@ -3756,7 +3757,7 @@ window.__ModuleLoader__.load({
 			// row subtree, so that height change is caught by the MutationObserver
 			// below instead of this effect.
 			React.useLayoutEffect(() => { measureLinks(); });
-			const hasTeam = team !== undefined;
+			const hasTeam = Boolean(team);
 			React.useEffect(() => {
 				const tree = treeRef.current;
 				if (!tree || typeof window === 'undefined') return undefined;
@@ -3860,6 +3861,64 @@ window.__ModuleLoader__.load({
 				h('span', { key: 'c' }, tt('task.completed') + ' ' + counts.completed)
 			]));
 
+			const lead = members.find((member) => member.role === 'lead');
+			const leadShown = lead ?? { id: sessionId, name: 'lead', role: 'lead', phase: 'active' };
+			const mates = members.filter((member) => member.role !== 'lead');
+			// Usage hooks stay above the empty-team return. Ensure initial/settled
+			// projections, retry live sessions at a bounded cadence, and consume
+			// host updates via useSessions. Ready host snapshots may remain cached.
+			const [usageTick, setUsageTick] = React.useState(0);
+			const usageNow = Date.now();
+			const usageOfMember = (member) => (member !== undefined && member !== null && typeof member.id === 'string' && member.id !== '')
+				? usageFor(projections !== undefined && projections !== null ? projections[member.id]?.values : undefined, usageNow)
+				: null;
+			const leadUsage = usageOfMember(leadShown);
+			const mateUsages = mates.map((member) => usageOfMember(member));
+			const runningUsageIds = (team ? [leadShown, ...mates] : [])
+				.map((member) => (member !== undefined && member !== null && typeof member.id === 'string' && member.id !== '' && runningOf(member.id)) ? member.id : undefined)
+				.filter((id) => typeof id === 'string' && id !== '');
+			const runningUsageKey = JSON.stringify(runningUsageIds);
+			const allUsageIds = team ? [leadShown, ...mates].map(m => m.id).filter(id => typeof id === 'string' && id) : [];
+			const allUsageKey = JSON.stringify(allUsageIds);
+			const usageRequestState = React.useRef(new Map());
+			const [usageService, setUsageService] = React.useState(cabinetSessions);
+			React.useEffect(() => {
+				const notify = () => setUsageService(cabinetSessions);
+				cabinetSessionsListeners.add(notify); notify();
+				return () => cabinetSessionsListeners.delete(notify);
+			}, []);
+			React.useEffect(() => {
+				const state = new Map();
+				usageRequestState.current = state;
+				return () => { state.disposed = true; };
+			}, [usageService, leadSessionId, hasTeam]);
+			React.useEffect(() => {
+				if (!usageService || typeof usageService.refreshProjections !== 'function') return;
+				const states = usageRequestState.current;
+				const running = new Set(runningUsageIds);
+				for (const id of states.keys()) if (!allUsageIds.includes(id)) states.delete(id);
+				for (const id of allUsageIds) {
+					const live = running.has(id), previous = states.get(id);
+					const changed = previous && previous.live !== live;
+					const due = !previous || changed || (live && Date.now() - previous.at >= PROJECTION_REFRESH_MS);
+					if (previous?.pending) { if (changed) previous.retry = true; continue; }
+					if (!due) continue;
+					const record = {live, at: Date.now(), pending: true};
+					states.set(id, record);
+					// Public refresh is ensure/retry: ready snapshots may be cached by
+					// the host. Live updates arrive through useSessions, not forced RPCs.
+					try { Promise.resolve(usageService.refreshProjections(id)).catch(() => {}).finally(() => { record.pending = false; if (record.retry && !states.disposed) { states.delete(id); setUsageTick(tick => tick + 1); } }); }
+					catch (_) { record.pending = false; }
+				}
+			}, [usageService, leadSessionId, hasTeam, allUsageKey, runningUsageKey, usageTick]);
+			// While anybody runs, re-render on the same cadence so the elapsed time and
+			// the fresh projections reach the card. Nothing running → no timer at all.
+			React.useEffect(() => {
+				if (!usageService || runningUsageIds.length === 0) return undefined;
+				const timer = setInterval(() => setUsageTick((tick) => tick + 1), PROJECTION_REFRESH_MS);
+				return () => { clearInterval(timer); };
+			}, [usageService, runningUsageKey]);
+
 			if (!team) {
 				body.push(h('div', {
 					key: 'empty',
@@ -3874,9 +3933,6 @@ window.__ModuleLoader__.load({
 				return h('div', { ref: panelRef, style: PANEL }, body);
 			}
 
-			const lead = members.find((member) => member.role === 'lead');
-			const leadShown = lead ?? { id: sessionId, name: 'lead', role: 'lead', phase: 'active' };
-			const mates = members.filter((member) => member.role !== 'lead');
 			const isLeadTask = (task) => task.ownerName === 'lead' || (lead !== undefined && task.ownerName === lead.name);
 			const unassigned = tasks.filter((task) => !task.ownerName);
 			const leadOwn = tasks.filter((task) => task.ownerName !== undefined && isLeadTask(task));
@@ -3913,44 +3969,6 @@ window.__ModuleLoader__.load({
 			// rail. Rows wrap freely (品 = 1 up / 2 down, more nodes spill to further
 			// rows); connectors re-route through a column gutter or the left margin
 			// so no line ever crosses a card.
-			// ---- per-member usage: token total, elapsed time, context pressure ----
-			// Read straight from the DSH session projections the roster already
-			// carries. Only a RUNNING member is refreshed, and only once per
-			// PROJECTION_REFRESH_MS (Map<id, timestamp>, not once-per-mount): a live
-			// card has to keep moving, a settled card keeps its final numbers. The
-			// refresh is a local projection RPC — it reads the session store and
-			// never sends a model request, so it spends no tokens.
-			const projectionRequestedAt = React.useRef(null);
-			if (!projectionRequestedAt.current || typeof projectionRequestedAt.current.get !== 'function') projectionRequestedAt.current = new Map();
-			// Real state, and part of the request effect's deps below: the 5s ticker
-			// re-renders, that re-run is what makes the throttle re-evaluate and send
-			// the next refreshProjections call. Without the tick in the deps the card
-			// would keep re-rendering locally and never fetch a newer projection.
-			const [usageTick, setUsageTick] = React.useState(0);
-			const usageNow = Date.now();
-			const usageOfMember = (member) => (member !== undefined && member !== null && typeof member.id === 'string' && member.id !== '')
-				? usageFor(projections !== undefined && projections !== null ? projections[member.id]?.values : undefined, usageNow)
-				: null;
-			const leadUsage = usageOfMember(leadShown);
-			const mateUsages = mates.map((member) => usageOfMember(member));
-			const runningUsageIds = [leadShown, ...mates]
-				.map((member) => (member !== undefined && member !== null && typeof member.id === 'string' && member.id !== '' && runningOf(member.id)) ? member.id : undefined)
-				.filter((id) => typeof id === 'string' && id !== '');
-			const runningUsageKey = runningUsageIds.join('|');
-			React.useEffect(() => {
-				const due = planProjectionRequests(runningUsageIds, projectionRequestedAt.current, Date.now(), PROJECTION_REFRESH_MS);
-				for (const id of due) {
-					projectionRequestedAt.current.set(id, Date.now());
-					refreshCabinetProjection(id);
-				}
-			}, [projections, runningUsageKey, usageTick]);
-			// While anybody runs, re-render on the same cadence so the elapsed time and
-			// the fresh projections reach the card. Nothing running → no timer at all.
-			React.useEffect(() => {
-				if (runningUsageIds.length === 0) return undefined;
-				const timer = setInterval(() => setUsageTick((tick) => tick + 1), PROJECTION_REFRESH_MS);
-				return () => { clearInterval(timer); };
-			}, [runningUsageKey]);
 			const leadCard = h(MemberCard, {
 				member: leadShown,
 				running: runningOf(leadShown.id),
@@ -4848,7 +4866,8 @@ window.__ModuleLoader__.load({
 				if (!sessions || typeof sessions.refreshProjections !== 'function') return;
 				scope.effect(() => {
 					cabinetSessions = sessions;
-					return () => { if (cabinetSessions === sessions) cabinetSessions = null; };
+					for (const notify of cabinetSessionsListeners) notify();
+					return () => { if (cabinetSessions === sessions) { cabinetSessions = null; for (const notify of cabinetSessionsListeners) notify(); } };
 				}, 'cabinet-ui: session projections');
 			});
 			// Optional install channel for the memory-plugin card: its own guard, so

@@ -622,102 +622,9 @@ const usagePanel = elements(client.CabinetPanel({
 }));
 assert.ok(elements(usagePanel).some((node) => node.props?.key === 'usage'), 'the panel hands projections to the member cards');
 
-// Ticker gate: the 5s re-render only exists while somebody is running. These
-// assertions run the effects the panel actually queued and watch the real
-// setInterval/clearInterval calls — all-idle must mount nothing.
-const runPanelEffects = () => {
-  const queued = recordedEffects.splice(0, recordedEffects.length);
-  const cleanups = [];
-  for (const effect of queued) {
-    const cleanup = effect();
-    if (typeof cleanup === 'function') cleanups.push(cleanup);
-  }
-  return () => { for (const cleanup of cleanups) cleanup(); };
-};
-const idlePanel = () => elements(client.CabinetPanel({
-  sessionId: 'lead-session',
-  useSession: (select) => select({}),
-  useSessions: (select) => select({ projectionsBySession: {
-    'lead-session': { values: { agentTeam: { members: [{ id: 'm-works', name: 'works', role: 'mate', phase: 'active' }], tasks: [] } } },
-    'm-works': { values: { tokenUsage: { outputTokens: 2000 } } },
-  } }),
-  useSessionStatus: (select) => select(new Map()),
-  t: zhT,
-}));
-intervalSpy.mounted = 0; intervalSpy.cleared = 0; intervalSpy.delays = [];
-recordedEffects.length = 0;
-idlePanel();
-const stopIdle = runPanelEffects();
-assert.equal(intervalSpy.mounted, 0, 'nobody running → no usage ticker is mounted');
-stopIdle();
-recordedEffects.length = 0;
-intervalSpy.mounted = 0; intervalSpy.cleared = 0; intervalSpy.delays = [];
-const runningPanel = elements(client.CabinetPanel({
-  sessionId: 'lead-session',
-  useSession: (select) => select({}),
-  useSessions: (select) => select({ projectionsBySession: {
-    'lead-session': { values: { agentTeam: { members: [{ id: 'm-works', name: 'works', role: 'mate', phase: 'active' }], tasks: [] } } },
-    'm-works': { values: { tokenUsage: { outputTokens: 2000 } } },
-  } }),
-  useSessionStatus: (select) => select(new Map([['m-works', { running: true }]])),
-  t: zhT,
-}));
-assert.ok(elements(runningPanel).some((node) => node.props?.key === 'usage'), 'the running card still renders its usage line');
-const stopRunning = runPanelEffects();
-assert.equal(intervalSpy.mounted, 1, 'a running member mounts the usage ticker exactly once');
-assert.deepEqual(intervalSpy.delays, [5000], 'the ticker fires on the 5s projection cadence, not a hot loop');
-stopRunning();
-assert.equal(intervalSpy.cleared, 1, 'unmount (or everybody stopping) clears the ticker');
-
-// The chain must actually close: tick → request effect re-runs → a new
-// refreshProjections call. Without the tick in the effect deps the card only
-// re-rendered locally and the token number froze at its first value.
-const requestEffectDeps = source.match(/planProjectionRequests\(runningUsageIds[\s\S]{0,400}?\}, \[([^\]]*)\]\)/);
-assert.ok(requestEffectDeps, 'the projection request effect exists');
-assert.deepEqual(requestEffectDeps[1].split(',').map((entry) => entry.trim()), ['projections', 'runningUsageKey', 'usageTick'],
-  'the request effect depends on the tick, so a 5s re-render really re-requests instead of freezing the number');
-const refreshCalls = [];
-const sessionsStub = { refreshProjections: (id) => { refreshCalls.push(id); return Promise.resolve(); } };
-client.apply({
-  locale: { register: () => {}, bind: () => (key) => key },
-  effect: (fn) => { try { return fn(); } catch (error) { return undefined; } },
-  inject: (names, callback) => {
-    if (Array.isArray(names) && names.includes('sessions')) callback({ sessions: sessionsStub, effect: (fn) => { try { return fn(); } catch (error) { return undefined; } } });
-  },
-});
-clockState.now = 2000000;
-refreshCalls.length = 0;
-recordedEffects.length = 0;
-persistentRefs = { cursor: 0, slots: [] };
-const chainPanel = () => elements(client.CabinetPanel({
-  sessionId: 'lead-session',
-  useSession: (select) => select({}),
-  useSessions: (select) => select({ projectionsBySession: {
-    'lead-session': { values: { agentTeam: { members: [{ id: 'm-works', name: 'works', role: 'mate', phase: 'active' }], tasks: [] } } },
-    'm-works': { values: { tokenUsage: { outputTokens: 2000 } } },
-  } }),
-  useSessionStatus: (select) => select(new Map([['m-works', { running: true }]])),
-  t: zhT,
-}));
-resetHookCursor();
-chainPanel();
-const stopChain = runPanelEffects();
-assert.equal(refreshCalls.length, 1, 'the first render requests the running member projection exactly once');
-assert.deepEqual(Array.from(refreshCalls), ['m-works'], 'the request targets the running member id');
-resetHookCursor();
-chainPanel();
-runPanelEffects();
-assert.equal(refreshCalls.length, 1, 'inside the 5s window a re-render never re-requests');
-clockState.now += 5001;
-intervalSpy.lastTimer.fn();
-resetHookCursor();
-chainPanel();
-runPanelEffects();
-assert.equal(refreshCalls.length, 2, 'after one tick past the throttle, refreshProjections is called again — the chain is connected');
-stopChain();
-persistentRefs = null;
-
-console.log('PASS: member usage — token total, elapsed time and context pressure read from DSH session projections, 5s time-based throttle (skips inside the window, refreshes after it), tick → effect deps → refreshProjections chain verified (count 1 → 2), ticker mounted only while a member runs and cleared when idle, missing projections degrade to the em dash, team total sums the members');
+// Stateful lifecycle, initial/settled loads and timer cleanup are exercised
+// with real React DOM by scripts/test-panel-browser.mjs, not this hook double.
+console.log('PASS: member usage formatting, missing data and pure throttle helpers; lifecycle is tested separately with real React DOM');
 console.log('PASS: task dependency edges — data attributes, three states, missing-blocker tolerance, reduced-motion CSS, geometry refresh gate');
 
 // IDs are opaque; delimiter-bearing pairs must not collide or inject markup.
@@ -1142,3 +1049,7 @@ console.log('PASS: late initial inventory cannot overwrite a completed operation
  finish({ok:true,value:{application:'applied',version:'0.1.13'}});await tick();
  const nodes=h.render(b);assert.equal(action(nodes).props.disabled,false);assert.equal(versionOf(nodes),undefined);assert.equal(enabled,0,'old installation completion must not enable after switching');h.unmount();
 }
+
+// Both public projection encodings are accepted; malformed counters remain unknown.
+assert.equal(client.usageFor({tokenUsage:{totals:{outputTokens:42}},contextBreakdown:{breakdown:{systemTokens:1,toolsTokens:2,messageTokens:3}}},0).tokens,42);
+assert.equal(client.usageFor({tokenUsage:{outputTokens:-1},contextPressure:{contextWindow:Infinity,projectedTokens:-1}},0).tokens,undefined);
