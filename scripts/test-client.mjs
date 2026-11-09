@@ -22,11 +22,18 @@ const React = {
   useRef: () => ({ current: null }),
   useState: (initial) => [initial, () => {}],
   useCallback: (callback) => callback,
-  useLayoutEffect: () => {}, useEffect: () => {},
+  useLayoutEffect: () => {}, useEffect: (fn) => { recordedEffects.push(fn); },
 };
-const exportList = 'return { inject, apply, avatarFor, displayName, CabinetPanel, MemberCard, TaskLine, TaskEdgeLayer, buildTaskEdges, taskEdgesEqual, zh, en, BUREAUX, AVATARS, setMemberConfig, memberLabel, configuredAvatar, configuredPrompt, factoryPromptFor, DEFAULT_MEMBER_PROMPTS, DEFAULT_LEAD_PROMPT, CabinetMemberSettings, MemoryPluginCard, memoryPluginInstalledOf, SETTINGS_TABS };';
+// The panel decides whether to mount its usage ticker; the spy observes the real
+// setInterval/clearInterval call the component makes (not a proxy assertion).
+const recordedEffects = [];
+const intervalSpy = { mounted: 0, cleared: 0, delays: [], lastTimer: null };
+const exportList = 'return { inject, apply, avatarFor, displayName, CabinetPanel, MemberCard, TaskLine, TaskEdgeLayer, buildTaskEdges, taskEdgesEqual, zh, en, BUREAUX, AVATARS, setMemberConfig, memberLabel, configuredAvatar, configuredPrompt, factoryPromptFor, DEFAULT_MEMBER_PROMPTS, DEFAULT_LEAD_PROMPT, CabinetMemberSettings, MemoryPluginCard, memoryPluginInstalledOf, SETTINGS_TABS, formatTokenCount, formatElapsed, tokenTotalOf, usageFor, planProjectionRequests, teamUsageOf };';
 runInNewContext(source.replace(exportPoint, exportList), {
-  setTimeout: (fn, ms) => setTimeout(fn, ms === 120000 ? 20 : ms), clearTimeout, localStorage: pluginSpecStorage, window: { __ModuleLoader__: { load: ({ factory }) => {
+  setTimeout: (fn, ms) => setTimeout(fn, ms === 120000 ? 20 : ms), clearTimeout,
+  setInterval: (fn, ms) => { intervalSpy.mounted += 1; intervalSpy.delays.push(ms); intervalSpy.lastTimer = { fn, ms }; return intervalSpy.lastTimer; },
+  clearInterval: () => { intervalSpy.cleared += 1; },
+  localStorage: pluginSpecStorage, window: { __ModuleLoader__: { load: ({ factory }) => {
     client = factory((name) => { assert.equal(name, 'react'); return React; });
   } } },
 });
@@ -481,6 +488,157 @@ assert.deepEqual(memberCardNodes.filter((node) => node !== boundCardNodes[0]).ma
 
 console.log('PASS: avatars, stale-team warnings, and distinct member/owner/group identities; mocked React, not browser E2E');
 console.log('PASS: click-through targets — whole card, whole task row and Owner tag bind only with a resolved opener, nested clicks stop propagation so one click opens one session, inert members stay inert');
+
+// --- member usage: token total, elapsed time, context pressure (projections) ---
+// Projection field names come from the DSH session schema; nothing here invents
+// one. A missing projection must render the em dash, never throw.
+assert.equal(client.formatTokenCount(842), '842', 'sub-thousand tokens stay exact');
+assert.equal(client.formatTokenCount(1500), '1.5K', 'thousands collapse to one decimal');
+assert.equal(client.formatTokenCount(3300000), '3.3M', 'millions collapse to one decimal');
+assert.equal(client.formatTokenCount(undefined), undefined, 'missing total has no string');
+assert.equal(client.formatTokenCount(Number.NaN), undefined, 'non-finite total has no string');
+assert.equal(client.formatElapsed(12000), '12s');
+assert.equal(client.formatElapsed(192000), '3m12s');
+assert.equal(client.formatElapsed(3900000), '1h05m');
+assert.equal(client.formatElapsed(undefined), undefined, 'missing timing has no string');
+
+const fullValues = {
+  tokenUsage: { uncachedInputTokens: 1000, outputTokens: 2000, cacheReadTokens: 3000000, cacheWriteTokens: 4000 },
+  subagentTiming: { settledMs: 5000, active: { since: 100000, through: 180000 } },
+  contextPressure: { projectedTokens: 120000, contextWindow: 400000 },
+  contextBreakdown: { systemTokens: 2000, toolsTokens: 6000, messageTokens: 2000 },
+};
+const full = client.usageFor(fullValues, 112000);
+assert.equal(full.tokens, 3007000, 'token total sums the four durable buckets');
+assert.equal(full.elapsedMs, 17000, 'a running member adds now − active.since to settledMs');
+assert.equal(full.context.percent, 30, 'context percent is projectedTokens / contextWindow');
+assert.deepEqual(Array.from(full.context.segments, (segment) => segment.key), ['system', 'tools', 'message'], 'segments follow the projection breakdown order');
+assert.deepEqual(Array.from(full.context.segments, (segment) => Math.round(segment.ratio * 100)), [20, 60, 20], 'segments follow the projection breakdown');
+const settledOnly = client.usageFor({ ...fullValues, subagentTiming: { settledMs: 42000 } }, 112000);
+assert.equal(settledOnly.elapsedMs, 42000, 'an inactive member shows settledMs');
+const noWindow = client.usageFor({ contextPressure: { projectedTokens: 120000 }, contextBreakdown: { systemTokens: 1 } }, 0);
+assert.equal(noWindow.context.percent, undefined, 'no contextWindow → no ratio, numbers only');
+assert.deepEqual(noWindow.context.segments.length, 1, 'breakdown still renders without a window');
+const empty = client.usageFor(undefined, 112000);
+assert.equal(empty.tokens, undefined);
+assert.equal(empty.elapsedMs, undefined);
+assert.equal(empty.context, undefined, 'a missing projection yields no context, and no throw');
+assert.equal(client.formatTokenCount(empty.tokens) ?? '—', '—', 'the card prints the em dash for a missing total');
+assert.equal(client.formatElapsed(empty.elapsedMs) ?? '—', '—', 'the card prints the em dash for a missing time');
+
+// Throttle is TIME based, not once-per-mount: a running card must keep moving.
+// A live id is skipped inside the 5s window and eligible again once it passes;
+// a member that stopped is simply never passed in (panel filters on running).
+const REQUEST_LOG = new Map([['m-works', 1000], ['m-dali', 2500]]);
+assert.deepEqual(Array.from(client.planProjectionRequests(['m-works', 'm-dali', 'm-yushi', 'm-yushi', '', null], REQUEST_LOG, 3000, 5000)),
+  ['m-yushi'], 'inside the 5s window a requested id is skipped; unknown ids and duplicates collapse');
+assert.deepEqual(Array.from(client.planProjectionRequests(['m-works', 'm-dali'], REQUEST_LOG, 5999, 5000)), [],
+  'just under the window nothing is re-requested — the number is not double-fetched');
+assert.deepEqual(Array.from(client.planProjectionRequests(['m-works', 'm-dali'], REQUEST_LOG, 7500, 5000)), ['m-works', 'm-dali'],
+  'past the window both ids are eligible again — a running card refreshes');
+assert.deepEqual(Array.from(client.planProjectionRequests(['m-works'], undefined, 9000, 5000)), ['m-works'],
+  'a missing request log still plans the id, never throws');
+
+// Team total on the lead card = the sum of its members.
+const teamSum = client.teamUsageOf([{ tokens: 1000, elapsedMs: 60000 }, { tokens: 2000, elapsedMs: 5000 }, undefined, {}]);
+assert.equal(teamSum.tokens, 3000, 'team tokens sum the members');
+assert.equal(teamSum.elapsedMs, 65000, 'team time sums the members');
+const emptyTeam = client.teamUsageOf(undefined);
+assert.equal(emptyTeam.tokens, undefined, 'no members → no team tokens');
+assert.equal(emptyTeam.elapsedMs, undefined, 'no members → no team time');
+
+// Card render: a projection paints the usage line, a missing one paints dashes.
+const zhT = (key) => client.zh[key] || key;
+const usageCard = elements(client.MemberCard({
+  member: { id: 'm-works', name: 'works', phase: 'active' },
+  statusLabel: (status) => status,
+  t: zhT,
+  usage: full,
+  teamUsage: teamSum,
+})).find((node) => node.props?.key === 'usage');
+assert.ok(usageCard, 'the card renders a usage line');
+const usageText = JSON.stringify(usageCard);
+assert.ok(usageText.includes(client.zh['usage.tokens'] + ' 3M'), 'token total is rendered compactly: ' + usageText.slice(0, 160));
+assert.ok(usageText.includes(client.zh['usage.elapsed'] + ' 17s'), 'elapsed time is rendered');
+assert.ok(usageText.includes('30%'), 'context percent is rendered');
+assert.ok(usageText.includes(client.zh['usage.team'] + ' 3K'), 'the lead card shows the team total');
+const bars = elements(usageCard).filter((node) => node.props?.className === 'cabinet-ctxbar-system');
+assert.equal(bars.length, 1, 'the context bar carries one segment per breakdown part');
+const dashCard = elements(client.MemberCard({
+  member: { id: 'm-dali', name: 'dali', phase: 'active' },
+  statusLabel: (status) => status,
+  t: zhT,
+  usage: empty,
+})).find((node) => node.props?.key === 'usage');
+const dashText = JSON.stringify(dashCard);
+assert.ok(dashText.includes(client.zh['usage.tokens'] + ' ' + client.zh['usage.none']), 'a missing token projection renders the em dash');
+assert.ok(dashText.includes(client.zh['usage.elapsed'] + ' ' + client.zh['usage.none']), 'a missing timing projection renders the em dash');
+assert.ok(!dashText.includes('cabinet-ctxbar'), 'no context bar without a pressure projection');
+const noUsageCard = elements(client.MemberCard({ member: { name: 'works', phase: 'active' }, statusLabel: (status) => status, t: (key) => key }))
+  .filter((node) => node.props?.key === 'usage');
+assert.equal(noUsageCard.length, 0, 'a member without a session id renders no usage line at all');
+
+// Panel wiring: the usage line appears for a member whose projection exists.
+const usagePanel = elements(client.CabinetPanel({
+  sessionId: 'lead-session',
+  useSession: (select) => select({}),
+  useSessions: (select) => select({ projectionsBySession: {
+    'lead-session': { values: { agentTeam: { members: [{ id: 'm-works', name: 'works', role: 'mate', phase: 'active' }], tasks: [] } } },
+    'm-works': { values: { tokenUsage: { outputTokens: 2000 }, subagentTiming: { settledMs: 42000 } } },
+  } }),
+  useSessionStatus: (select) => select(new Map()),
+  t: (key) => client.zh[key] || key,
+}));
+assert.ok(elements(usagePanel).some((node) => node.props?.key === 'usage'), 'the panel hands projections to the member cards');
+
+// Ticker gate: the 5s re-render only exists while somebody is running. These
+// assertions run the effects the panel actually queued and watch the real
+// setInterval/clearInterval calls — all-idle must mount nothing.
+const runPanelEffects = () => {
+  const queued = recordedEffects.splice(0, recordedEffects.length);
+  const cleanups = [];
+  for (const effect of queued) {
+    const cleanup = effect();
+    if (typeof cleanup === 'function') cleanups.push(cleanup);
+  }
+  return () => { for (const cleanup of cleanups) cleanup(); };
+};
+const idlePanel = () => elements(client.CabinetPanel({
+  sessionId: 'lead-session',
+  useSession: (select) => select({}),
+  useSessions: (select) => select({ projectionsBySession: {
+    'lead-session': { values: { agentTeam: { members: [{ id: 'm-works', name: 'works', role: 'mate', phase: 'active' }], tasks: [] } } },
+    'm-works': { values: { tokenUsage: { outputTokens: 2000 } } },
+  } }),
+  useSessionStatus: (select) => select(new Map()),
+  t: zhT,
+}));
+intervalSpy.mounted = 0; intervalSpy.cleared = 0; intervalSpy.delays = [];
+recordedEffects.length = 0;
+idlePanel();
+const stopIdle = runPanelEffects();
+assert.equal(intervalSpy.mounted, 0, 'nobody running → no usage ticker is mounted');
+stopIdle();
+recordedEffects.length = 0;
+intervalSpy.mounted = 0; intervalSpy.cleared = 0; intervalSpy.delays = [];
+const runningPanel = elements(client.CabinetPanel({
+  sessionId: 'lead-session',
+  useSession: (select) => select({}),
+  useSessions: (select) => select({ projectionsBySession: {
+    'lead-session': { values: { agentTeam: { members: [{ id: 'm-works', name: 'works', role: 'mate', phase: 'active' }], tasks: [] } } },
+    'm-works': { values: { tokenUsage: { outputTokens: 2000 } } },
+  } }),
+  useSessionStatus: (select) => select(new Map([['m-works', { running: true }]])),
+  t: zhT,
+}));
+assert.ok(elements(runningPanel).some((node) => node.props?.key === 'usage'), 'the running card still renders its usage line');
+const stopRunning = runPanelEffects();
+assert.equal(intervalSpy.mounted, 1, 'a running member mounts the usage ticker exactly once');
+assert.deepEqual(intervalSpy.delays, [5000], 'the ticker fires on the 5s projection cadence, not a hot loop');
+stopRunning();
+assert.equal(intervalSpy.cleared, 1, 'unmount (or everybody stopping) clears the ticker');
+
+console.log('PASS: member usage — token total, elapsed time and context pressure read from DSH session projections, 5s time-based throttle (skips inside the window, refreshes after it), ticker mounted only while a member runs and cleared when idle, missing projections degrade to the em dash, team total sums the members');
 console.log('PASS: task dependency edges — data attributes, three states, missing-blocker tolerance, reduced-motion CSS, geometry refresh gate');
 
 // IDs are opaque; delimiter-bearing pairs must not collide or inject markup.

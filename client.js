@@ -2404,6 +2404,11 @@ window.__ModuleLoader__.load({
 			// every inline background (tags, live rows) untouched.
 			'.cabinet-card-clickable:hover{border-color:rgba(127,127,127,.60)}',
 			'.cabinet-clickable:hover{box-shadow:inset 0 0 0 1px rgba(127,127,127,.55)}',
+			// context-pressure bar: one 4px track, three state-coloured segments
+			// (system / tools / message) sized by the projection's own breakdown
+			'.cabinet-ctxbar{display:inline-flex;width:34px;height:4px;border-radius:2px;overflow:hidden;background:rgba(127,127,127,.25);flex:none}',
+			'.cabinet-ctxbar i{display:block;height:100%}',
+			'.cabinet-ctxbar-system{background:#8b5cf6}.cabinet-ctxbar-tools{background:#0ea5e9}.cabinet-ctxbar-message{background:#22c55e}',
 			'.cabinet-badge-lead{font-size:10px;line-height:14px;padding:0 6px;border-radius:4px;font-weight:600;background:rgba(245,197,24,.20);border:1px solid rgba(245,197,24,.45);color:#6b4a00}',
 			'body[data-ds-dark-theme] .cabinet-badge-lead{color:#ffd666}',
 			// status / task text: one colour per state per theme, so 11px copy clears
@@ -2572,6 +2577,38 @@ window.__ModuleLoader__.load({
 		 * degrades to a silent no-op instead of throwing at the panel.
 		 */
 		let cabinetOpenSession = null;
+		/**
+		 * Optional `sessions` service, captured by ctx.inject() inside apply(). It is
+		 * the only way to pull projections for member sessions the panel has not
+		 * subscribed to yet; when the service is missing every card still renders
+		 * and simply prints its em dash.
+		 */
+		let cabinetSessions = null;
+		/**
+		 * Refresh cadence for member usage while somebody is running. The refresh is
+		 * a local projection RPC (`sessions.refreshProjections`) that reads the
+		 * session store — it never sends a model request, so it spends no tokens.
+		 */
+		const PROJECTION_REFRESH_MS = 5000;
+		/**
+		 * Ask the sessions service once for one member's projections (same call the
+		 * native roster makes). Never throws: a missing service, a refusing
+		 * deployment or a rejected promise all degrade to "no value yet", which the
+		 * cards render as an em dash.
+		 */
+		function refreshCabinetProjection(id) {
+			if (typeof id !== 'string' || id === '') return null;
+			const sessions = cabinetSessions;
+			if (!sessions || typeof sessions.refreshProjections !== 'function') return null;
+			try {
+				const pending = sessions.refreshProjections(id);
+				if (pending !== undefined && pending !== null && typeof pending.catch === 'function') pending.catch(() => {});
+				return pending;
+			} catch (error) {
+				try { console.warn('[cabinet-ui] refresh projections failed:', error); } catch (ignored) { /* console may be unavailable */ }
+				return null;
+			}
+		}
 		/**
 		 * Open a teammate's child session the way the native roster does
 		 * (dsh-experimental-client-ui-agent-team openTeammate): the Lead session
@@ -3044,11 +3081,132 @@ window.__ModuleLoader__.load({
 			if (event && typeof event.stopPropagation === 'function') event.stopPropagation();
 		}
 
+		// ---- member usage: token total, elapsed time, context pressure --------
+		// Everything below reads DSH's own session projections (tokenUsage,
+		// subagentTiming, contextPressure, contextBreakdown) and never invents a
+		// field: a projection the host did not publish renders as an em dash.
+
+		/** Compact token count: 842 stays exact, 3.3M / 12.5K collapse like the stats strip. */
+		function formatTokenCount(value) {
+			if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) return undefined;
+			const scaled = (next) => (next >= 100 ? String(Math.round(next)) : String(Math.round(next * 10) / 10));
+			if (value < 1000) return String(Math.round(value));
+			if (value < 1e6) return scaled(value / 1e3) + 'K';
+			return scaled(value / 1e6) + 'M';
+		}
+
+		/** Whole-second elapsed time: 12s, 3m12s, 1h05m, 2d03h. */
+		function formatElapsed(ms) {
+			if (typeof ms !== 'number' || !Number.isFinite(ms) || ms < 0) return undefined;
+			const totalSeconds = Math.floor(ms / 1000);
+			if (totalSeconds < 60) return totalSeconds + 's';
+			const minutes = Math.floor(totalSeconds / 60);
+			if (minutes < 60) return minutes + 'm' + String(totalSeconds % 60).padStart(2, '0') + 's';
+			const hours = Math.floor(minutes / 60);
+			if (hours < 24) return hours + 'h' + String(minutes % 60).padStart(2, '0') + 'm';
+			return Math.floor(hours / 24) + 'd' + String(hours % 24).padStart(2, '0') + 'h';
+		}
+
+		/** Sum the four disjoint provider-usage buckets; undefined when none exists. */
+		function tokenTotalOf(usage) {
+			if (usage === undefined || usage === null || typeof usage !== 'object') return undefined;
+			const buckets = ['uncachedInputTokens', 'outputTokens', 'cacheReadTokens', 'cacheWriteTokens']
+				.map((key) => usage[key])
+				.filter((value) => typeof value === 'number' && Number.isFinite(value));
+			if (buckets.length === 0) return undefined;
+			return buckets.reduce((sum, value) => sum + value, 0);
+		}
+
+		/**
+		 * Turn one session's projection values into a display record. Every field is
+		 * optional: a missing projection yields undefined (the card prints its dash),
+		 * and a missing contextWindow keeps the token numbers but drops the ratio.
+		 */
+		function usageFor(values, now) {
+			const source = values !== undefined && values !== null && typeof values === 'object' ? values : {};
+			const tokens = tokenTotalOf(source.tokenUsage);
+			let elapsedMs;
+			const timing = source.subagentTiming;
+			if (timing !== undefined && timing !== null && typeof timing === 'object') {
+				const settled = typeof timing.settledMs === 'number' && Number.isFinite(timing.settledMs) ? timing.settledMs : 0;
+				const active = timing.active;
+				if (active !== undefined && active !== null && typeof active.since === 'number' && Number.isFinite(active.since)) {
+					const clock = typeof now === 'number' && Number.isFinite(now) ? now : active.since;
+					elapsedMs = settled + Math.max(0, clock - active.since);
+				} else if (typeof timing.settledMs === 'number' && Number.isFinite(timing.settledMs)) {
+					elapsedMs = settled;
+				}
+			}
+			const pressure = source.contextPressure;
+			const breakdown = source.contextBreakdown;
+			const projected = pressure !== undefined && pressure !== null && typeof pressure.projectedTokens === 'number' && Number.isFinite(pressure.projectedTokens)
+				? pressure.projectedTokens : undefined;
+			const contextWindow = pressure !== undefined && pressure !== null && typeof pressure.contextWindow === 'number' && pressure.contextWindow > 0
+				? pressure.contextWindow : undefined;
+			const parts = breakdown !== undefined && breakdown !== null && typeof breakdown === 'object'
+				? [
+					{ key: 'system', value: breakdown.systemTokens },
+					{ key: 'tools', value: breakdown.toolsTokens },
+					{ key: 'message', value: breakdown.messageTokens }
+				].filter((part) => typeof part.value === 'number' && Number.isFinite(part.value) && part.value >= 0)
+				: [];
+			let context;
+			if (projected !== undefined || contextWindow !== undefined || parts.length > 0) {
+				const sum = parts.reduce((total, part) => total + part.value, 0);
+				context = {
+					projectedTokens: projected,
+					contextWindow,
+					percent: projected !== undefined && contextWindow !== undefined
+						? Math.min(100, Math.round((projected / contextWindow) * 1000) / 10) : undefined,
+					segments: sum > 0 ? parts.map((part) => ({ key: part.key, ratio: part.value / sum })) : []
+				};
+			}
+			return { tokens, elapsedMs, context };
+		}
+
+		/**
+		 * Which member sessions need another projection refresh now.
+		 *
+		 * Time-based, not once-per-mount: a running member's numbers have to keep
+		 * moving, so an id becomes eligible again once `throttleMs` has passed since
+		 * its last request. `lastRequestedAt` is the caller's Map<id, timestamp>; the
+		 * panel only ever passes running members, so a settled member is never
+		 * re-requested and keeps its final value.
+		 */
+		function planProjectionRequests(ids, lastRequestedAt, now, throttleMs) {
+			const planned = [];
+			const clock = typeof now === 'number' && Number.isFinite(now) ? now : Date.now();
+			const throttle = typeof throttleMs === 'number' && Number.isFinite(throttleMs) && throttleMs >= 0 ? throttleMs : PROJECTION_REFRESH_MS;
+			// Duck-typed so a Map from another realm (tests, host bridge) still counts.
+			const log = lastRequestedAt !== undefined && lastRequestedAt !== null && typeof lastRequestedAt.get === 'function'
+				? lastRequestedAt : new Map();
+			for (const id of Array.isArray(ids) ? ids : []) {
+				if (typeof id !== 'string' || id === '' || planned.includes(id)) continue;
+				const previous = log.get(id);
+				if (typeof previous === 'number' && Number.isFinite(previous) && clock - previous < throttle) continue;
+				planned.push(id);
+			}
+			return planned;
+		}
+
+		/** Sum member usage records for the lead card's team line. */
+		function teamUsageOf(entries) {
+			const list = Array.isArray(entries) ? entries : [];
+			let tokens;
+			let elapsedMs;
+			for (const entry of list) {
+				if (entry === undefined || entry === null) continue;
+				if (typeof entry.tokens === 'number' && Number.isFinite(entry.tokens)) tokens = (tokens ?? 0) + entry.tokens;
+				if (typeof entry.elapsedMs === 'number' && Number.isFinite(entry.elapsedMs)) elapsedMs = (elapsedMs ?? 0) + entry.elapsedMs;
+			}
+			return { tokens, elapsedMs };
+		}
+
 		// One card of the org chart: avatar + name (+ lead badge / current tag) on
 		// line one; status dot + state text (+ live dots / model) on line two.
 		// State text carries a theme-aware class so 11px copy clears 3:1 in both
 		// themes; the badge keeps lead's formula with a light-theme dark amber.
-		function MemberCard({ member, running, model, isCurrent, lead, statusLabel, t, size, onOpen, children }) {
+		function MemberCard({ member, running, model, isCurrent, lead, statusLabel, t, size, onOpen, usage, teamUsage, children }) {
 			const tt = typeof t === 'function' ? t : (key) => key;
 			const status = member.phase === 'active' ? (running ? 'running' : 'inactive') : member.phase;
 			// Availability mirrors the native roster row (agent-team TeamMemberRow):
@@ -3106,6 +3264,40 @@ window.__ModuleLoader__.load({
 						style: { fontSize: 11, color: '#f25a5a', width: '100%', wordBreak: 'break-all' }
 					}, member.error) : null
 				]),
+				// Usage line: token total, elapsed time and the context-pressure bar,
+				// all from DSH session projections. A missing projection prints the em
+				// dash instead of collapsing the card, and the lead card adds the team
+				// total summed over its members.
+				usage ? h('div', {
+					key: 'usage',
+					className: 'cabinet-usage',
+					style: { display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', minWidth: 0, fontSize: 10, color: INK2 }
+				}, [
+					h('span', { key: 'tok', style: { flex: 'none' }, title: tt('usage.tokens') },
+						tt('usage.tokens') + ' ' + (formatTokenCount(usage.tokens) ?? tt('usage.none'))),
+					h('span', { key: 'el', style: { flex: 'none' }, title: tt('usage.elapsed') },
+						tt('usage.elapsed') + ' ' + (formatElapsed(usage.elapsedMs) ?? tt('usage.none'))),
+					usage.context ? h('span', {
+						key: 'ctx',
+						title: usage.context.percent !== undefined ? tt('usage.context') + ' ' + usage.context.percent + '%' : tt('usage.context'),
+						style: { display: 'inline-flex', alignItems: 'center', gap: 4, flex: 'none' }
+					}, [
+						usage.context.percent !== undefined ? h('span', {
+							key: 'bar',
+							className: 'cabinet-ctxbar',
+							'aria-hidden': 'true'
+						}, usage.context.segments.map((segment) => h('i', {
+							key: segment.key,
+							className: 'cabinet-ctxbar-' + segment.key,
+							style: { width: Math.max(0, Math.min(100, segment.ratio * 100)) + '%' }
+						}))) : null,
+						h('span', { key: 'pct' }, usage.context.percent !== undefined
+							? usage.context.percent + '%'
+							: (formatTokenCount(usage.context.projectedTokens) ?? tt('usage.none')))
+					]) : null,
+					teamUsage ? h('span', { key: 'team', style: { flex: 'none' }, title: tt('usage.team') },
+						tt('usage.team') + ' ' + (formatTokenCount(teamUsage.tokens) ?? tt('usage.none'))) : null
+				]) : null,
 				// the member's own task list hangs inside the card (品字形 layout)
 				children
 			]);
@@ -3717,6 +3909,40 @@ window.__ModuleLoader__.load({
 			// rail. Rows wrap freely (品 = 1 up / 2 down, more nodes spill to further
 			// rows); connectors re-route through a column gutter or the left margin
 			// so no line ever crosses a card.
+			// ---- per-member usage: token total, elapsed time, context pressure ----
+			// Read straight from the DSH session projections the roster already
+			// carries. Only a RUNNING member is refreshed, and only once per
+			// PROJECTION_REFRESH_MS (Map<id, timestamp>, not once-per-mount): a live
+			// card has to keep moving, a settled card keeps its final numbers. The
+			// refresh is a local projection RPC — it reads the session store and
+			// never sends a model request, so it spends no tokens.
+			const projectionRequestedAt = React.useRef(null);
+			if (!projectionRequestedAt.current || typeof projectionRequestedAt.current.get !== 'function') projectionRequestedAt.current = new Map();
+			const [, setUsageTick] = React.useState(0);
+			const usageNow = Date.now();
+			const usageOfMember = (member) => (member !== undefined && member !== null && typeof member.id === 'string' && member.id !== '')
+				? usageFor(projections !== undefined && projections !== null ? projections[member.id]?.values : undefined, usageNow)
+				: null;
+			const leadUsage = usageOfMember(leadShown);
+			const mateUsages = mates.map((member) => usageOfMember(member));
+			const runningUsageIds = [leadShown, ...mates]
+				.map((member) => (member !== undefined && member !== null && typeof member.id === 'string' && member.id !== '' && runningOf(member.id)) ? member.id : undefined)
+				.filter((id) => typeof id === 'string' && id !== '');
+			const runningUsageKey = runningUsageIds.join('|');
+			React.useEffect(() => {
+				const due = planProjectionRequests(runningUsageIds, projectionRequestedAt.current, Date.now(), PROJECTION_REFRESH_MS);
+				for (const id of due) {
+					projectionRequestedAt.current.set(id, Date.now());
+					refreshCabinetProjection(id);
+				}
+			}, [projections, runningUsageKey]);
+			// While anybody runs, re-render on the same cadence so the elapsed time and
+			// the fresh projections reach the card. Nothing running → no timer at all.
+			React.useEffect(() => {
+				if (runningUsageIds.length === 0) return undefined;
+				const timer = setInterval(() => setUsageTick((tick) => tick + 1), PROJECTION_REFRESH_MS);
+				return () => { clearInterval(timer); };
+			}, [runningUsageKey]);
 			const leadCard = h(MemberCard, {
 				member: leadShown,
 				running: runningOf(leadShown.id),
@@ -3726,7 +3952,9 @@ window.__ModuleLoader__.load({
 				size: 26,
 				statusLabel,
 				t: tt,
-				onOpen: openMemberSession
+				onOpen: openMemberSession,
+				usage: leadUsage,
+				teamUsage: teamUsageOf(mateUsages)
 			});
 
 			// Cells: every minister first, then 未分派 / 首辅自办 / 不在册 as
@@ -3785,6 +4013,7 @@ window.__ModuleLoader__.load({
 							statusLabel,
 							t: tt,
 							onOpen: openMemberSession,
+							usage: usageOfMember(member),
 							// tasks live inside the card, elbow-connected by RailList
 							children: own.length > 0
 								? h(RailList, { key: 'tasks', style: { marginTop: 4 } }, own.map((task) => h(TaskLine, {
@@ -4383,6 +4612,11 @@ window.__ModuleLoader__.load({
 			'task.completed': '已完成',
 			'task.deleted': '已删除',
 			'task.unassigned': '未分派',
+			'usage.tokens': 'token',
+			'usage.elapsed': '耗时',
+			'usage.context': '上下文',
+			'usage.team': '团队',
+			'usage.none': '—',
 			'task.leadOwn': '首辅自办',
 			'task.waits': '等待',
 			'task.none': '暂无任务',
@@ -4471,6 +4705,11 @@ window.__ModuleLoader__.load({
 			'task.completed': 'done',
 			'task.deleted': 'deleted',
 			'task.unassigned': 'unassigned',
+			'usage.tokens': 'tokens',
+			'usage.elapsed': 'elapsed',
+			'usage.context': 'context',
+			'usage.team': 'team',
+			'usage.none': '—',
 			'task.leadOwn': 'lead-owned',
 			'task.waits': 'blocked by',
 			'task.none': 'no tasks',
@@ -4591,6 +4830,18 @@ window.__ModuleLoader__.load({
 					cabinetOpenSession = opener;
 					return () => { if (cabinetOpenSession === opener) cabinetOpenSession = null; };
 				}, 'cabinet-ui: open teammate session');
+			});
+			// Optional usage channel: the panel shows each member's token total, time
+			// and context pressure from the DSH session projections. Its own guard,
+			// so a host without the sessions service leaves every other channel and
+			// every card exactly as it was (cards then print their em dash).
+			ctx.inject(['sessions'], (scope) => {
+				const sessions = scope.sessions;
+				if (!sessions || typeof sessions.refreshProjections !== 'function') return;
+				scope.effect(() => {
+					cabinetSessions = sessions;
+					return () => { if (cabinetSessions === sessions) cabinetSessions = null; };
+				}, 'cabinet-ui: session projections');
 			});
 			// Optional install channel for the memory-plugin card: its own guard, so
 			// a host without the plugin manager leaves the model-catalog remote and
