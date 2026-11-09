@@ -2,6 +2,18 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.7.0] - 2026-11-09
+
+### Added
+
+- Open teammate sessions from member cards, task rows and Owner labels, with native keyboard buttons and single-navigation event propagation.
+- Show member token totals, elapsed time and approximate context composition from host projections. Missing data remains unknown; cached snapshots are not guaranteed final usage.
+
+### Fixed
+
+- Keep usage hooks stable when team data arrives or disappears; handle initial idle reads, running/stopped transitions, optional service arrival and timer cleanup.
+- Validate isolated real React lifecycle and keyboard navigation without restarting existing DSH or calling models.
+
 ## [0.6.4] - 2026-11-09
 
 ### Documentation

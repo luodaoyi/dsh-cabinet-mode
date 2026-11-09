@@ -1,6 +1,6 @@
 # 内阁模式（Cabinet Mode）· DeepSeek Harness 插件
 
-**版本兼容（0.6.4）：** 面向 DSH **0.2.2-rc.1**，本版仅澄清文档，运行时与 0.6.3 相同；0.6.3 压缩默认提示，保留预算、授权与最终状态验收要求，不承诺 Token 节省；依赖连线与成员会话入口属于 0.5.4 的更新。保留在宿主固定每步模型前完成官职模型选择的修复；0.5.1/0.5.2 仅修复了预设加载和显示元数据。已使用官方宿主组件与隔离 profile 验证，未调用真实模型；测试范围见下文。旧 rc.3/rc.5 的界面及安装记录仅适用于当时的包。DSH 0.2.1-rc.3/rc.5 用户应保留原先已验证版本（包括 0.5.0），当前预设已移除 rc.5 所需的独立 list_agents 入口；请在商店选择匹配版本。
+**版本兼容（0.7.0）：** 面向 DSH **0.2.2-rc.1**，本版新增键盘会话导航和成员用量快照；保留较短的默认提示，保留预算、授权与最终状态验收要求，不承诺 Token 节省；依赖连线与成员会话入口属于 0.5.4 的更新。保留在宿主固定每步模型前完成官职模型选择的修复；0.5.1/0.5.2 仅修复了预设加载和显示元数据。已使用官方宿主组件与隔离 profile 验证，未调用真实模型；测试范围见下文。旧 rc.3/rc.5 的界面及安装记录仅适用于当时的包。DSH 0.2.1-rc.3/rc.5 用户应保留原先已验证版本（包括 0.5.0），当前预设已移除 rc.5 所需的独立 list_agents 入口；请在商店选择匹配版本。
 
 [English](README.md) | 中文
 
@@ -21,7 +21,11 @@
 
 它声明**两行**——`preset-cabinet`（一条 `@deepseek-ai/dsh-agent-preset` 声明）与 `cabinet-ui`（载入本包 JavaScript 的 Loader 行）——并复用 DSH **标准模式**（Standard Mode）出厂的 22 行插件清单，因此工具与标准模式一致；与出厂模式的差异是 persona，并另加右栏「内阁」面板。团队工具（`spawn_teammate`、`team_task_*` 等）由 profile 层的 `@deepseek-ai/dsh-experimental-agent-team-profile` 提供，**本 preset 未内置**。
 
-本包声明 **无 DSH 版本硬限制**：没有 `engines.dsh`、没有 DSH `peerDependencies`、安装时不做版本检查。旧包曾在 DSH **0.2.1-rc.3** 实测；0.6.4 请遵循上方版本兼容说明（见 [DSH 侧限制与说明](#dsh-侧限制与说明)）。
+本包声明 **无 DSH 版本硬限制**：没有 `engines.dsh`、没有 DSH `peerDependencies`、安装时不做版本检查。旧包曾在 DSH **0.2.1-rc.3** 实测；0.7.0 请遵循上方版本兼容说明（见 [DSH 侧限制与说明](#dsh-侧限制与说明)）。
+
+## 成员用量快照
+
+卡片显示宿主投影中的 token 合计、耗时和近似上下文构成，缺失值显示破折号。公开投影读取可能返回缓存，不保证最终用量或计费精度。验证使用真实 React 与模拟服务，不是运行中团队的端到端测试。详见[验证范围](docs/member-usage-validation.md)。
 
 ## 更新日志
 
@@ -225,7 +229,7 @@ https://raw.githubusercontent.com/luodaoyi/dsh-cabinet-mode/market-index/marketp
 仅在商店不可用或本地开发时使用。先完全退出桌面 DSH，释放 profile 锁，再执行：
 
 ```sh
-dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.6.4/dsh-cabinet-mode-0.6.4.tgz
+dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.7.0/dsh-cabinet-mode-0.7.0.tgz
 dsh plugin --profile desktop list
 ```
 
@@ -236,7 +240,7 @@ dsh plugin --profile desktop list
 若通过插件市场安装：刷新市场，先在**已安装**页卸载旧版本，再从**插件市场**安装新版本，然后重启——没有 tgz URL 要换，也没有一键更新。否则用同一条安装命令换新版本 URL（或在插件页选新 `.tgz`），然后完全退出并重启 DeepSeek Harness：
 
 ```sh
-dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.6.4/dsh-cabinet-mode-0.6.4.tgz
+dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.7.0/dsh-cabinet-mode-0.7.0.tgz
 ```
 
 `dsh plugin --profile desktop list` 应显示新版本。升级已在 Windows 实测：
