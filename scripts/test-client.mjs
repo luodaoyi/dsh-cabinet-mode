@@ -379,7 +379,120 @@ assert.equal(whoNodes.length, clickTeam.members.length, 'one who-row per member'
 assert.deepEqual(whoNodes.map((node) => typeof node.props.onClick), ['undefined', 'function', 'undefined', 'undefined'],
   'lead(self)/failed/provisioning cards stay inert, the active mate binds');
 
+// --- click-through: whole card, whole task row and Owner tag are targets ---
+// One click must open exactly one session. Every nested target stops the event,
+// so the enclosing handler (row inside card, subject/Owner inside row) cannot
+// forward the same click a second time.
+const eventLog = [];
+const fakeEvent = () => ({ stopped: false, stopPropagation() { this.stopped = true; eventLog.push('stopped'); } });
+const cardOf = (member, extra) => elements(client.MemberCard({
+  member, statusLabel: (status) => status, ...extra,
+})).find((node) => typeof node.props?.className === 'string' && node.props.className.split(' ').includes('cabinet-card'));
+const opens = [];
+const openRecorder = (target) => { opens.push(target); return true; };
+
+// 1) the task row itself binds, shows the pointer, and stops the click
+const rowLine = client.TaskLine({ task: tasks[0], t: (key) => key, taskLabel: (status) => status, onOpenOwner: openRecorder });
+const rowNode = elements(rowLine).find((node) => node.props?.['data-cabinet-task'] === tasks[0].id);
+assert.equal(typeof rowNode.props.onClick, 'function', 'the whole task row binds a resolved opener');
+assert.equal(rowNode.props.style.cursor, 'pointer', 'the whole task row shows the pointer cursor');
+assert.ok(rowNode.props.className.split(' ').includes('cabinet-clickable'), 'the clickable row carries the hover class');
+const rowEvent = fakeEvent();
+assert.equal(rowNode.props.onClick(rowEvent), true, 'the row forwards to the opener');
+assert.deepEqual(opens, [tasks[0]], 'one click on the row opens once');
+assert.equal(rowEvent.stopped, true, 'the row stops the click so the enclosing card cannot also open');
+
+// 2) the Owner tag binds and stops the click instead of double-opening
+// Tag drops the element key when it renders its span, so locate the Owner tag by
+// its label text (same probe the identity test above uses).
+const ownerTag = (line) => elements(line).find((node) => ['span', 'button'].includes(node.type)
+  && node.children.flat().some((text) => typeof text === 'string' && text.startsWith('Owner: ')));
+const boundOwner = ownerTag(client.TaskLine({ task: tasks[0], t: (key) => key, taskLabel: (status) => status, onOpenOwner: openRecorder }));
+assert.equal(boundOwner.type, 'button', 'Owner is a native keyboard button');
+assert.equal(boundOwner.props.type, 'button');
+assert.equal(typeof boundOwner.props.onClick, 'function', 'the Owner tag binds a resolved opener');
+assert.equal(boundOwner.props.style.cursor, 'pointer', 'the Owner tag shows the pointer cursor');
+opens.length = 0;
+const ownerEvent = fakeEvent();
+assert.equal(boundOwner.props.onClick(ownerEvent), true, 'the Owner tag forwards to the opener');
+assert.deepEqual(opens, [tasks[0]], 'one click on the Owner tag opens once');
+assert.equal(ownerEvent.stopped, true, 'the Owner tag stops the click so the row cannot also open');
+
+// 3) the subject keeps working and also stops the click
+const subjectNode = elements(client.TaskLine({ task: tasks[0], t: (key) => key, taskLabel: (status) => status, onOpenOwner: openRecorder }))
+  .find((node) => node.props?.key === 'subj');
+opens.length = 0;
+assert.equal(subjectNode.type, 'button', 'Subject is a native keyboard button');
+const subjectEvent = fakeEvent();
+subjectNode.props.onClick(subjectEvent);
+assert.deepEqual(opens, [tasks[0]], 'the subject still opens once with an event argument');
+assert.equal(subjectEvent.stopped, true, 'the subject stops the click so the row cannot also open');
+
+// 4) a task row inside a member card: card binds, row stops, card handler is not
+//    reachable from the row click (React propagation ends at stopPropagation)
+const hybridCard = cardOf({ id: 'm-works', name: 'works', phase: 'active' },
+  { isCurrent: false, onOpen: openRecorder, children: [client.TaskLine({ task: tasks[0], t: (key) => key, taskLabel: (status) => status, onOpenOwner: openRecorder })] });
+assert.equal(typeof hybridCard.props.onClick, 'function', 'the card around a task row still binds');
+const hybridRow = elements(hybridCard).find((node) => node.props?.['data-cabinet-task'] === tasks[0].id);
+assert.equal(typeof hybridRow.props.onClick, 'function', 'the nested task row binds independently');
+opens.length = 0;
+const nestedEvent = fakeEvent();
+hybridRow.props.onClick(nestedEvent);
+assert.equal(nestedEvent.stopped, true, 'the nested row stops before the card handler can run');
+assert.deepEqual(opens, [tasks[0]], 'clicking a task inside a card opens the task target once, never the member');
+
+// Nested member identity is a native button and prevents its card from firing.
+const who = elements(hybridCard).find(node => node.props?.key === 'who');
+assert.equal(who.type, 'button');
+opens.length = 0;
+const whoEvent = fakeEvent();
+who.props.onClick(whoEvent);
+if (!whoEvent.stopped) hybridCard.props.onClick(whoEvent);
+assert.equal(opens.length, 1);
+
+// 5) inert members stay inert on the CARD too (self / failed / provisioning / no id / no channel)
+for (const [label, member, extra] of [
+  ['self', { id: 'lead-session', name: 'lead', phase: 'active' }, { isCurrent: true, onOpen: openRecorder }],
+  ['failed', { id: 'm-dali', name: 'dali', phase: 'failed' }, { isCurrent: false, onOpen: openRecorder }],
+  ['provisioning', { id: 'm-yushi', name: 'yushi', phase: 'provisioning' }, { isCurrent: false, onOpen: openRecorder }],
+  ['no id', { name: 'works', phase: 'active' }, { isCurrent: false, onOpen: openRecorder }],
+  ['no channel', { id: 'm-works', name: 'works', phase: 'active' }, { isCurrent: false }],
+]) {
+  const card = cardOf(member, extra);
+  assert.equal(card.props.onClick, undefined, `${label}: the whole card stays unbound`);
+  assert.equal(card.props.style.cursor, undefined, `${label}: the whole card keeps the plain cursor`);
+  assert.ok(!card.props.className.includes('cabinet-card-clickable'), `${label}: no hover affordance on an inert card`);
+}
+
+// 6) tasks without a resolved opener stay plain on the row and the Owner tag
+for (const task of [
+  { id: 'k-lead', subject: 'lead work', ownerName: 'lead', status: 'pending' },
+  { id: 'k-none', subject: 'nobody', status: 'pending' },
+]) {
+  const line = client.TaskLine({ task, t: (key) => key, taskLabel: (status) => status, onOpenOwner: null });
+  const row = elements(line).find((node) => node.props?.['data-cabinet-task'] === task.id);
+  assert.equal(row.props.onClick, undefined, `${task.id}: no row click binding without an opener`);
+  assert.equal(row.props.style.cursor, undefined, `${task.id}: no pointer cursor on the row`);
+  assert.ok(!String(row.props.className || '').includes('cabinet-clickable'), `${task.id}: no hover affordance without an opener`);
+  if (task.ownerName) {
+    const owner = ownerTag(line);
+    assert.equal(owner.props.onClick, undefined, `${task.id}: no Owner-tag click binding without an opener`);
+    assert.equal(owner.props.style.cursor, undefined, `${task.id}: no pointer cursor on the Owner tag`);
+  }
+}
+
+// 7) panel level: the whole card of the one openable member is bound, the rest inert
+const memberCardNodes = clickEls.filter((node) => typeof node.props?.className === 'string' && node.props.className.split(' ').includes('cabinet-card'));
+// The panel also paints bucket cards (unassigned / foreign owner) next to the
+// member cards, so count clickable cards instead of assuming one per member.
+const boundCardNodes = memberCardNodes.filter((node) => typeof node.props.onClick === 'function');
+assert.equal(boundCardNodes.length, 1, 'exactly one card in the panel is clickable: the single openable member');
+assert.ok(boundCardNodes[0].props.className.includes('cabinet-card-clickable'), 'the clickable card carries the hover affordance');
+assert.deepEqual(memberCardNodes.filter((node) => node !== boundCardNodes[0]).map((node) => node.props.onClick), memberCardNodes.filter((node) => node !== boundCardNodes[0]).map(() => undefined),
+  'every other card — inert member and bucket alike — stays unbound');
+
 console.log('PASS: avatars, stale-team warnings, and distinct member/owner/group identities; mocked React, not browser E2E');
+console.log('PASS: click-through targets — whole card, whole task row and Owner tag bind only with a resolved opener, nested clicks stop propagation so one click opens one session, inert members stay inert');
 console.log('PASS: task dependency edges — data attributes, three states, missing-blocker tolerance, reduced-motion CSS, geometry refresh gate');
 
 // IDs are opaque; delimiter-bearing pairs must not collide or inject markup.
