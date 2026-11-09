@@ -2399,6 +2399,11 @@ window.__ModuleLoader__.load({
 			// org-chart cards + first-class lead badge
 			'.cabinet-card{box-sizing:border-box;display:flex;flex-direction:column;gap:4px;min-width:0;padding:8px 10px;border-radius:8px;border:1px solid var(--dsw-alias-border-l3,light-dark(#0000001f,#ffffff29));background:var(--dsw-alias-bg-layer-1,light-dark(#ffffff,#232324))}',
 			'.cabinet-card-lead{border-color:rgba(245,197,24,.55);background-image:linear-gradient(rgba(245,197,24,.10),rgba(245,197,24,.10))}',
+			// click-through affordance: the whole card, the whole task row and the
+			// Owner tag are targets, so hover has to say so. An inset ring leaves
+			// every inline background (tags, live rows) untouched.
+			'.cabinet-card-clickable:hover{border-color:rgba(127,127,127,.60)}',
+			'.cabinet-clickable:hover{box-shadow:inset 0 0 0 1px rgba(127,127,127,.55)}',
 			'.cabinet-badge-lead{font-size:10px;line-height:14px;padding:0 6px;border-radius:4px;font-weight:600;background:rgba(245,197,24,.20);border:1px solid rgba(245,197,24,.45);color:#6b4a00}',
 			'body[data-ds-dark-theme] .cabinet-badge-lead{color:#ffd666}',
 			// status / task text: one colour per state per theme, so 11px copy clears
@@ -3019,11 +3024,24 @@ window.__ModuleLoader__.load({
 			]);
 		}
 
-		function Tag({ background, color, title, children }) {
+		function Tag({ background, color, title, children, onClick }) {
+			// A tag that carries an opener is its own click target (the Owner tag);
+			// the caller stops propagation so the enclosing card or task row does
+			// not forward the same click a second time.
+			const clickable = typeof onClick === 'function';
 			return h('span', {
 				title,
-				style: { fontSize: 10, padding: '0 5px', borderRadius: 4, color, background, flex: 'none' }
+				onClick,
+				className: clickable ? 'cabinet-clickable' : undefined,
+				style: { fontSize: 10, padding: '0 5px', borderRadius: 4, color, background, flex: 'none', cursor: clickable ? 'pointer' : undefined }
 			}, children);
+		}
+
+		// One click opens one session. Nested targets (the who row inside a card,
+		// the subject / Owner tag / blocker toggle inside a task row) stop the
+		// click so the enclosing handler does not repeat the same navigation.
+		function stopPropagation(event) {
+			if (event && typeof event.stopPropagation === 'function') event.stopPropagation();
 		}
 
 		// One card of the org chart: avatar + name (+ lead badge / current tag) on
@@ -3042,10 +3060,20 @@ window.__ModuleLoader__.load({
 				&& member.phase !== 'failed'
 				&& member.phase !== 'provisioning'
 				&& typeof member.id === 'string' && member.id !== '';
-			return h('div', { className: lead ? 'cabinet-card cabinet-card-lead' : 'cabinet-card', style: { position: 'relative', zIndex: 1 } }, [
+			// The whole card is a click target now, not just the who row: one click
+			// anywhere on a member card enters that member's child session. `canOpen`
+			// keeps its exemptions untouched; the who row and the card's own task
+			// lines stop propagation so a nested target opens only once.
+			return h('div', {
+				className: (lead ? 'cabinet-card cabinet-card-lead' : 'cabinet-card') + (canOpen ? ' cabinet-card-clickable' : ''),
+				onClick: canOpen ? () => onOpen(member) : undefined,
+				style: { position: 'relative', zIndex: 1, cursor: canOpen ? 'pointer' : undefined }
+			}, [
 				h('div', {
 					key: 'who',
-					onClick: canOpen ? () => onOpen(member) : undefined,
+					// Same opener as the card, so the who row stops the click instead
+					// of letting the card forward it a second time.
+					onClick: canOpen ? (event) => { stopPropagation(event); return onOpen(member); } : undefined,
 					style: { display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', minWidth: 0, cursor: canOpen ? 'pointer' : undefined }
 				}, [
 					h(Avatar, { key: 'avatar', name: member.name, size: size || 22, live: status === 'running' }),
@@ -3088,11 +3116,12 @@ window.__ModuleLoader__.load({
 			const status = TASK_COLOR[task.status] ? task.status : 'pending';
 			const color = TASK_COLOR[status];
 			const blockers = Array.isArray(task.blockedBy) ? [...new Set(task.blockedBy.filter((id) => typeof id === 'string' && id !== task.id))] : [];
-			// The subject itself is the affordance, but only when the panel handed
-			// us a resolved opener: lead-owned, unassigned, foreign-owner and
-			// inert-owner tasks arrive with onOpenOwner === null and keep the plain
-			// look (no onClick, no pointer cursor).
+			// The subject, the whole row and the Owner tag are all affordances, but
+			// only when the panel handed us a resolved opener: lead-owned,
+			// unassigned, foreign-owner and inert-owner tasks arrive with
+			// onOpenOwner === null and keep the plain look (no onClick, no pointer).
 			const openTask = typeof onOpenOwner === 'function';
+			const openOnce = openTask ? (event) => { stopPropagation(event); return onOpenOwner(task); } : undefined;
 			const parts = [
 				h('span', {
 					key: 'dot',
@@ -3104,13 +3133,21 @@ window.__ModuleLoader__.load({
 					key: 'subj',
 					style: { fontSize: 12.5, color: INK, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', cursor: openTask ? 'pointer' : undefined },
 					title: task.subject,
-					onClick: openTask ? () => onOpenOwner(task) : undefined
+					onClick: openOnce
 				}, task.subject)
 			];
 			if (!task.ownerName) {
 				parts.push(h(Tag, { key: 'own', background: 'rgba(127,127,127,.18)', color: INK2 }, t('task.unassigned')));
 			} else {
-				parts.push(h(Tag, { key: 'owner', title: memberLabel(task.ownerName), background: 'rgba(127,127,127,.16)', color: INK2 }, 'Owner: ' + memberLabel(task.ownerName)));
+				// The Owner tag opens the same owner session and stops the click, so
+				// the enclosing row does not forward the same navigation again.
+				parts.push(h(Tag, {
+					key: 'owner',
+					title: memberLabel(task.ownerName),
+					background: 'rgba(127,127,127,.16)',
+					color: INK2,
+					onClick: openOnce
+				}, 'Owner: ' + memberLabel(task.ownerName)));
 			}
 			parts.push(h('span', {
 				key: 'id',
@@ -3128,7 +3165,9 @@ window.__ModuleLoader__.load({
 					h('button', {
 						key: 'lb',
 						type: 'button',
-						onClick: () => setOpenBlockers((value) => !value),
+						// Toggling the blocker list is not navigation: stop the click so
+						// the row's opener does not fire on the same event.
+						onClick: (event) => { stopPropagation(event); setOpenBlockers((value) => !value); },
 						style: { fontSize: 10, lineHeight: '14px', height: 16, padding: '0 6px', borderRadius: 999, cursor: 'pointer', color: INK2, background: 'transparent', border: '1px solid ' + CARD_BORDER, fontFamily: 'inherit' }
 					}, (openBlockers ? '▾ ' : '▸ ') + t('task.waits') + ' ' + blockers.length),
 					...(openBlockers ? blockers.map((id) => {
@@ -3143,10 +3182,18 @@ window.__ModuleLoader__.load({
 			}
 			// in_progress tasks pulse only while their owner is actually running.
 			// data-cabinet-task anchors this row for the dependency-edge overlay.
+			// The whole row is a click target when an opener resolved; its onClick
+			// also stops the click so the member card that contains this row does
+			// not open the member session as well.
 			return h(Row, {
 				tickTop: 12,
 				'data-cabinet-task': task.id,
-				className: ownerRunning && status === 'in_progress' ? 'cabinet-task-live' : undefined
+				onClick: openOnce,
+				className: [
+					ownerRunning && status === 'in_progress' ? 'cabinet-task-live' : '',
+					openTask ? 'cabinet-clickable' : ''
+				].filter(Boolean).join(' ') || undefined,
+				style: { cursor: openTask ? 'pointer' : undefined }
 			}, children);
 		}
 
