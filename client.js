@@ -2403,6 +2403,7 @@ window.__ModuleLoader__.load({
 			// Owner tag are targets, so hover has to say so. An inset ring leaves
 			// every inline background (tags, live rows) untouched.
 			'.cabinet-card-clickable:hover{border-color:rgba(127,127,127,.60)}',
+			'.cabinet-card button:focus-visible{outline:2px solid currentColor;outline-offset:2px}',
 			'.cabinet-clickable:hover{box-shadow:inset 0 0 0 1px rgba(127,127,127,.55)}',
 			'.cabinet-badge-lead{font-size:10px;line-height:14px;padding:0 6px;border-radius:4px;font-weight:600;background:rgba(245,197,24,.20);border:1px solid rgba(245,197,24,.45);color:#6b4a00}',
 			'body[data-ds-dark-theme] .cabinet-badge-lead{color:#ffd666}',
@@ -3029,11 +3030,12 @@ window.__ModuleLoader__.load({
 			// the caller stops propagation so the enclosing card or task row does
 			// not forward the same click a second time.
 			const clickable = typeof onClick === 'function';
-			return h('span', {
+			return h(clickable ? 'button' : 'span', {
+				type: clickable ? 'button' : undefined,
 				title,
 				onClick,
 				className: clickable ? 'cabinet-clickable' : undefined,
-				style: { fontSize: 10, padding: '0 5px', borderRadius: 4, color, background, flex: 'none', cursor: clickable ? 'pointer' : undefined }
+				style: { font: 'inherit', border: 0, fontSize: 10, padding: '0 5px', borderRadius: 4, color, background, flex: 'none', cursor: clickable ? 'pointer' : undefined }
 			}, children);
 		}
 
@@ -3069,12 +3071,13 @@ window.__ModuleLoader__.load({
 				onClick: canOpen ? () => onOpen(member) : undefined,
 				style: { position: 'relative', zIndex: 1, cursor: canOpen ? 'pointer' : undefined }
 			}, [
-				h('div', {
+				h(canOpen ? 'button' : 'div', {
+					type: canOpen ? 'button' : undefined,
 					key: 'who',
 					// Same opener as the card, so the who row stops the click instead
 					// of letting the card forward it a second time.
 					onClick: canOpen ? (event) => { stopPropagation(event); return onOpen(member); } : undefined,
-					style: { display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', minWidth: 0, cursor: canOpen ? 'pointer' : undefined }
+					style: { font: 'inherit', textAlign: 'left', padding: 0, border: 0, background: 'transparent', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', minWidth: 0, cursor: canOpen ? 'pointer' : undefined }
 				}, [
 					h(Avatar, { key: 'avatar', name: member.name, size: size || 22, live: status === 'running' }),
 					h('span', {
@@ -3129,9 +3132,10 @@ window.__ModuleLoader__.load({
 					style: { width: 8, height: 8, flex: 'none', borderRadius: '50%', background: color }
 				}),
 				h('span', { key: 'st', className: 'cabinet-task-' + status, style: { fontSize: 11, flex: 'none' } }, taskLabel(status)),
-				h('span', {
+				h(openTask ? 'button' : 'span', {
+					type: openTask ? 'button' : undefined,
 					key: 'subj',
-					style: { fontSize: 12.5, color: INK, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', cursor: openTask ? 'pointer' : undefined },
+					style: { font: 'inherit', textAlign: 'left', padding: 0, border: 0, background: 'transparent', fontSize: 12.5, color: INK, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', cursor: openTask ? 'pointer' : undefined },
 					title: task.subject,
 					onClick: openOnce
 				}, task.subject)
