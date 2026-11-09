@@ -741,6 +741,7 @@ assert.deepEqual(Array.from(factsReads).sort(), ['lead-session', 'm-works'], 'th
 assert.ok(factsUsageText(factsFirst).includes(' 2K'), 'the first read paints the member total');
 const factsCallsAfterFirst = factsCalls.length;
 const factsReadsAfterFirst = factsReads.length;
+await new Promise((resolve) => setTimeout(resolve, 0));
 
 // One 5s tick: the bounded retry asks again, but the manager is `ready`, so
 // nothing is read. This is the fact the old "every 5s re-read" story got wrong.
@@ -751,7 +752,7 @@ factsPanel(2000);
 factsRunEffects();
 // The tick re-renders on the retry cadence; whatever it does, it must not read
 // the session again — that is the ready short-circuit this suite used to miss.
-assert.ok(factsCalls.length >= factsCallsAfterFirst, 'a tick never lowers the ensure-call count');
+assert.deepEqual(factsCalls.slice(factsCallsAfterFirst), ['m-works'], 'a tick retries only the running member');
 assert.equal(factsReads.length, factsReadsAfterFirst, 'no re-read after a tick: the ready load short-circuits (manager.js:268-272)');
 
 // A Host push frame changes the store the panel renders from: the number moves
