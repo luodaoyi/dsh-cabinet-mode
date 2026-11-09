@@ -2,6 +2,15 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.7.1] - 2026-11-09
+
+### Fixed
+
+- Count elapsed time for stopped members through the recorded active window end instead of letting an unclosed window grow.
+- Keep blocker chips informational by stopping click propagation before task-row navigation.
+- Include the lead in the team usage total and label the aggregation clearly.
+- Verify that a ready projection load short-circuits on retry and that host-pushed frames update usage without another read.
+
 ## [0.7.0] - 2026-11-09
 
 ### Added
