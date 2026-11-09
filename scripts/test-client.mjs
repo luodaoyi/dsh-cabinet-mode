@@ -28,9 +28,28 @@ const React = {
 // setInterval/clearInterval call the component makes (not a proxy assertion).
 const recordedEffects = [];
 const intervalSpy = { mounted: 0, cleared: 0, delays: [], lastTimer: null };
+// A controllable clock: the 5s projection throttle is time-based, so the chain
+// test advances this instead of sleeping.
+const clockState = { now: 1000000 };
+class RealmDate extends Date {
+  constructor(...args) { super(...(args.length ? args : [clockState.now])); }
+  static now() { return clockState.now; }
+}
+// A simulated re-render needs React's real useRef semantics (same ref across
+// renders of one component). Opt-in only: while `persistentRefs` is null every
+// render keeps the fresh-ref default, so no other harness changes behaviour.
+let persistentRefs = null;
+const resetHookCursor = () => { if (persistentRefs !== null) persistentRefs.cursor = 0; };
+React.useRef = (initial) => {
+  if (persistentRefs === null) return { current: initial };
+  const index = persistentRefs.cursor++;
+  if (!(index in persistentRefs.slots)) persistentRefs.slots[index] = { current: initial };
+  return persistentRefs.slots[index];
+};
 const exportList = 'return { inject, apply, avatarFor, displayName, CabinetPanel, MemberCard, TaskLine, TaskEdgeLayer, buildTaskEdges, taskEdgesEqual, zh, en, BUREAUX, AVATARS, setMemberConfig, memberLabel, configuredAvatar, configuredPrompt, factoryPromptFor, DEFAULT_MEMBER_PROMPTS, DEFAULT_LEAD_PROMPT, CabinetMemberSettings, MemoryPluginCard, memoryPluginInstalledOf, SETTINGS_TABS, formatTokenCount, formatElapsed, tokenTotalOf, usageFor, planProjectionRequests, teamUsageOf };';
 runInNewContext(source.replace(exportPoint, exportList), {
   setTimeout: (fn, ms) => setTimeout(fn, ms === 120000 ? 20 : ms), clearTimeout,
+  Date: RealmDate,
   setInterval: (fn, ms) => { intervalSpy.mounted += 1; intervalSpy.delays.push(ms); intervalSpy.lastTimer = { fn, ms }; return intervalSpy.lastTimer; },
   clearInterval: () => { intervalSpy.cleared += 1; },
   localStorage: pluginSpecStorage, window: { __ModuleLoader__: { load: ({ factory }) => {
@@ -638,7 +657,55 @@ assert.deepEqual(intervalSpy.delays, [5000], 'the ticker fires on the 5s project
 stopRunning();
 assert.equal(intervalSpy.cleared, 1, 'unmount (or everybody stopping) clears the ticker');
 
-console.log('PASS: member usage — token total, elapsed time and context pressure read from DSH session projections, 5s time-based throttle (skips inside the window, refreshes after it), ticker mounted only while a member runs and cleared when idle, missing projections degrade to the em dash, team total sums the members');
+// The chain must actually close: tick → request effect re-runs → a new
+// refreshProjections call. Without the tick in the effect deps the card only
+// re-rendered locally and the token number froze at its first value.
+const requestEffectDeps = source.match(/planProjectionRequests\(runningUsageIds[\s\S]{0,400}?\}, \[([^\]]*)\]\)/);
+assert.ok(requestEffectDeps, 'the projection request effect exists');
+assert.deepEqual(requestEffectDeps[1].split(',').map((entry) => entry.trim()), ['projections', 'runningUsageKey', 'usageTick'],
+  'the request effect depends on the tick, so a 5s re-render really re-requests instead of freezing the number');
+const refreshCalls = [];
+const sessionsStub = { refreshProjections: (id) => { refreshCalls.push(id); return Promise.resolve(); } };
+client.apply({
+  locale: { register: () => {}, bind: () => (key) => key },
+  effect: (fn) => { try { return fn(); } catch (error) { return undefined; } },
+  inject: (names, callback) => {
+    if (Array.isArray(names) && names.includes('sessions')) callback({ sessions: sessionsStub, effect: (fn) => { try { return fn(); } catch (error) { return undefined; } } });
+  },
+});
+clockState.now = 2000000;
+refreshCalls.length = 0;
+recordedEffects.length = 0;
+persistentRefs = { cursor: 0, slots: [] };
+const chainPanel = () => elements(client.CabinetPanel({
+  sessionId: 'lead-session',
+  useSession: (select) => select({}),
+  useSessions: (select) => select({ projectionsBySession: {
+    'lead-session': { values: { agentTeam: { members: [{ id: 'm-works', name: 'works', role: 'mate', phase: 'active' }], tasks: [] } } },
+    'm-works': { values: { tokenUsage: { outputTokens: 2000 } } },
+  } }),
+  useSessionStatus: (select) => select(new Map([['m-works', { running: true }]])),
+  t: zhT,
+}));
+resetHookCursor();
+chainPanel();
+const stopChain = runPanelEffects();
+assert.equal(refreshCalls.length, 1, 'the first render requests the running member projection exactly once');
+assert.deepEqual(Array.from(refreshCalls), ['m-works'], 'the request targets the running member id');
+resetHookCursor();
+chainPanel();
+runPanelEffects();
+assert.equal(refreshCalls.length, 1, 'inside the 5s window a re-render never re-requests');
+clockState.now += 5001;
+intervalSpy.lastTimer.fn();
+resetHookCursor();
+chainPanel();
+runPanelEffects();
+assert.equal(refreshCalls.length, 2, 'after one tick past the throttle, refreshProjections is called again — the chain is connected');
+stopChain();
+persistentRefs = null;
+
+console.log('PASS: member usage — token total, elapsed time and context pressure read from DSH session projections, 5s time-based throttle (skips inside the window, refreshes after it), tick → effect deps → refreshProjections chain verified (count 1 → 2), ticker mounted only while a member runs and cleared when idle, missing projections degrade to the em dash, team total sums the members');
 console.log('PASS: task dependency edges — data attributes, three states, missing-blocker tolerance, reduced-motion CSS, geometry refresh gate');
 
 // IDs are opaque; delimiter-bearing pairs must not collide or inject markup.

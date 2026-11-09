@@ -3918,7 +3918,11 @@ window.__ModuleLoader__.load({
 			// never sends a model request, so it spends no tokens.
 			const projectionRequestedAt = React.useRef(null);
 			if (!projectionRequestedAt.current || typeof projectionRequestedAt.current.get !== 'function') projectionRequestedAt.current = new Map();
-			const [, setUsageTick] = React.useState(0);
+			// Real state, and part of the request effect's deps below: the 5s ticker
+			// re-renders, that re-run is what makes the throttle re-evaluate and send
+			// the next refreshProjections call. Without the tick in the deps the card
+			// would keep re-rendering locally and never fetch a newer projection.
+			const [usageTick, setUsageTick] = React.useState(0);
 			const usageNow = Date.now();
 			const usageOfMember = (member) => (member !== undefined && member !== null && typeof member.id === 'string' && member.id !== '')
 				? usageFor(projections !== undefined && projections !== null ? projections[member.id]?.values : undefined, usageNow)
@@ -3935,7 +3939,7 @@ window.__ModuleLoader__.load({
 					projectionRequestedAt.current.set(id, Date.now());
 					refreshCabinetProjection(id);
 				}
-			}, [projections, runningUsageKey]);
+			}, [projections, runningUsageKey, usageTick]);
 			// While anybody runs, re-render on the same cadence so the elapsed time and
 			// the fresh projections reach the card. Nothing running → no timer at all.
 			React.useEffect(() => {
