@@ -43,11 +43,11 @@ This bundle declares **no hard DSH version gate**: no `engines.dsh`, no DSH
 
 0.6.3
 
-- Prompts are 415 characters shorter each turn.
+- Default prompts are shorter than in 0.6.2; the reduction varies by role and custom settings. No fixed per-turn or token saving is claimed.
 - Removed repeated instructions and examples.
-- Single file: at most 30 tool calls.
-- Multiple files: at most 100 tool calls.
-- At most 2 retries for the same failure.
+- Prompt-level task budgets (not runtime-enforced counters): up to 30 tool calls for a single-file task.
+- The prompt budget for a multi-file task is up to 100 tool calls.
+- The prompt limits retries for the same failure to 2 and requires the task brief to state its budget and stop conditions; this is not a runtime guarantee. These budget limits predate 0.6.3.
 
 0.6.2
 
@@ -58,10 +58,10 @@ This bundle declares **no hard DSH version gate**: no `engines.dsh`, no DSH
 0.6.1
 
 - Memory plugin can install from a local path.
-- First install works offline.
+- The default registry source needs network access. A local source is for first installation only; dependencies may still need the network, so offline success is not guaranteed.
 - Updates from local paths are rejected.
-- Fallback to the public source is only allowed before install.
-- Tests fail when hardcoded home paths appear in the code.
+- Fallback to the registry is limited to a completed source inspection failure before installation; timeouts or thrown errors do not trigger fallback.
+- Tests reject the literal `/home/fslong` in `client.js`; a separate check rejects selected absolute-path patterns in `cordis.patch.yml`. These checks do not detect every hardcoded home path.
 
 0.6.0
 
