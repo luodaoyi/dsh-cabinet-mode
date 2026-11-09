@@ -2587,9 +2587,17 @@ window.__ModuleLoader__.load({
 		let cabinetSessions = null;
 		const cabinetSessionsListeners = new Set();
 		/**
-		 * Retry cadence for public projection reads while a member is running.
-		 * Ready snapshots can be cached by the host; this is not forced polling.
-		 * The sessions service does not issue model requests.
+		 * Bounded retry/re-render cadence for member usage while somebody runs.
+		 *
+		 * `refreshProjections` is NOT a polling read: the client manager returns the
+		 * in-flight promise while a load runs and resolves immediately once that
+		 * session's projections are `ready`
+		 * (dsh-api-session-controller/lib/types/client/sessions/manager.js:268-272),
+		 * so one connection really reads a session once. Later changes arrive as
+		 * Host frames — `ctx.sessionProjections.onChanged` → control stream
+		 * (lib/types/control.js:9-19) — and land in the projection store the panel
+		 * already subscribes to. The 5s tick therefore only re-renders the elapsed
+		 * clock; it neither re-reads the store nor spends any model token.
 		 */
 		const PROJECTION_REFRESH_MS = 5000;
 		/**
@@ -2977,9 +2985,10 @@ window.__ModuleLoader__.load({
 			});
 		}
 
-		function Chip({ color, children, title }) {
+		function Chip({ color, children, title, onClick }) {
 			return h('span', {
 				title,
+				onClick,
 				style: {
 					display: 'inline-flex',
 					alignItems: 'center',
@@ -3125,7 +3134,7 @@ window.__ModuleLoader__.load({
 		 * optional: a missing projection yields undefined (the card prints its dash),
 		 * and a missing contextWindow keeps the token numbers but drops the ratio.
 		 */
-		function usageFor(values, now) {
+		function usageFor(values, now, running) {
 			const source = values !== undefined && values !== null && typeof values === 'object' ? values : {};
 			const tokens = tokenTotalOf(source.tokenUsage?.totals ?? source.tokenUsage);
 			let elapsedMs;
@@ -3134,8 +3143,14 @@ window.__ModuleLoader__.load({
 				const settled = typeof timing.settledMs === 'number' && Number.isFinite(timing.settledMs) ? timing.settledMs : 0;
 				const active = timing.active;
 				if (active !== undefined && active !== null && typeof active.since === 'number' && Number.isFinite(active.since)) {
+					// Native parity (subagent catalog): a running turn ends at "now", an
+					// inactive one at `active.through` — otherwise an unclosed active
+					// window keeps growing while nobody is working.
 					const clock = typeof now === 'number' && Number.isFinite(now) ? now : active.since;
-					elapsedMs = settled + Math.max(0, clock - active.since);
+					const end = running !== false
+						? clock
+						: (typeof active.through === 'number' && Number.isFinite(active.through) ? active.through : active.since);
+					elapsedMs = settled + Math.max(0, end - active.since);
 				} else if (typeof timing.settledMs === 'number' && Number.isFinite(timing.settledMs)) {
 					elapsedMs = settled;
 				}
@@ -3370,7 +3385,9 @@ window.__ModuleLoader__.load({
 					...(openBlockers ? blockers.map((id) => {
 						const blocker = blockerOf(id);
 						const c = blocker ? (TASK_COLOR[blocker.status] || TASK_COLOR.pending) : 'rgba(127,127,127,.5)';
-						return h(Chip, { key: id, color: c, title: blocker ? blocker.subject : id }, [
+						// A blocker chip is information, not navigation: stop the click so
+						// the task row's opener does not fire when a chip is clicked.
+						return h(Chip, { key: id, color: c, title: blocker ? blocker.subject : id, onClick: (event) => stopPropagation(event) }, [
 							h('span', { key: 'd', style: { width: 6, height: 6, borderRadius: '50%', background: c, flex: 'none' } }),
 							h('span', { key: 't', style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, id)
 						]);
@@ -3864,13 +3881,24 @@ window.__ModuleLoader__.load({
 			const lead = members.find((member) => member.role === 'lead');
 			const leadShown = lead ?? { id: sessionId, name: 'lead', role: 'lead', phase: 'active' };
 			const mates = members.filter((member) => member.role !== 'lead');
-			// Usage hooks stay above the empty-team return. Ensure initial/settled
-			// projections, retry live sessions at a bounded cadence, and consume
-			// host updates via useSessions. Ready host snapshots may remain cached.
+			// Usage hooks stay above the empty-team return.
+			//
+			// The numbers move because the Host pushes projection frames
+			// (`sessionProjections.onChanged` → control stream, control.js:9-19) into
+			// the store read by useSessions — NOT because this panel re-reads them:
+			// `refreshProjections` really reads a session once and resolves without
+			// reading once that load is `ready` (manager.js:268-272). What is left for
+			// this panel is (a) one ensure call per member the first time we see it,
+			// (b) a bounded retry for a session that never loaded or just changed
+			// state, and (c) a 5s re-render so the elapsed clock advances.
 			const [usageTick, setUsageTick] = React.useState(0);
 			const usageNow = Date.now();
 			const usageOfMember = (member) => (member !== undefined && member !== null && typeof member.id === 'string' && member.id !== '')
-				? usageFor(projections !== undefined && projections !== null ? projections[member.id]?.values : undefined, usageNow)
+				? usageFor(
+					projections !== undefined && projections !== null ? projections[member.id]?.values : undefined,
+					usageNow,
+					runningOf(member.id)
+				)
 				: null;
 			const leadUsage = usageOfMember(leadShown);
 			const mateUsages = mates.map((member) => usageOfMember(member));
@@ -3905,8 +3933,9 @@ window.__ModuleLoader__.load({
 					if (!due) continue;
 					const record = {live, at: Date.now(), pending: true};
 					states.set(id, record);
-					// Public refresh is ensure/retry: ready snapshots may be cached by
-					// the host. Live updates arrive through useSessions, not forced RPCs.
+					// Ensure/retry only: the first call per member really reads; a `ready`
+					// session resolves without reading, so this is not a re-read loop.
+					// Live updates arrive through useSessions (host push frames).
 					try { Promise.resolve(usageService.refreshProjections(id)).catch(() => {}).finally(() => { record.pending = false; if (record.retry && !states.disposed) { states.delete(id); setUsageTick(tick => tick + 1); } }); }
 					catch (_) { record.pending = false; }
 				}
@@ -3980,7 +4009,7 @@ window.__ModuleLoader__.load({
 				t: tt,
 				onOpen: openMemberSession,
 				usage: leadUsage,
-				teamUsage: teamUsageOf(mateUsages)
+				teamUsage: teamUsageOf([leadUsage, ...mateUsages])
 			});
 
 			// Cells: every minister first, then 未分派 / 首辅自办 / 不在册 as
@@ -4641,7 +4670,7 @@ window.__ModuleLoader__.load({
 			'usage.tokens': 'token',
 			'usage.elapsed': '耗时',
 			'usage.context': '上下文',
-			'usage.team': '团队',
+			'usage.team': '团队合计（含首辅）',
 			'usage.none': '—',
 			'task.leadOwn': '首辅自办',
 			'task.waits': '等待',
@@ -4734,7 +4763,7 @@ window.__ModuleLoader__.load({
 			'usage.tokens': 'tokens',
 			'usage.elapsed': 'elapsed',
 			'usage.context': 'context',
-			'usage.team': 'team',
+			'usage.team': 'team total (incl. lead)',
 			'usage.none': '—',
 			'task.leadOwn': 'lead-owned',
 			'task.waits': 'blocked by',
