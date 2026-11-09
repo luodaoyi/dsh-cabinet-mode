@@ -20,9 +20,19 @@ const React = {
   useId: () => 'test-mask',
   createElement: (type, props, ...children) => ({ type, props, children }),
   useRef: () => ({ current: null }),
-  useState: (initial) => [initial, () => {}],
+  // Persistent state is opt-in like useRef: only the re-render chain test needs
+  // a setter that really changes the value the next render reads.
+  useState: (initial) => {
+    const value = typeof initial === 'function' ? initial() : initial;
+    if (persistentRefs === null) return [value, () => {}];
+    const index = hookStates.cursor++;
+    if (!(index in hookStates.slots)) hookStates.slots[index] = value;
+    return [hookStates.slots[index], (next) => {
+      hookStates.slots[index] = typeof next === 'function' ? next(hookStates.slots[index]) : next;
+    }];
+  },
   useCallback: (callback) => callback,
-  useLayoutEffect: () => {}, useEffect: (fn) => { recordedEffects.push(fn); },
+  useLayoutEffect: () => {}, useEffect: (fn, deps) => { recordedEffects.push({ fn, deps }); },
 };
 // The panel decides whether to mount its usage ticker; the spy observes the real
 // setInterval/clearInterval call the component makes (not a proxy assertion).
@@ -39,7 +49,13 @@ class RealmDate extends Date {
 // renders of one component). Opt-in only: while `persistentRefs` is null every
 // render keeps the fresh-ref default, so no other harness changes behaviour.
 let persistentRefs = null;
-const resetHookCursor = () => { if (persistentRefs !== null) persistentRefs.cursor = 0; };
+const hookStates = { cursor: 0, slots: [] };
+const resetHookCursor = () => {
+  if (persistentRefs !== null) {
+    persistentRefs.cursor = 0;
+    hookStates.cursor = 0;
+  }
+};
 React.useRef = (initial) => {
   if (persistentRefs === null) return { current: initial };
   const index = persistentRefs.cursor++;
@@ -547,6 +563,10 @@ assert.deepEqual(Array.from(full.context.segments, (segment) => segment.key), ['
 assert.deepEqual(Array.from(full.context.segments, (segment) => Math.round(segment.ratio * 100)), [20, 60, 20], 'segments follow the projection breakdown');
 const settledOnly = client.usageFor({ ...fullValues, subagentTiming: { settledMs: 42000 } }, 112000);
 assert.equal(settledOnly.elapsedMs, 42000, 'an inactive member shows settledMs');
+const closedActive = client.usageFor({ subagentTiming: { settledMs: 5000, active: { since: 100000, through: 180000 } } }, 112000, false);
+assert.equal(closedActive.elapsedMs, 85000, 'an inactive member ends the active window at active.through, not at now (native parity)');
+const openActive = client.usageFor({ subagentTiming: { settledMs: 5000, active: { since: 100000, through: 180000 } } }, 112000, true);
+assert.equal(openActive.elapsedMs, 17000, 'a running member keeps counting to now');
 const noWindow = client.usageFor({ contextPressure: { projectedTokens: 120000 }, contextBreakdown: { systemTokens: 1 } }, 0);
 assert.equal(noWindow.context.percent, undefined, 'no contextWindow → no ratio, numbers only');
 assert.deepEqual(noWindow.context.segments.length, 1, 'breakdown still renders without a window');
@@ -614,17 +634,165 @@ const usagePanel = elements(client.CabinetPanel({
   sessionId: 'lead-session',
   useSession: (select) => select({}),
   useSessions: (select) => select({ projectionsBySession: {
-    'lead-session': { values: { agentTeam: { members: [{ id: 'm-works', name: 'works', role: 'mate', phase: 'active' }], tasks: [] } } },
+    'lead-session': { values: { tokenUsage: { outputTokens: 1000 }, agentTeam: { members: [{ id: 'm-works', name: 'works', role: 'mate', phase: 'active' }], tasks: [] } } },
     'm-works': { values: { tokenUsage: { outputTokens: 2000 }, subagentTiming: { settledMs: 42000 } } },
   } }),
   useSessionStatus: (select) => select(new Map()),
   t: (key) => client.zh[key] || key,
 }));
 assert.ok(elements(usagePanel).some((node) => node.props?.key === 'usage'), 'the panel hands projections to the member cards');
+const panelTeam = elements(usagePanel)
+  .filter((node) => node.props?.key === 'usage')
+  .map((node) => JSON.stringify(node))
+  .find((text) => text.includes(client.zh['usage.team']));
+assert.ok(panelTeam, 'the lead card renders a team total');
+assert.ok(panelTeam.includes(client.zh['usage.team'] + ' 3K'), 'the team total includes the lead itself (1K lead + 2K mate)');
+
+// A blocker chip is information, not navigation: it must stop the click before
+// the task row's opener runs.
+const chipOpenLog = [];
+const chipLine = client.TaskLine({
+  task: { id: 't-chip', subject: 'rows', ownerName: 'works', status: 'pending', blockedBy: ['t-blocker'] },
+  blockerOf: (id) => (id === 't-blocker' ? { subject: 'upstream work', status: 'pending' } : undefined),
+  t: (key) => key,
+  taskLabel: (status) => status,
+  onOpenOwner: (task) => { chipOpenLog.push(task); return true; },
+});
+const chipNode = elements(chipLine).find((node) => node.props?.title === 'upstream work');
+assert.ok(chipNode, 'the blocker chip renders');
+assert.equal(typeof chipNode.props.onClick, 'function', 'a blocker chip is its own click target');
+const chipEvent = { stopped: false, stopPropagation() { this.stopped = true; } };
+chipNode.props.onClick(chipEvent);
+assert.equal(chipEvent.stopped, true, 'the chip stops the click so the task row does not navigate');
+assert.deepEqual(chipOpenLog, [], 'clicking a blocker chip never opens the owner session');
+
+// Facts: refreshProjections reads a session once and resolves without reading
+// once that load is `ready` (manager.js:268-272); later changes come from Host
+// pushed frames (control.js:9-19) into the store the panel renders from.
+// React semantics for the double: an effect whose deps array is shallow-equal
+// to the previous render's deps does not run again (the panel's request-state
+// reset effect must not wipe its Map on every unrelated re-render).
+const depSlots = [];
+const sameDeps = (a, b) => Array.isArray(a) && Array.isArray(b) && a.length === b.length && a.every((value, index) => Object.is(value, b[index]));
+const factsRunEffects = () => {
+  const queued = recordedEffects.splice(0, recordedEffects.length);
+  const cleanups = [];
+  let index = 0;
+  for (const entry of queued) {
+    const previous = depSlots[index];
+    if (previous !== undefined && sameDeps(previous.deps, entry.deps)) {
+      if (typeof previous.cleanup === 'function') cleanups.push(previous.cleanup);
+      index += 1;
+      continue;
+    }
+    const cleanup = entry.fn();
+    depSlots[index] = { deps: entry.deps, cleanup };
+    if (typeof cleanup === 'function') cleanups.push(cleanup);
+    index += 1;
+  }
+  depSlots.length = index;
+  return () => { for (const cleanup of cleanups) cleanup(); };
+};
+const factsCalls = [];
+const factsReads = [];
+const factsReady = new Set();
+const factsSessions = {
+  refreshProjections: (id) => {
+    factsCalls.push(id);
+    if (factsReady.has(id)) return Promise.resolve(); // ready → short circuit, no read
+    factsReady.add(id);
+    factsReads.push(id);
+    return Promise.resolve();
+  },
+};
+client.apply({
+  locale: { register: () => {}, bind: () => (key) => key },
+  effect: (fn) => { try { return fn(); } catch (error) { return undefined; } },
+  inject: (names, callback) => {
+    if (Array.isArray(names) && names.includes('sessions')) callback({ sessions: factsSessions, effect: (fn) => { try { return fn(); } catch (error) { return undefined; } } });
+  },
+});
+const factsPanel = (mateTokens, extra) => elements(client.CabinetPanel({
+  sessionId: 'lead-session',
+  useSession: (select) => select({}),
+  useSessions: (select) => select({ projectionsBySession: {
+    'lead-session': { values: { tokenUsage: { outputTokens: 1000 }, agentTeam: { members: [
+      { id: 'm-works', name: 'works', role: 'mate', phase: 'active' },
+      ...((extra && extra.members) || []),
+    ], tasks: [] } } },
+    'm-works': { values: { tokenUsage: { outputTokens: mateTokens } } },
+  } }),
+  useSessionStatus: (select) => select(new Map((extra && extra.status) || [['m-works', { running: true }]])),
+  t: (key) => client.zh[key] || key,
+}));
+const factsUsageText = (nodes) => nodes
+  .filter((node) => node.props?.key === 'usage')
+  .map((node) => JSON.stringify(node))
+  .join('|');
+
+clockState.now = 2000000;
+recordedEffects.length = 0;
+persistentRefs = { cursor: 0, slots: [] };
+factsCalls.length = 0; factsReads.length = 0; factsReady.clear();
+resetHookCursor();
+const factsFirst = factsPanel(2000);
+const factsStop = factsRunEffects();
+assert.deepEqual(Array.from(factsReads).sort(), ['lead-session', 'm-works'], 'the first pass ensures every member once (an idle one included)');
+assert.ok(factsUsageText(factsFirst).includes(' 2K'), 'the first read paints the member total');
+const factsCallsAfterFirst = factsCalls.length;
+const factsReadsAfterFirst = factsReads.length;
+await new Promise((resolve) => setTimeout(resolve, 0));
+
+// One 5s tick: the bounded retry asks again, but the manager is `ready`, so
+// nothing is read. This is the fact the old "every 5s re-read" story got wrong.
+clockState.now += 5001;
+intervalSpy.lastTimer.fn();
+resetHookCursor();
+factsPanel(2000);
+factsRunEffects();
+// The tick re-renders on the retry cadence; whatever it does, it must not read
+// the session again — that is the ready short-circuit this suite used to miss.
+assert.deepEqual(factsCalls.slice(factsCallsAfterFirst), ['m-works'], 'a tick retries only the running member');
+assert.equal(factsReads.length, factsReadsAfterFirst, 'no re-read after a tick: the ready load short-circuits (manager.js:268-272)');
+
+// A Host push frame changes the store the panel renders from: the number moves
+// with no further read and no further ensure call.
+clockState.now += 1000;
+const factsCallsBeforePush = factsCalls.length;
+resetHookCursor();
+const factsPushed = factsPanel(5000);
+factsRunEffects();
+assert.ok(factsUsageText(factsPushed).includes(' 5K'), 'a Host-pushed projection frame updates the card to the new total');
+assert.ok(!factsUsageText(factsPushed).includes(' 2K'), 'the card shows the pushed value, not the stale one');
+assert.equal(factsReads.length, factsReadsAfterFirst, 'the update came from the push, not from re-reading the session');
+assert.equal(factsCalls.length, factsCallsBeforePush, 'a push never re-reads or re-requests on its own');
+factsStop();
+
+// An idle member is ensured once when the panel first sees it (never-loaded
+// stores get filled), then not re-requested inside the window.
+factsCalls.length = 0; factsReads.length = 0; factsReady.clear();
+clockState.now = 3000000;
+recordedEffects.length = 0;
+persistentRefs = { cursor: 0, slots: [] };
+const idleFacts = () => factsPanel(2000, {
+  members: [{ id: 'm-dali', name: 'dali', role: 'mate', phase: 'active' }],
+  status: [['m-works', { running: true }]],
+});
+resetHookCursor();
+idleFacts();
+const idleStop = factsRunEffects();
+assert.ok(factsCalls.includes('m-dali'), 'an idle, never-loaded member still gets one ensure call');
+resetHookCursor();
+clockState.now += 1000;
+idleFacts();
+factsRunEffects();
+assert.equal(factsCalls.filter((id) => id === 'm-dali').length, 1, 'an idle member is not re-requested inside the window');
+idleStop();
+persistentRefs = null;
 
 // Stateful lifecycle, initial/settled loads and timer cleanup are exercised
 // with real React DOM by scripts/test-panel-browser.mjs, not this hook double.
-console.log('PASS: member usage formatting, missing data and pure throttle helpers; lifecycle is tested separately with real React DOM');
+console.log('PASS: member usage formatting, missing data, throttle helpers, active.through parity, blocker chips that do not navigate, team total including the lead, and the projection facts — a ready load short-circuits (the retry call reads nothing) while a Host push frame updates the card without another read; lifecycle is tested separately with real React DOM');
 console.log('PASS: task dependency edges — data attributes, three states, missing-blocker tolerance, reduced-motion CSS, geometry refresh gate');
 
 // IDs are opaque; delimiter-bearing pairs must not collide or inject markup.
