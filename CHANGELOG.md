@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.6.4] - 2026-11-09
+
+### Documentation
+
+- Add bilingual update notes and clarify network requirements for local installation, the limited absolute-path checks, and role-dependent prompt size changes.
+- Describe task budgets and retry limits as prompt-level guidance, not runtime enforcement. No fixed per-turn character or token savings are promised.
+- Runtime behavior is unchanged from 0.6.3.
+
 ## [0.6.3] - 2026-11-08
 
 ### Changed

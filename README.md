@@ -1,6 +1,6 @@
 # Cabinet Mode (内阁模式) for DeepSeek Harness
 
-**Version compatibility (0.6.3):** Targets DSH **0.2.2-rc.1**. This release shortens default prompts while retaining budget, authorization and final-state verification requirements, and retains the per-office model selection fix before the host freezes each step; 0.5.1/0.5.2 only repaired preset loading and display metadata. Verified with official host components and isolated profiles, without real model calls; see the model regression scope below. Earlier rc.3/rc.5 UI and installation results are historical evidence for earlier packages. On DSH 0.2.1-rc.3/rc.5 retain the previously verified package, including 0.5.0: the current preset omits the separate list_agents entry required on rc.5. Select the compatible version in the market.
+**Version compatibility (0.6.4):** Targets DSH **0.2.2-rc.1**. This documentation-only release preserves the 0.6.3 runtime, which shortens default prompts while retaining budget, authorization and final-state verification requirements, and retains the per-office model selection fix before the host freezes each step; 0.5.1/0.5.2 only repaired preset loading and display metadata. Verified with official host components and isolated profiles, without real model calls; see the model regression scope below. Earlier rc.3/rc.5 UI and installation results are historical evidence for earlier packages. On DSH 0.2.1-rc.3/rc.5 retain the previously verified package, including 0.5.0: the current preset omits the separate list_agents entry required on rc.5. Select the compatible version in the market.
 
 [中文](README.zh.md) | English
 
@@ -37,7 +37,39 @@ and the rest) come from the profile-level
 ship them**.
 
 This bundle declares **no hard DSH version gate**: no `engines.dsh`, no DSH
-`peerDependencies`, no install-time version check. Earlier package releases were tested on DSH **0.2.1-rc.3**; use the compatibility guidance above for 0.6.3 (see [DSH-side constraints](#dsh-side-constraints)).
+`peerDependencies`, no install-time version check. Earlier package releases were tested on DSH **0.2.1-rc.3**; use the compatibility guidance above for 0.6.4 (see [DSH-side constraints](#dsh-side-constraints)).
+
+## Update notes
+
+0.6.3
+
+- Default prompts are shorter than in 0.6.2; the reduction varies by role and custom settings. No fixed per-turn or token saving is claimed.
+- Removed repeated instructions and examples.
+- Prompt-level task budgets (not runtime-enforced counters): up to 30 tool calls for a single-file task.
+- The prompt budget for a multi-file task is up to 100 tool calls.
+- The prompt limits retries for the same failure to 2 and requires the task brief to state its budget and stop conditions; this is not a runtime guarantee. These budget limits predate 0.6.3.
+
+0.6.2
+
+- Explains when falling back to the public source.
+- Shows the source of installed plugins; unknown when unreadable.
+- Keeps state separate per connection.
+
+0.6.1
+
+- Memory plugin can install from a local path.
+- The default registry source needs network access. A local source is for first installation only; dependencies may still need the network, so offline success is not guaranteed.
+- Updates from local paths are rejected.
+- Fallback to the registry is limited to a completed source inspection failure before installation; timeouts or thrown errors do not trigger fallback.
+- Tests reject the literal `/home/fslong` in `client.js`; a separate check rejects selected absolute-path patterns in `cordis.patch.yml`. These checks do not detect every hardcoded home path.
+
+0.6.0
+
+- Member config page now has five tabs.
+- Plugin page adds a memory plugin install card.
+- Task assignment spells out reporting points and deliverable scope.
+- Reassign only after the active writer stops.
+- Remote install reads the official response structure.
 
 ## Optional memory plugin
 
@@ -262,7 +294,7 @@ On failure, show the exact error. For $.format must be 1, replace the webpage so
 Use this only when the market is unavailable or for local development. Fully quit desktop DSH first to release the profile lock, then install the release bundle:
 
 ```sh
-dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.6.3/dsh-cabinet-mode-0.6.3.tgz
+dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.6.4/dsh-cabinet-mode-0.6.4.tgz
 dsh plugin --profile desktop list
 ```
 
@@ -277,7 +309,7 @@ the same install command with the new version URL (or pick the new `.tgz` in the
 plugin page), then fully quit and restart DeepSeek Harness:
 
 ```sh
-dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.6.3/dsh-cabinet-mode-0.6.3.tgz
+dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.6.4/dsh-cabinet-mode-0.6.4.tgz
 ```
 
 `dsh plugin --profile desktop list` should report the new version. Upgrades were
