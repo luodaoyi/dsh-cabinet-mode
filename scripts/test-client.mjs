@@ -431,9 +431,11 @@ assert.equal(rowEvent.stopped, true, 'the row stops the click so the enclosing c
 // 2) the Owner tag binds and stops the click instead of double-opening
 // Tag drops the element key when it renders its span, so locate the Owner tag by
 // its label text (same probe the identity test above uses).
-const ownerTag = (line) => elements(line).find((node) => node.type === 'span'
+const ownerTag = (line) => elements(line).find((node) => ['span', 'button'].includes(node.type)
   && node.children.flat().some((text) => typeof text === 'string' && text.startsWith('Owner: ')));
 const boundOwner = ownerTag(client.TaskLine({ task: tasks[0], t: (key) => key, taskLabel: (status) => status, onOpenOwner: openRecorder }));
+assert.equal(boundOwner.type, 'button', 'Owner is a native keyboard button');
+assert.equal(boundOwner.props.type, 'button');
 assert.equal(typeof boundOwner.props.onClick, 'function', 'the Owner tag binds a resolved opener');
 assert.equal(boundOwner.props.style.cursor, 'pointer', 'the Owner tag shows the pointer cursor');
 opens.length = 0;
@@ -446,6 +448,7 @@ assert.equal(ownerEvent.stopped, true, 'the Owner tag stops the click so the row
 const subjectNode = elements(client.TaskLine({ task: tasks[0], t: (key) => key, taskLabel: (status) => status, onOpenOwner: openRecorder }))
   .find((node) => node.props?.key === 'subj');
 opens.length = 0;
+assert.equal(subjectNode.type, 'button', 'Subject is a native keyboard button');
 const subjectEvent = fakeEvent();
 subjectNode.props.onClick(subjectEvent);
 assert.deepEqual(opens, [tasks[0]], 'the subject still opens once with an event argument');
@@ -463,6 +466,15 @@ const nestedEvent = fakeEvent();
 hybridRow.props.onClick(nestedEvent);
 assert.equal(nestedEvent.stopped, true, 'the nested row stops before the card handler can run');
 assert.deepEqual(opens, [tasks[0]], 'clicking a task inside a card opens the task target once, never the member');
+
+// Nested member identity is a native button and prevents its card from firing.
+const who = elements(hybridCard).find(node => node.props?.key === 'who');
+assert.equal(who.type, 'button');
+opens.length = 0;
+const whoEvent = fakeEvent();
+who.props.onClick(whoEvent);
+if (!whoEvent.stopped) hybridCard.props.onClick(whoEvent);
+assert.equal(opens.length, 1);
 
 // 5) inert members stay inert on the CARD too (self / failed / provisioning / no id / no channel)
 for (const [label, member, extra] of [
