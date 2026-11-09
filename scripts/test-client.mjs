@@ -757,13 +757,14 @@ assert.equal(factsReads.length, factsReadsAfterFirst, 'no re-read after a tick: 
 // A Host push frame changes the store the panel renders from: the number moves
 // with no further read and no further ensure call.
 clockState.now += 1000;
+const factsCallsBeforePush = factsCalls.length;
 resetHookCursor();
 const factsPushed = factsPanel(5000);
 factsRunEffects();
 assert.ok(factsUsageText(factsPushed).includes(' 5K'), 'a Host-pushed projection frame updates the card to the new total');
 assert.ok(!factsUsageText(factsPushed).includes(' 2K'), 'the card shows the pushed value, not the stale one');
 assert.equal(factsReads.length, factsReadsAfterFirst, 'the update came from the push, not from re-reading the session');
-assert.equal(factsCalls.length, factsCalls.length, 'a push never re-reads or re-requests on its own');
+assert.equal(factsCalls.length, factsCallsBeforePush, 'a push never re-reads or re-requests on its own');
 factsStop();
 
 // An idle member is ensured once when the panel first sees it (never-loaded
