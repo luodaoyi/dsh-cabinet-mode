@@ -39,6 +39,38 @@ ship them**.
 This bundle declares **no hard DSH version gate**: no `engines.dsh`, no DSH
 `peerDependencies`, no install-time version check. Earlier package releases were tested on DSH **0.2.1-rc.3**; use the compatibility guidance above for 0.6.3 (see [DSH-side constraints](#dsh-side-constraints)).
 
+## Update notes
+
+0.6.3
+
+- Prompts are 415 characters shorter each turn.
+- Removed repeated instructions and examples.
+- Single file: at most 30 tool calls.
+- Multiple files: at most 100 tool calls.
+- At most 2 retries for the same failure.
+
+0.6.2
+
+- Explains when falling back to the public source.
+- Shows the source of installed plugins; unknown when unreadable.
+- Keeps state separate per connection.
+
+0.6.1
+
+- Memory plugin can install from a local path.
+- First install works offline.
+- Updates from local paths are rejected.
+- Fallback to the public source is only allowed before install.
+- Tests fail when hardcoded home paths appear in the code.
+
+0.6.0
+
+- Member config page now has five tabs.
+- Plugin page adds a memory plugin install card.
+- Task assignment spells out reporting points and deliverable scope.
+- Reassign only after the active writer stops.
+- Remote install reads the official response structure.
+
 ## Optional memory plugin
 
 The Plugin tab installs the public pinned `@rsrsai/dsh@0.1.13` package. Installing and enabling are confirmed separately; a restart notice must be followed. Newer versions are not silently downgraded. Unknown versions are reported as unknown. Each remote wait has a two-minute deadline; a timeout does not cancel the host job. If the outcome remains unknown, check the native plugin manager before retrying. Closing the card stops stale UI updates and does not automatically enable a still-installing bundle.
