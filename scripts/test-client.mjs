@@ -1341,5 +1341,7 @@ const rosterWithChannel = elements(rosterPanel());
 assert.ok(!rosterWithChannel.some((node) => node.props?.['data-cabinet-bot-dispatch'] !== undefined), 'a workspace channel does not bring the dispatch button back');
 assert.ok(!rosterWithChannel.some((node) => node.props?.['data-cabinet-bot-section'] === '1'), 'a workspace channel does not bring the section back');
 assert.deepEqual(openedAfterRemoval, [], 'rendering alone opens nothing');
+// One reverse assertion guards against resurrecting the deleted live API.
+assert.equal(client.liveViewOf, undefined, 'liveViewOf is gone from the client exports');
 console.log('PASS 内阁 Bot section removal: no section box, office rows, 现役/未上朝 state, 派活 button, 联想 cell or live block renders, with or without a workspace opener; the roster section, member cards and the 通政使 office model (label/avatar/display name/duty prompt) stay');
 
