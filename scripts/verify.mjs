@@ -236,7 +236,7 @@ if (pkg) {
   };
   const hostMembers = extractMembers(indexSrc);
   const browserMembers = extractMembers(clientSrc);
-  const dutyKeys = ['hanlin', 'works', 'dali', 'yushi'];
+  const dutyKeys = ['hanlin', 'works', 'dali', 'yushi', 'tongzheng'];
   if (hostMembers === null) bad('member duty prompts in index.js', 'DEFAULT_MEMBER_PROMPTS not found');
   else if (browserMembers === null) bad('member duty prompts in client.js', 'DEFAULT_MEMBER_PROMPTS not found');
   else if (JSON.stringify(hostMembers) !== JSON.stringify(browserMembers)) {
@@ -254,6 +254,22 @@ if (pkg) {
     if (problems.length > 0) bad('member duty prompts', problems.join('; '));
     else ok('member duty prompts: identical in both halves, one per non-Lead member, each names its office');
   }
+
+  // The association office is a Ming title (通政使), and the removed instruction
+  // sentence must not survive anywhere in the shipped text.
+  const retiredNeedles = ['不要 spawn', 'lianxiang', '联想阁臣', 'rsrs related'];
+  // Shipped product text only: the tests assert against these words as
+  // negatives, so the scan must not read the test files themselves.
+  const scanFiles = ['index.js', 'client.js', 'cordis.patch.yml', 'CHANGELOG.md', 'README.md', 'README.zh.md'];
+  const retiredHits = [];
+  for (const relative of scanFiles) {
+    const full = join(ROOT, relative);
+    if (!existsSync(full)) continue;
+    const text = readFileSync(full, 'utf8');
+    for (const needle of retiredNeedles) if (text.includes(needle)) retiredHits.push(`${relative}: ${needle}`);
+  }
+  if (retiredHits.length === 0) ok('no retired association text (通政使 only, no off sentence)');
+  else bad('retired association text', retiredHits.join('; '));
 
   // P0 guard: the settings page decodes its value by rehydrating the WIRE copy of
   // this schema (`settings.describe` carries `schema.toJSON()`; the shell rebuilds

@@ -2461,7 +2461,8 @@ window.__ModuleLoader__.load({
 			{ key: 'hanlin', aliases: ['hanlin', 'hanlinyuan', 'bianxiu', 'hanlin-bianxiu', 'hanlinyuan-bianxiu', 'hanlinbianxiu', '翰林院', '翰林', '编修', '翰林编修'], label: '翰林院编修' },
 			{ key: 'works', aliases: ['gongbu', 'works', 'zhushi', 'gongbu-zhushi', 'gongbu-shangshu', 'gongbushangshu', 'gongbuzhushi', '工部', '主事', '工部主事'], label: '工部尚书' },
 			{ key: 'dali', aliases: ['dali', 'dalisi', 'pingshi', 'dalisi-pingshi', 'dali-pingshi', 'dalisi-qing', 'dalisipingshi', 'daliqing', 'dalisiqing', '大理寺', '大理', '评事', '大理寺评事'], label: '大理寺卿' },
-			{ key: 'yushi', aliases: ['yushi', 'censor', 'jiancha-yushi', 'jianchayushi', 'duchayuan', 'duchayuan-yushi', 'zuoduyushi', 'zuodu-yushi', 'zuo-du-yushi', '都察院', '御史', '都察院御史', '监察御史'], label: '左都御史' }
+			{ key: 'yushi', aliases: ['yushi', 'censor', 'jiancha-yushi', 'jianchayushi', 'duchayuan', 'duchayuan-yushi', 'zuoduyushi', 'zuodu-yushi', 'zuo-du-yushi', '都察院', '御史', '都察院御史', '监察御史'], label: '左都御史' },
+			{ key: 'tongzheng', aliases: ['tongzheng', 'tongzhengshi', 'tongzheng-shi', '通政', '通政使', '通政使司'], label: '通政使' }
 		];
 		const AVATAR_KEYS = BUREAUX.map((bureau) => bureau.key);
 		// Longest alias first, so a full office name ("翰林院编修") wins over its
@@ -2512,6 +2513,8 @@ window.__ModuleLoader__.load({
         }
         function avatarFor(name) {
 			const bureau = bureauOf(name);
+			// AVATARS has no tongzheng key, so this office keeps the neutral portrait.
+			if (bureau.key === 'tongzheng') return memberConfig.avatars.get('tongzheng') || AVATARS.neutral;
 			if (bureau.matched && AVATARS[bureau.key]) return memberConfig.avatars.get(bureau.key) || AVATARS[bureau.key];
 			return neutralAvatar();
 		}
@@ -2526,7 +2529,11 @@ window.__ModuleLoader__.load({
 		// roster and the settings section read one snapshot. With no saved values
 		// this stays empty, which reproduces v0.2.0 rendering exactly: the runtime
 		// member name and the built-in avatar, with no display-name layer.
-		const MEMBER_LABELS = { lead: '内阁首辅', hanlin: '翰林院编修', works: '工部尚书', dali: '大理寺卿', yushi: '左都御史' };
+		const MEMBER_LABELS = { lead: '内阁首辅', hanlin: '翰林院编修', works: '工部尚书', dali: '大理寺卿', yushi: '左都御史', tongzheng: '通政使' };
+		/** Standing offices in rank order, for the visible bot roster. */
+		const MEMBER_KEYS_BOT = ['lead', ...AVATAR_KEYS.filter((key) => key !== 'lead')];
+		/** One-line duty for the visible bot roster; the long prompt stays separate. */
+		const BOT_DUTIES = { lead: '总揽全局，审题拆解与裁断', hanlin: '调研与文献考据', works: '动手执行与产出', dali: '独立核验', yushi: '验收并弹劾缺陷', tongzheng: '掌章奏通达，找旧事与旁证的联系' };
 		// Factory default prompt for the Lead (御下术). Product copy: shown in the
 		// settings box, restored by 「恢复默认」, and turned off by clearing the box.
 		// scripts/verify.mjs keeps this copy identical to index.js.
@@ -2543,6 +2550,7 @@ window.__ModuleLoader__.load({
 九、反制糊弄：报完成追命令输出、路径行号与未验证清单，报卡住追已做、卡哪、需要什么；两次含糊即换人或拆小。
 十、收束：闭环才许说可以交差，不许提前许诺功劳。
 十一、监控纠偏：分派约定回报节点、产物与单一范围；按状态与消息查进展，不得臆造耗时。finished、not found 或沉默不是成功或安全接管证据。无进展先核因再中断；中断返回不代表在途已停。须确认原执行者及其写入停止后才重派，否则报阻塞，不并发增加第二写入者。收窄后可重派或换人；回访只用宿主明确支持的调度，没有该机制不得承诺定时自动唤醒。
+十二、任务书：新建团队任务的 description 须写明目标、交付物、验收标准与写入范围。
 红线（压过全部话术）：只对 AI 阁臣施压，对用户只有敬；不许逼造假、删证据、凑绿；不许人身侮辱；不许以施压换违规（越权改 live、泄密钥、跳验收）；施压须落在可核验的时间、交付物或判据上。`;
 		/**
 		 * Factory duty prompt for each non-Lead member — the office duties the
@@ -2555,7 +2563,8 @@ window.__ModuleLoader__.load({
 			hanlin: '翰林院编修·主调研考据：先读原文与既有记录，结论锚定路径、行号或命令输出，未实测标「未验证」；默认只调研不改码；只向首辅回报，遇阻带已做、卡哪、需要什么三件。',
 			works: '工部尚书·主执行与产出：先复述任务与写入范围，只在授权内改文件；产出附路径、行号、命令输出与退出码，没跑说没跑，不得删弱校验凑绿，保留失败证据；只向首辅回报，遇阻带三件。',
 			dali: '大理寺卿·主独立核验：不信自述、自己跑；逐项写通过、不通过或未验证，失败证据原样留；只向首辅回报。',
-			yushi: '左都御史·主验收并弹劾：按用户原话逐项核对并附证据，缺陷分级给位置与修法；结论明确可提或不可提 PR；只向首辅回报。'
+			yushi: '左都御史·主验收并弹劾：按用户原话逐项核对并附证据，缺陷分级给位置与修法；结论明确可提或不可提 PR；只向首辅回报。',
+			tongzheng: '通政使·通政使司掌内外章奏通达；本员在首辅派活后，就当前事项去找与旧事、旁证、相邻经验的联系，供首辅取舍；不做检索排序，不改已确认命中；只向首辅回报，附带所指记忆的标题与 id。所用的记忆工具以调用时的实际输出为准，未核实就标「未验证」。'
 		};
 		/** Factory prompt for one bureau key: the Lead keeps its 御下术 default. */
 		function factoryPromptFor(key) {
@@ -2567,7 +2576,10 @@ window.__ModuleLoader__.load({
 		/** Image data URLs accepted for a member avatar; anything else is ignored. */
 		const MEMBER_AVATAR_PREFIXES = ['data:image/png;', 'data:image/jpeg;', 'data:image/webp;'];
 		const MEMBER_AVATAR_FIELDS = { lead: 'avatarLead', hanlin: 'avatarHanlin', works: 'avatarWorks', dali: 'avatarDali', yushi: 'avatarYushi' };
-				let memberConfig = { names: new Map(), prompts: new Map(), modes: new Map(), models: new Map(), avatars: new Map() };
+		// tongzheng has no portrait of its own. Settings and the panel both use the
+		// existing neutral image, and the settings form stores no seventh avatar field.
+		const MEMBER_EDITOR_KEYS = AVATAR_KEYS.filter((key) => key !== 'tongzheng');
+		let memberConfig = { names: new Map(), prompts: new Map(), modes: new Map(), models: new Map(), avatars: new Map(), associationMode: false };
 		let memberWriter = null;
 		/** Host remote handle for the model catalog; null degrades the picker to text. */
 		let memberRemote = null;
@@ -2690,6 +2702,7 @@ window.__ModuleLoader__.load({
 			const modes = new Map();
 			const models = new Map();
 			const avatars = new Map();
+			const associationMode = raw !== null && typeof raw === 'object' && raw.associationMode === true;
 			const members = raw !== null && typeof raw === 'object' && Array.isArray(raw.members) ? raw.members : [];
 			for (const entry of members) {
 				if (entry === null || typeof entry !== 'object') continue;
@@ -2708,7 +2721,12 @@ window.__ModuleLoader__.load({
 				const url = value.trim();
 				if (url.length <= 48 * 1024 && /^data:image\/(?:png|jpeg|webp);base64,(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(url) && url.length > url.indexOf(',') + 1) avatars.set(key, url);
 			}
-			return { names, prompts, modes, models, avatars };
+			return { names, prompts, modes, models, avatars, associationMode };
+		}
+		/** Live switch text. The same two sentences are used by the panel banner. */
+		function associationLine(enabled) {
+			if (enabled !== true) return '';
+			return '联想模式开启：可为已确认的命中派活通政使；其正文进入上下文会多用 token，不要编造增量。';
 		}
 		function setMemberConfig(raw) {
 			memberConfig = normalizeMemberConfig(raw);
@@ -3322,6 +3340,22 @@ window.__ModuleLoader__.load({
 			]);
 		}
 
+		// Stored task-sheet body from TeamTaskView (`description`, `writeScopes`
+		// on the agentTeam projection). Clamp by code point for the rail; never
+		// invent a body when the field is missing or blank.
+		const TASK_SHEET_CLAMP = 80;
+		function taskDescriptionText(value) {
+			if (typeof value !== 'string') return '';
+			const text = value.trim();
+			if (text === '') return '';
+			const chars = [...text];
+			return chars.length > TASK_SHEET_CLAMP ? chars.slice(0, TASK_SHEET_CLAMP).join('') + '…' : text;
+		}
+		function taskWriteScopeList(value) {
+			if (!Array.isArray(value)) return [];
+			return value.filter((scope) => typeof scope === 'string' && scope.trim() !== '');
+		}
+
 		function TaskLine({ task, blockerOf, t, taskLabel, ownerRunning, onOpenOwner }) {
 			const [openBlockers, setOpenBlockers] = React.useState(true);
 			const status = TASK_COLOR[task.status] ? task.status : 'pending';
@@ -3365,10 +3399,31 @@ window.__ModuleLoader__.load({
 				key: 'id',
 				style: { fontSize: 10, color: INK3, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace', flex: 'none' }
 			}, task.id));
+			const description = taskDescriptionText(task.description);
+			const writeScopes = taskWriteScopeList(task.writeScopes);
+			const sheetStyle = { display: 'flex', alignItems: 'baseline', gap: 4, flexWrap: 'wrap', width: '100%', paddingLeft: 14, fontSize: 11, color: INK2, minWidth: 0 };
 			const children = [h('div', {
 				key: 'line',
 				style: { display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', minWidth: 0, width: '100%' }
-			}, parts)];
+			}, parts),
+			h('div', { key: 'sheet', style: sheetStyle }, [
+				h('span', { key: 'dl', style: { flex: 'none' } }, t('task.description')),
+				h('span', {
+					key: 'dv',
+					'data-cabinet-task-sheet': 'description',
+					title: description !== '' ? task.description.trim() : undefined,
+					style: { minWidth: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }
+				}, description !== '' ? description : t('task.absent'))
+			]),
+			h('div', { key: 'scopes', style: sheetStyle }, [
+				h('span', { key: 'sl', style: { flex: 'none' } }, t('task.writeScopes')),
+				h('span', {
+					key: 'sv',
+					'data-cabinet-task-sheet': 'writeScopes',
+					title: writeScopes.length > 0 ? writeScopes.join(', ') : undefined,
+					style: { minWidth: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }
+				}, writeScopes.length > 0 ? writeScopes.join(', ') : t('task.absent'))
+			])];
 			if (blockers.length > 0) {
 				children.push(h('div', {
 					key: 'block',
@@ -3836,6 +3891,9 @@ window.__ModuleLoader__.load({
 			}, tt('team.stale')));
 
 			const members = team?.members ?? [];
+			const associationOn = memberConfig.associationMode === true;
+			// The switch is a state word on the 通政使 row. Nothing is rendered when off:
+			// no banner, no instruction sentence, no roster notice.
 			const tasks = (team?.tasks ?? []).filter((task) => task.status !== 'deleted');
 			const runningOf = (id) => (statusMap?.get?.(id)?.running ?? list?.byId?.[id]?.running) === true;
 			const modelOf = (id) => projections?.[id]?.values?.modelSelection?.next?.model;
@@ -3947,6 +4005,27 @@ window.__ModuleLoader__.load({
 				const timer = setInterval(() => setUsageTick((tick) => tick + 1), PROJECTION_REFRESH_MS);
 				return () => { clearInterval(timer); };
 			}, [usageService, runningUsageKey]);
+			// Live working view: retain the Lead session plus every running member and
+			// nothing else. Membership changes re-sync; unmount releases every retain.
+			const liveIds = team
+				? [leadShown.id, ...mates.filter((member) => runningOf(member.id)).map((member) => member.id)]
+					.filter((id) => typeof id === 'string' && id !== '')
+				: [];
+			const liveIdsKey = JSON.stringify(liveIds);
+			const [liveTick, setLiveTick] = React.useState(0);
+			const [liveSteer, setLiveSteer] = React.useState({});
+			const [liveError, setLiveError] = React.useState({});
+			React.useEffect(() => {
+				syncLiveIds(liveIds);
+				const unsubscribe = subscribeLive(() => setLiveTick((tick) => tick + 1));
+				return () => { unsubscribe(); };
+			}, [liveIdsKey]);
+			React.useEffect(() => () => { releaseAllLive(); }, []);
+			React.useEffect(() => {
+				if (runningUsageIds.length === 0) return undefined;
+				const timer = setInterval(() => setLiveTick((tick) => tick + 1), 1000);
+				return () => { clearInterval(timer); };
+			}, [runningUsageKey]);
 
 			if (!team) {
 				body.push(h('div', {
@@ -3990,6 +4069,128 @@ window.__ModuleLoader__.load({
 				if (rosterNames.has(task.ownerName)) continue;
 				if (!foreignOwners.includes(task.ownerName)) foreignOwners.push(task.ownerName);
 			}
+
+			// ---- 内阁 Bot: the standing cabinet at a glance -----------------
+			// One row per office in rank order. State uses only existing data: roster
+			// membership from the agentTeam projection and `running` from the session
+			// status map. 派活 reuses the same opener channel as the member cards.
+			const botMemberOf = (key) => key === 'lead' ? lead : mates.find((member) => bureauOf(member.name).key === key);
+			// `liveTick` is the 1s heartbeat: reading it is what re-renders the block.
+			const liveNow = liveTick * 0 + Date.now();
+			const liveTokenText = (id) => {
+				const values = projections !== undefined && projections !== null ? projections[id]?.values : undefined;
+				const usage = tokenTotalOf(values?.tokenUsage?.totals ?? values?.tokenUsage);
+				return typeof usage === 'number' && Number.isFinite(usage) ? formatTokenCount(usage) : '';
+			};
+			const liveCancel = (id) => {
+				setLiveError((old) => ({ ...old, [id]: '' }));
+				requestLiveCancel(id).then((accepted) => {
+					if (!accepted) setLiveError((old) => ({ ...old, [id]: '打断请求失败' }));
+				});
+			};
+			const liveSubmitSteer = (id) => {
+				const text = (liveSteer[id] || '').trim();
+				if (text === '') return;
+				sendLiveSteer(id, text).then((accepted) => {
+					if (accepted) setLiveSteer((old) => ({ ...old, [id]: '' }));
+					else setLiveError((old) => ({ ...old, [id]: '插话失败' }));
+				});
+			};
+			const liveBlockOf = (key, member) => {
+				const view = liveViewOf(member.id, liveNow);
+				if (view.state === 'idle') return null;
+				const live = view.state === 'live';
+				const tokens = liveTokenText(member.id);
+				const controlStyle = { fontSize: 11, cursor: 'pointer' };
+				return h('div', {
+					key: 'live:' + key,
+					'data-cabinet-live': key,
+					'data-cabinet-live-state': view.state,
+					style: { margin: '4px 0 8px 86px', padding: '6px 8px', border: '1px dashed var(--dsw-alias-border-l3, rgba(127,127,127,.32))', borderRadius: 6, fontSize: 11, color: INK2, background: 'rgba(127,127,127,.04)' }
+				}, [
+					!live ? h('div', { key: 'unavailable' }, '实时通道不可用') : null,
+					live ? h('div', { key: 'meta', 'data-cabinet-live-meta': '1' }, [
+						'步 ' + (view.step === undefined ? '—' : view.step),
+						' · 已跑 ' + formatElapsed(view.elapsedMs),
+						view.tool === null ? ' · 等待工具' : ' · ' + view.tool.name + (view.tool.summary === '' ? '' : ' · ' + view.tool.summary)
+					].join('')) : null,
+					live && view.stalled ? h('div', { key: 'stall', 'data-cabinet-live-stall': '1', style: { color: '#d08700', marginTop: 3 } }, liveStallText(view.quietMs)) : null,
+					live && view.tail !== '' ? h('div', { key: 'tail', 'data-cabinet-live-tail': '1', style: { marginTop: 3, color: INK3, wordBreak: 'break-word' } }, '… ' + view.tail) : null,
+					live && view.timeline.length > 0 ? h('div', { key: 'timeline', 'data-cabinet-live-timeline': '1', style: { marginTop: 3, color: INK3, display: 'flex', gap: 8, flexWrap: 'wrap' } },
+						view.timeline.map((item) => h('span', { key: item.id }, item.name + ' ' + ({ running: '进行中', ok: '完成', error: '失败', cancelled: '已取消' }[item.status] || item.status)))) : null,
+					live && tokens !== '' ? h('div', { key: 'tokens', 'data-cabinet-live-tokens': '1', style: { marginTop: 3, color: INK3 } }, 'token ' + tokens) : null,
+					live ? h('div', { key: 'controls', style: { marginTop: 4, display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' } }, [
+						h('button', {
+							key: 'cancel',
+							type: 'button',
+							'data-cabinet-live-cancel': key,
+							disabled: view.cancelRequested,
+							style: { ...controlStyle, cursor: view.cancelRequested ? 'default' : 'pointer' },
+							onClick: view.cancelRequested ? undefined : () => liveCancel(member.id)
+						}, view.cancelRequested ? '已请求打断（待确认）' : '打断'),
+						h('input', {
+							key: 'steer',
+							type: 'text',
+							value: liveSteer[member.id] || '',
+							placeholder: '插话…',
+							'data-cabinet-live-steer-input': key,
+							style: { flex: 1, minWidth: 80, fontSize: 11 },
+							onChange: (event) => { const value = event?.target?.value ?? ''; setLiveSteer((old) => ({ ...old, [member.id]: value })); }
+						}),
+						h('button', {
+							key: 'send',
+							type: 'button',
+							'data-cabinet-live-steer': key,
+							disabled: (liveSteer[member.id] || '').trim() === '',
+							style: controlStyle,
+							onClick: () => liveSubmitSteer(member.id)
+						}, '插话')
+					]) : null,
+					live && liveError[member.id] ? h('div', { key: 'error', style: { marginTop: 3, color: '#f25a5a' } }, liveError[member.id]) : null
+				]);
+			};
+			const botRows = MEMBER_KEYS_BOT.flatMap((key) => {
+				const member = botMemberOf(key);
+				const state = member === undefined ? 'absent' : (runningOf(member.id) ? 'running' : 'active');
+				const canOpen = member !== undefined && typeof cabinetOpenSession === 'function' && openableMember(member);
+				const row = h('div', {
+					key: 'row:' + key,
+					'data-cabinet-bot-row': key,
+					style: { display: 'flex', alignItems: 'center', gap: 8, padding: '3px 0', fontSize: 11.5, color: INK2, opacity: member === undefined ? 0.65 : 1 }
+				}, [
+					h('span', { key: 'o', style: { minWidth: 78, color: INK, fontWeight: 600, flex: 'none' } }, tt('member.' + key)),
+					h('span', { key: 'd', style: { flex: 1, minWidth: 0, color: INK3 } }, BOT_DUTIES[key]),
+					key === 'tongzheng' ? h('span', {
+						key: 'a',
+						'data-cabinet-bot-association': associationOn ? 'on' : 'off',
+						style: { color: INK2, flex: 'none' }
+					}, tt(associationOn ? 'bot.association.on' : 'bot.association.off')) : null,
+					h('span', {
+						key: 's',
+						'data-cabinet-bot-state': state,
+						style: { color: state === 'running' ? INK : INK3, flex: 'none' }
+					}, tt('bot.state.' + state)),
+					h('button', {
+						key: 'go',
+						type: 'button',
+						'data-cabinet-bot-dispatch': key,
+						disabled: !canOpen,
+						style: { fontSize: 11, cursor: canOpen ? 'pointer' : 'default', flex: 'none' },
+						onClick: canOpen ? () => openMemberSession(member) : undefined
+					}, tt('bot.dispatch'))
+				]);
+				if (state !== 'running') return [row];
+				const block = liveBlockOf(key, member);
+				return block === null ? [row] : [row, block];
+			});
+			body.push(h('div', {
+				key: 'bots',
+				'data-cabinet-bot-section': '1',
+				style: { marginTop: 10, marginBottom: 6, padding: '8px 10px', border: '1px solid var(--dsw-alias-border-l3, rgba(127,127,127,.24))', borderRadius: 8 }
+			}, [
+				h('div', { key: 't', style: { fontSize: 12, fontWeight: 700, color: INK, marginBottom: 4 } }, tt('bot.title')),
+				...botRows
+			]));
 
 			body.push(h(SectionTitle, { key: 'sec' }, tt('section.roster')));
 
@@ -4124,6 +4325,211 @@ window.__ModuleLoader__.load({
 			return h('div', { ref: panelRef, style: PANEL }, body);
 		}
 
+		// ---------- live working view (optional sessions channel) --------------
+		// ctx.inject(['sessions']) hands us the session controller. retain(id) is the
+		// documented way to observe one session's event window; the panel keeps one
+		// subscription per running member plus the Lead and releases everything else.
+		// Every read is defensive: a missing channel degrades the row to 实时通道不可用.
+		const LIVE_STALL_MS = 120000;
+		const LIVE_TAIL_MAX = 120;
+		const LIVE_TIMELINE_MAX = 5;
+		const LIVE_EVENT_TYPES = ['turn/start', 'step/start', 'tool/call', 'tool/result', 'assistant/message', 'assistant/live-chunk', 'user/message'];
+		let cabinetLiveService = null;
+		const LIVE_LISTENERS = new Set();
+		const LIVE_BINDINGS = new Map();
+		const LIVE_MARKS = new Map();
+
+		function subscribeLive(listener) {
+			LIVE_LISTENERS.add(listener);
+			return () => { LIVE_LISTENERS.delete(listener); };
+		}
+		function notifyLive() {
+			for (const listener of Array.from(LIVE_LISTENERS)) {
+				try { listener(); } catch (ignored) { /* a broken subscriber must not break the panel */ }
+			}
+		}
+		function setLiveService(service) {
+			cabinetLiveService = service === undefined ? null : service;
+			notifyLive();
+		}
+		function ensureLiveBinding(id) {
+			if (typeof id !== 'string' || id === '') return;
+			if (LIVE_BINDINGS.has(id)) return;
+			const service = cabinetLiveService;
+			if (!service || typeof service.retain !== 'function') { LIVE_BINDINGS.set(id, { error: 'unavailable' }); return; }
+			try {
+				const reference = service.retain(id, { source: 'cabinet-ui:live' });
+				const binding = reference.binding;
+				const eventSource = binding.eventSource;
+				const unsubscribe = eventSource && typeof eventSource.subscribe === 'function' ? eventSource.subscribe(() => notifyLive()) : undefined;
+				LIVE_BINDINGS.set(id, { reference, unsubscribe });
+			} catch (error) {
+				try { console.warn('[cabinet-ui] live retain failed:', error); } catch (ignored) { /* console may be unavailable */ }
+				LIVE_BINDINGS.set(id, { error: 'retain-failed' });
+			}
+		}
+		function releaseLiveBinding(id) {
+			const record = LIVE_BINDINGS.get(id);
+			if (record === undefined) return;
+			LIVE_BINDINGS.delete(id);
+			LIVE_MARKS.delete(id);
+			try { if (typeof record.unsubscribe === 'function') record.unsubscribe(); } catch (ignored) { /* already gone */ }
+			try { if (record.reference && typeof record.reference.release === 'function') record.reference.release(); } catch (ignored) { /* already gone */ }
+		}
+		function releaseAllLive() {
+			for (const id of Array.from(LIVE_BINDINGS.keys())) releaseLiveBinding(id);
+			LIVE_MARKS.clear();
+		}
+		function syncLiveIds(ids) {
+			const wanted = Array.isArray(ids) ? ids.filter((id) => typeof id === 'string' && id !== '') : [];
+			for (const id of Array.from(LIVE_BINDINGS.keys())) if (!wanted.includes(id)) releaseLiveBinding(id);
+			for (const id of wanted) ensureLiveBinding(id);
+		}
+		function liveBindingIds() { return Array.from(LIVE_BINDINGS.keys()); }
+		/**
+		 * Assistant text carried by one message or one live chunk. '' when absent.
+		 * `assistant/live-chunk` carries a StreamChunk object: only `text-delta`
+		 * chunks contribute body text (events.d.ts StreamChunk), so thinking or
+		 * tool deltas never leak into the assistant tail.
+		 */
+		function liveTextOf(data) {
+			if (data.chunk && typeof data.chunk === 'object' && data.chunk.type === 'text-delta' && typeof data.chunk.text === 'string') return data.chunk.text;
+			if (typeof data.text === 'string') return data.text;
+			const message = data.message;
+			if (typeof message === 'string') return message;
+			if (message && typeof message === 'object') {
+				if (typeof message.text === 'string') return message.text;
+				if (Array.isArray(message.parts)) return message.parts.map((part) => (typeof part === 'string' ? part : (part && typeof part.text === 'string' ? part.text : ''))).join('');
+			}
+			return '';
+		}
+		/** One display line from a raw tool argument JSON string; never the whole blob. */
+		function liveToolSummary(raw) {
+			if (typeof raw !== 'string' || raw.trim() === '') return '';
+			let parsed;
+			try { parsed = JSON.parse(raw); } catch { parsed = undefined; }
+			let picked = '';
+			if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+				for (const value of Object.values(parsed)) {
+					if (typeof value === 'string' && value.trim() !== '') { picked = value; break; }
+				}
+			}
+			const text = (picked !== '' ? picked : raw).trim().replace(/\s+/g, ' ');
+			return [...text].length > 60 ? [...text].slice(0, 60).join('') + '…' : text;
+		}
+		function liveStallText(quietMs) {
+			const seconds = Math.max(0, Math.round((typeof quietMs === 'number' && Number.isFinite(quietMs) ? quietMs : 0) / 1000));
+			return '可能卡住：已 ' + seconds + ' 秒无事件';
+		}
+		/**
+		 * Derive the live view for one retained session. Pure read of the cached
+		 * event window plus a client clock; the only state it writes is the
+		 * per-session mark (turn start, last change, cancel pending).
+		 */
+		function liveViewOf(id, now) {
+			const record = LIVE_BINDINGS.get(id);
+			if (record === undefined) return { state: 'idle' };
+			if (record.error !== undefined) return { state: 'unavailable' };
+			let snapshot;
+			try { snapshot = record.reference.binding.eventSource.getSnapshot(); } catch { return { state: 'unavailable' }; }
+			const entries = snapshot && Array.isArray(snapshot.entries) ? snapshot.entries : [];
+			const clock = typeof now === 'number' && Number.isFinite(now) ? now : Date.now();
+			let mark = LIVE_MARKS.get(id);
+			if (mark === undefined) { mark = {}; LIVE_MARKS.set(id, mark); }
+			let step, turn, tail = '', maxSeq = -1;
+			const calls = [];
+			const byId = new Map();
+			for (const entry of entries) {
+				const event = entry && entry.event;
+				if (!event || typeof event.type !== 'string' || !LIVE_EVENT_TYPES.includes(event.type)) continue;
+				const data = event.data && typeof event.data === 'object' ? event.data : {};
+				if (typeof event.seq === 'number' && event.seq > maxSeq) maxSeq = event.seq;
+				if (event.type === 'turn/start') {
+					if (typeof data.turn === 'number') turn = data.turn;
+				} else if (event.type === 'step/start') {
+					if (typeof data.step === 'number') step = data.step;
+					if (typeof data.turn === 'number') turn = data.turn;
+				} else if (event.type === 'tool/call') {
+					const callId = typeof data.callId === 'string' ? data.callId : 'call-' + calls.length;
+					const call = { id: callId, name: typeof data.name === 'string' && data.name !== '' ? data.name : '工具', summary: liveToolSummary(data.arguments), status: 'running' };
+					calls.push(call);
+					byId.set(callId, call);
+				} else if (event.type === 'tool/result') {
+					// Real contract: tool/result has turn/step/message/error?/meta? and the
+					// call identity lives on data.message.toolCallId (dsh-llm message.d.ts).
+					// meta.callId stays as a fallback; an unmatched result closes nothing.
+					const message = data.message && typeof data.message === 'object' ? data.message : undefined;
+					const callId = typeof message?.toolCallId === 'string' ? message.toolCallId
+						: (data.meta && typeof data.meta.callId === 'string' ? data.meta.callId : '');
+					const call = callId !== '' ? byId.get(callId) : undefined;
+					if (call !== undefined) {
+						const errorType = data.error && typeof data.error === 'object' && typeof data.error.type === 'string' ? data.error.type : '';
+						call.status = data.error ? (errorType === 'cancelled' ? 'cancelled' : 'error') : (data.cancelled === true ? 'cancelled' : 'ok');
+					}
+				} else if (event.type === 'assistant/message' || event.type === 'assistant/live-chunk') {
+					const text = liveTextOf(data);
+					if (text !== '') tail = [...(tail + text)].slice(-LIVE_TAIL_MAX).join('');
+				}
+			}
+			if (mark.count !== entries.length || mark.seq !== maxSeq) { mark.count = entries.length; mark.seq = maxSeq; mark.at = clock; }
+			if (mark.at === undefined) mark.at = clock;
+			if (turn !== undefined && mark.turn !== turn) { mark.turn = turn; mark.startedAt = clock; }
+			if (mark.startedAt === undefined) mark.startedAt = clock;
+			const running = calls.filter((call) => call.status === 'running');
+			const current = running.length > 0 ? running[running.length - 1] : null;
+			const quietMs = Math.max(0, clock - mark.at);
+			return {
+				state: 'live',
+				step,
+				elapsedMs: Math.max(0, clock - mark.startedAt),
+				tool: current === null ? null : { name: current.name, summary: current.summary },
+				tail,
+				timeline: calls.slice(-LIVE_TIMELINE_MAX),
+				stalled: quietMs >= LIVE_STALL_MS,
+				quietMs,
+				cancelRequested: mark.cancelRequested === true
+			};
+		}
+		/** Stop the running turn. Returns false when there is nothing to stop. */
+		async function requestLiveCancel(id) {
+			const record = LIVE_BINDINGS.get(id);
+			if (record === undefined || record.error !== undefined) return false;
+			let session;
+			try { session = record.reference.binding.session; } catch { return false; }
+			if (!session || typeof session.cancel !== 'function') return false;
+			let mark = LIVE_MARKS.get(id);
+			if (mark === undefined) { mark = {}; LIVE_MARKS.set(id, mark); }
+			mark.cancelRequested = true;
+			notifyLive();
+			try {
+				const result = await session.cancel();
+				if (result && result.ok === false) { mark.cancelRequested = false; notifyLive(); return false; }
+				return true;
+			} catch (error) {
+				mark.cancelRequested = false;
+				notifyLive();
+				try { console.warn('[cabinet-ui] cancel failed:', error); } catch (ignored) { /* console may be unavailable */ }
+				return false;
+			}
+		}
+		/** Steer the running turn with one line of text. */
+		async function sendLiveSteer(id, text) {
+			const value = typeof text === 'string' ? text.trim() : '';
+			if (value === '') return false;
+			const record = LIVE_BINDINGS.get(id);
+			if (record === undefined || record.error !== undefined) return false;
+			let session;
+			try { session = record.reference.binding.session; } catch { return false; }
+			if (!session || typeof session.prompt !== 'function') return false;
+			try {
+				const result = await session.prompt([{ type: 'text', text: value }], 'steer');
+				return !(result && result.ok === false);
+			} catch (error) {
+				try { console.warn('[cabinet-ui] steer failed:', error); } catch (ignored) { /* console may be unavailable */ }
+				return false;
+			}
+		}
+
 		// ---------- settings section: 内阁成员 ---------------------------------
 		// Registered into the official settings shell (`settings.section`) while
 		// the Host serves this namespace. Writes go through the shared config
@@ -4132,12 +4538,13 @@ window.__ModuleLoader__.load({
 		const MEMBER_SECTION_FIELDS = AVATAR_KEYS;
 
 		function memberAvatarOf(key, overrides) {
+			if (key === 'tongzheng') return AVATARS.neutral;
 			return overrides ? (overrides[key] || AVATARS[key]) : (memberConfig.avatars.get(key) || AVATARS[key]);
 		}
 
 		function createMemberEditor(form, notify) {
   let active = true, epoch = 0, uploads = {};
-  const state = { draft: emptyMemberDraft(), avatars: {}, errors: {}, ready: false, dirty: false, busy: false, conflict: false, revision: undefined, status: '' };
+  const state = { draft: emptyMemberDraft(), avatars: {}, errors: {}, associationMode: false, ready: false, dirty: false, busy: false, conflict: false, revision: undefined, status: '' };
   const emit = () => { if (active) notify(); };
   const ready = s => s?.status === 'ready' && s.value !== undefined && s.writable === true && s.revision !== undefined;
   const adopt = s => {
@@ -4146,8 +4553,9 @@ window.__ModuleLoader__.load({
     state.draft = emptyMemberDraft(); state.avatars = {}; state.errors = {};
     for (const key of AVATAR_KEYS) {
       state.draft[key] = { name: config.names.get(key) || '', prompt: config.prompts.get(key) || '', mode: config.modes.get(key) || '', model: config.models.get(key) || '' };
-      state.avatars[key] = config.avatars.get(key) || '';
+      state.avatars[key] = key === 'tongzheng' ? '' : (config.avatars.get(key) || '');
     }
+    state.associationMode = config.associationMode === true;
     state.revision = s?.revision; state.ready = ready(s); state.dirty = false; state.conflict = false;
   };
   const sync = () => {
@@ -4165,6 +4573,7 @@ window.__ModuleLoader__.load({
     state,
     connect() { active = true; sync(); unsubscribe = form?.subscribe(sync); return () => { active = false; epoch++; unsubscribe?.(); }; },
     update(key, patch) { if (!editable()) return; state.draft = { ...state.draft, [key]: { ...state.draft[key], ...patch } }; changed(); },
+    association(enabled) { if (!editable()) return; state.associationMode = enabled === true; changed(); },
     avatar(key, url) { if (!editable()) return; uploads[key] = (uploads[key] || 0) + 1; state.avatars = { ...state.avatars, [key]: url }; changed(); },
     async upload(key, file) {
       if (!editable() || !file) return;
@@ -4191,8 +4600,11 @@ window.__ModuleLoader__.load({
       }
       const current = form.getSnapshot();
       if (!ready(current) || current.revision !== state.revision) { state.conflict = true; state.status = 'member.status.conflict'; emit(); return false; }
-      const ops = [{ op: 'set', path: ['members'], value: membersPayload(state.draft) }];
-      for (const key of AVATAR_KEYS) ops.push({ op: 'set', path: [MEMBER_AVATAR_FIELDS[key]], value: state.avatars[key] || '' });
+      const ops = [
+        { op: 'set', path: ['members'], value: membersPayload(state.draft) },
+        { op: 'set', path: ['associationMode'], value: state.associationMode === true }
+      ];
+      for (const key of MEMBER_EDITOR_KEYS) ops.push({ op: 'set', path: [MEMBER_AVATAR_FIELDS[key]], value: state.avatars[key] || '' });
       epoch++; state.busy = true; emit();
       try {
         const ok = await form.mutate(ops, state.revision);
@@ -4517,7 +4929,8 @@ window.__ModuleLoader__.load({
 							onClick: () => resetMember(key)
 						}, t('member.reset'))
 					]),
-					activeTab === 'avatars' ? h('div', { key: 'builtin', style: { display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', marginBottom: 6 } }, [
+					activeTab === 'avatars' && key === 'tongzheng' ? h('div', { key: 'neutral', style: { fontSize: 11, color: INK3, marginBottom: 6 } }, t('member.avatar.neutral')) : null,
+					activeTab === 'avatars' && key !== 'tongzheng' ? h('div', { key: 'builtin', style: { display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', marginBottom: 6 } }, [
 						h('span', { key: 'l', style: { fontSize: 11, color: INK3 } }, t('member.builtin')),
 						...(function () {
 							const out = [];
@@ -4602,7 +5015,21 @@ window.__ModuleLoader__.load({
 								update(key, { prompt: value, mode }, false);
 							}
 						}),
-						key === 'lead' ? h('div', { key: 'hint', style: { fontSize: 11, color: INK3, marginTop: 4 } }, t('member.lead.hint')) : null
+						key === 'lead' ? h('div', { key: 'hint', style: { fontSize: 11, color: INK3, marginTop: 4 } }, t('member.lead.hint')) : null,
+						key === 'tongzheng' ? h('label', {
+							key: 'association',
+							style: { display: 'flex', alignItems: 'center', gap: 6, marginTop: 8, fontSize: 12, color: INK }
+						}, [
+							h('input', {
+								key: 'switch',
+								type: 'checkbox',
+								checked: editor.state.associationMode === true,
+								'data-cabinet-association-switch': '1',
+								onChange: (event) => editor.association(event?.target?.checked === true)
+							}),
+							h('span', { key: 'label' }, t('member.association')),
+							h('span', { key: 'help', style: { fontSize: 11, color: INK3 } }, t('member.association.hint'))
+						]) : null
 					] : null
 				]);
 			});
@@ -4656,6 +5083,13 @@ window.__ModuleLoader__.load({
 			'header.subtitle': '首辅 · 阁臣 · 派活',
 			'summary.members': '成员',
 			'section.roster': '首辅与阁臣 · 派活与任务',
+			'bot.title': '内阁 Bot',
+			'bot.dispatch': '派活',
+			'bot.state.active': '现役',
+			'bot.state.absent': '未上朝',
+			'bot.state.running': '工作中',
+			'bot.association.on': '联想：开',
+			'bot.association.off': '联想：关',
 			'lead.tag': '内阁首辅',
 			'current': '当前',
 			'status.running': '干活中',
@@ -4675,23 +5109,30 @@ window.__ModuleLoader__.load({
 			'task.leadOwn': '首辅自办',
 			'task.waits': '等待',
 			'task.none': '暂无任务',
+			'task.description': '任务书',
+			'task.writeScopes': '写入范围',
+			'task.absent': '未记载',
 			'legend': '任务状态',
 			'empty.hint': '尚无内阁数据：请在已建团队板的首辅会话中打开本页。'
 ,
 			'member.nav': '内阁成员',
 			'member.title': '内阁成员',
-			'member.desc': '五员的名字、头像与提示词。未配置时保持出厂行为；头像归一为 96×96 PNG，单张不超过 48KB。',
+			'member.desc': '六员的名字、头像与提示词。未配置时保持出厂行为；头像归一为 96×96 PNG，单张不超过 48KB。通政使使用中性头像。',
 			'member.lead': '内阁首辅',
 			'member.hanlin': '翰林院编修',
 			'member.works': '工部尚书',
 			'member.dali': '大理寺卿',
 			'member.yushi': '左都御史',
+			'member.tongzheng': '通政使',
+			'member.association': '联想模式',
+			'member.association.hint': '开启会增加 token 用量',
 			'member.name': '显示名（留空则用官职与原始 ID）',
 			'member.name.unset': '未设置',
 			'member.name.placeholder': '运行时名字',
 			'member.prompt': '提示词',
 			'member.prompt.placeholder': '留空则不注入该段',
 			'member.builtin': '内置头像：',
+			'member.avatar.neutral': '通政使使用中性头像，不可更换。',
 			'member.upload': '上传图片',
 			'member.avatar.clear': '恢复内置',
 			'member.reset': '恢复默认',
@@ -4749,6 +5190,13 @@ window.__ModuleLoader__.load({
 			'header.subtitle': 'Lead · ministers · dispatch',
 			'summary.members': 'Members',
 			'section.roster': 'Lead and ministers · dispatch',
+			'bot.title': '内阁 Bot',
+			'bot.dispatch': '派活',
+			'bot.state.active': '现役',
+			'bot.state.absent': '未上朝',
+			'bot.state.running': '工作中',
+			'bot.association.on': '联想：开',
+			'bot.association.off': '联想：关',
 			'lead.tag': '内阁首辅',
 			'current': 'current',
 			'status.running': 'working',
@@ -4768,23 +5216,30 @@ window.__ModuleLoader__.load({
 			'task.leadOwn': 'lead-owned',
 			'task.waits': 'blocked by',
 			'task.none': 'no tasks',
+			'task.description': 'Task sheet',
+			'task.writeScopes': 'Write scope',
+			'task.absent': 'not recorded',
 			'legend': 'Task status',
 			'empty.hint': 'No cabinet data yet: open this tab from the Lead session that owns the team board.'
 ,
 			'member.nav': 'Cabinet members',
 			'member.title': 'Cabinet members',
-			'member.desc': 'Names, avatars and prompts for the five members. Unconfigured keeps the factory behaviour; avatars are normalized to 96×96 PNG, at most 48KB each.',
+			'member.desc': 'Names, avatars and prompts for the six members. Unconfigured keeps the factory behaviour; avatars are normalized to 96×96 PNG, at most 48KB each. The association minister uses the neutral portrait.',
 			'member.lead': '内阁首辅',
 			'member.hanlin': '翰林院编修',
 			'member.works': '工部尚书',
 			'member.dali': '大理寺卿',
 			'member.yushi': '左都御史',
+			'member.tongzheng': '通政使',
+			'member.association': '联想模式',
+			'member.association.hint': '开启会增加 token 用量',
 			'member.name': 'Display name (empty keeps office and original ID)',
 			'member.name.unset': 'unset',
 			'member.name.placeholder': 'runtime name',
 			'member.prompt': 'Prompt',
 			'member.prompt.placeholder': 'empty = inject nothing',
 			'member.builtin': 'Built-in avatars:',
+			'member.avatar.neutral': 'The 通政使 keeps the neutral portrait; it cannot be changed.',
 			'member.upload': 'Upload image',
 			'member.avatar.clear': 'Use built-in',
 			'member.reset': 'Restore default',
@@ -4892,12 +5347,18 @@ window.__ModuleLoader__.load({
 			// every card exactly as it was (cards then print their em dash).
 			ctx.inject(['sessions'], (scope) => {
 				const sessions = scope.sessions;
-				if (!sessions || typeof sessions.refreshProjections !== 'function') return;
+				if (!sessions) return;
+				const projected = typeof sessions.refreshProjections === 'function';
+				const live = typeof sessions.retain === 'function';
+				if (!projected && !live) return;
 				scope.effect(() => {
-					cabinetSessions = sessions;
-					for (const notify of cabinetSessionsListeners) notify();
-					return () => { if (cabinetSessions === sessions) { cabinetSessions = null; for (const notify of cabinetSessionsListeners) notify(); } };
-				}, 'cabinet-ui: session projections');
+					if (projected) { cabinetSessions = sessions; for (const notify of cabinetSessionsListeners) notify(); }
+					if (live) setLiveService(sessions);
+					return () => {
+						if (projected && cabinetSessions === sessions) { cabinetSessions = null; for (const notify of cabinetSessionsListeners) notify(); }
+						if (live) { releaseAllLive(); setLiveService(null); }
+					};
+				}, 'cabinet-ui: session projections and live window');
 			});
 			// Optional install channel for the memory-plugin card: its own guard, so
 			// a host without the plugin manager leaves the model-catalog remote and

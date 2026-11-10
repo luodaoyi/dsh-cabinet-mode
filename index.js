@@ -16,11 +16,12 @@ const DEFAULT_MEMBER_PROMPTS = {
 	hanlin: '翰林院编修·主调研考据：先读原文与既有记录，结论锚定路径、行号或命令输出，未实测标「未验证」；默认只调研不改码；只向首辅回报，遇阻带已做、卡哪、需要什么三件。',
 	works: '工部尚书·主执行与产出：先复述任务与写入范围，只在授权内改文件；产出附路径、行号、命令输出与退出码，没跑说没跑，不得删弱校验凑绿，保留失败证据；只向首辅回报，遇阻带三件。',
 	dali: '大理寺卿·主独立核验：不信自述、自己跑；逐项写通过、不通过或未验证，失败证据原样留；只向首辅回报。',
-	yushi: '左都御史·主验收并弹劾：按用户原话逐项核对并附证据，缺陷分级给位置与修法；结论明确可提或不可提 PR；只向首辅回报。'
+	yushi: '左都御史·主验收并弹劾：按用户原话逐项核对并附证据，缺陷分级给位置与修法；结论明确可提或不可提 PR；只向首辅回报。',
+	tongzheng: '通政使·通政使司掌内外章奏通达；本员在首辅派活后，就当前事项去找与旧事、旁证、相邻经验的联系，供首辅取舍；不做检索排序，不改已确认命中；只向首辅回报，附带所指记忆的标题与 id。所用的记忆工具以调用时的实际输出为准，未核实就标「未验证」。'
 };
 
 /** Bureau keys, in the order the settings page lists them. */
-const MEMBER_KEYS = ['lead', 'hanlin', 'works', 'dali', 'yushi'];
+const MEMBER_KEYS = ['lead', 'hanlin', 'works', 'dali', 'yushi', 'tongzheng'];
 
 /**
  * Read `members` from a resolved or live-ref config without ever throwing.
@@ -38,7 +39,8 @@ const MEMBER_LABELS = {
 	hanlin: '翰林院编修',
 	works: '工部尚书',
 	dali: '大理寺卿',
-	yushi: '左都御史'
+	yushi: '左都御史',
+	tongzheng: '通政使'
 };
 
 /**
@@ -51,7 +53,8 @@ const BUREAUX = [
 			{ key: 'hanlin', aliases: ['hanlin', 'hanlinyuan', 'bianxiu', 'hanlin-bianxiu', 'hanlinyuan-bianxiu', 'hanlinbianxiu', '翰林院', '翰林', '编修', '翰林编修'], label: '翰林院编修' },
 			{ key: 'works', aliases: ['gongbu', 'works', 'zhushi', 'gongbu-zhushi', 'gongbu-shangshu', 'gongbushangshu', 'gongbuzhushi', '工部', '主事', '工部主事'], label: '工部尚书' },
 			{ key: 'dali', aliases: ['dali', 'dalisi', 'pingshi', 'dalisi-pingshi', 'dali-pingshi', 'dalisi-qing', 'dalisipingshi', 'daliqing', 'dalisiqing', '大理寺', '大理', '评事', '大理寺评事'], label: '大理寺卿' },
-			{ key: 'yushi', aliases: ['yushi', 'censor', 'jiancha-yushi', 'jianchayushi', 'duchayuan', 'duchayuan-yushi', 'zuoduyushi', 'zuodu-yushi', 'zuo-du-yushi', '都察院', '御史', '都察院御史', '监察御史'], label: '左都御史' }
+			{ key: 'yushi', aliases: ['yushi', 'censor', 'jiancha-yushi', 'jianchayushi', 'duchayuan', 'duchayuan-yushi', 'zuoduyushi', 'zuodu-yushi', 'zuo-du-yushi', '都察院', '御史', '都察院御史', '监察御史'], label: '左都御史' },
+			{ key: 'tongzheng', aliases: ['tongzheng', 'tongzhengshi', 'tongzheng-shi', '通政', '通政使', '通政使司'], label: '通政使' }
 		];
 
 		// Longest alias first, so a full office name ("翰林院编修") wins over its
@@ -150,6 +153,7 @@ const DEFAULT_LEAD_PROMPT = `【御下术·仅首辅适用】
 九、反制糊弄：报完成追命令输出、路径行号与未验证清单，报卡住追已做、卡哪、需要什么；两次含糊即换人或拆小。
 十、收束：闭环才许说可以交差，不许提前许诺功劳。
 十一、监控纠偏：分派约定回报节点、产物与单一范围；按状态与消息查进展，不得臆造耗时。finished、not found 或沉默不是成功或安全接管证据。无进展先核因再中断；中断返回不代表在途已停。须确认原执行者及其写入停止后才重派，否则报阻塞，不并发增加第二写入者。收窄后可重派或换人；回访只用宿主明确支持的调度，没有该机制不得承诺定时自动唤醒。
+十二、任务书：新建团队任务的 description 须写明目标、交付物、验收标准与写入范围。
 红线（压过全部话术）：只对 AI 阁臣施压，对用户只有敬；不许逼造假、删证据、凑绿；不许人身侮辱；不许以施压换违规（越权改 live、泄密钥、跳验收）；施压须落在可核验的时间、交付物或判据上。`;
 
 /** Declarative wire schema: no transform callbacks requiring browser eval.
@@ -161,7 +165,8 @@ const Config = z.object({
 	avatarHanlin: z.any().default('').volatile(),
 	avatarWorks: z.any().default('').volatile(),
 	avatarDali: z.any().default('').volatile(),
-	avatarYushi: z.any().default('').volatile()
+	avatarYushi: z.any().default('').volatile(),
+	associationMode: z.any().default(false).volatile()
 });
 
 /** Read one config field, tolerating both a live ref and a resolved value. */
@@ -226,6 +231,20 @@ function factoryPromptFor(key) {
  * The Lead's block: factory 御下术 by default, a custom prompt when edited, and
  * nothing when the user cleared it. A configured display name is prepended.
  */
+/** Live association switch. Anything other than boolean true is off. */
+function associationModeOf(config) {
+	return readField(config, 'associationMode') === true;
+}
+
+/**
+ * One live line for the Lead. It is not part of DEFAULT_LEAD_PROMPT, so a
+ * restored factory prompt does not freeze the switch.
+ */
+function associationLine(config) {
+	if (!associationModeOf(config)) return '';
+	return '联想模式开启：可为已确认的命中派活通政使；其正文进入上下文会多用 token，不要编造增量。';
+}
+
 function leadBlock(config) {
 	const entry = memberEntries(config).get('lead');
 	const mode = entry === undefined ? '' : entry.mode;
@@ -234,6 +253,8 @@ function leadBlock(config) {
 	const lines = [];
 	if (entry !== undefined && entry.name !== '') lines.push('你在内阁中的名号：' + entry.name);
 	if (prompt !== '') lines.push(prompt);
+	const association = associationLine(config);
+	if (association !== '') lines.push(association);
 	return lines.join('\n');
 }
 
@@ -577,4 +598,4 @@ async function apply(ctx, config) {
 	}, 'cabinet-member: model selection');
 }
 
-export { prepareModelSessionApi, bureauOf, sectionText, memberBlock, memberModel, modelRoute, clampModel, attachMemberModel, Config, DEFAULT_LEAD_PROMPT, DEFAULT_MEMBER_PROMPTS, MEMBER_KEYS, MEMBER_LABELS, MEMBER_SECTION, MAX_AVATAR_LENGTH, MAX_MODEL_LENGTH, MAX_NAME_LENGTH, MAX_PROMPT_LENGTH, apply, inject, name };
+export { prepareModelSessionApi, bureauOf, sectionText, memberBlock, memberModel, modelRoute, clampModel, attachMemberModel, associationModeOf, associationLine, Config, DEFAULT_LEAD_PROMPT, DEFAULT_MEMBER_PROMPTS, MEMBER_KEYS, MEMBER_LABELS, MEMBER_SECTION, MAX_AVATAR_LENGTH, MAX_MODEL_LENGTH, MAX_NAME_LENGTH, MAX_PROMPT_LENGTH, apply, inject, name };
