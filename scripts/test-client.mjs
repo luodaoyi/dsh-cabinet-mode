@@ -62,7 +62,7 @@ React.useRef = (initial) => {
   if (!(index in persistentRefs.slots)) persistentRefs.slots[index] = { current: initial };
   return persistentRefs.slots[index];
 };
-const exportList = 'return { inject, apply, avatarFor, displayName, CabinetPanel, MemberCard, TaskLine, TaskEdgeLayer, buildTaskEdges, taskEdgesEqual, zh, en, BUREAUX, AVATARS, setMemberConfig, memberLabel, configuredAvatar, configuredPrompt, factoryPromptFor, DEFAULT_MEMBER_PROMPTS, DEFAULT_LEAD_PROMPT, CabinetMemberSettings, MemoryPluginCard, memoryPluginInstalledOf, SETTINGS_TABS, formatTokenCount, formatElapsed, tokenTotalOf, usageFor, planProjectionRequests, teamUsageOf, setLiveService, syncLiveIds, ensureLiveBinding, liveViewOf, requestLiveCancel, sendLiveSteer, liveBindingIds, releaseAllLive, liveStallText };';
+const exportList = 'return { inject, apply, avatarFor, displayName, CabinetPanel, MemberCard, TaskLine, TaskEdgeLayer, buildTaskEdges, taskEdgesEqual, zh, en, BUREAUX, AVATARS, setMemberConfig, memberLabel, configuredAvatar, configuredPrompt, factoryPromptFor, DEFAULT_MEMBER_PROMPTS, DEFAULT_LEAD_PROMPT, CabinetMemberSettings, MemoryPluginCard, memoryPluginInstalledOf, SETTINGS_TABS, formatTokenCount, formatElapsed, tokenTotalOf, usageFor, planProjectionRequests, teamUsageOf };';
 runInNewContext(source.replace(exportPoint, exportList), {
   setTimeout: (fn, ms) => setTimeout(fn, ms === 120000 ? 20 : ms), clearTimeout,
   Date: RealmDate,
@@ -434,47 +434,37 @@ assert.equal(whoNodes.length, clickTeam.members.length, 'one who-row per member'
 assert.deepEqual(whoNodes.map((node) => typeof node.props.onClick), ['undefined', 'function', 'undefined', 'undefined'],
   'lead(self)/failed/provisioning cards stay inert, the active mate binds');
 
-// --- 内阁 Bot: the standing cabinet is visible, not just prompted ---------
-// Roster state comes only from the agentTeam projection and the session status
-// map: 现役 (in roster), 工作中 (running), 未上朝 (absent).
-const botTeam = { members: [
+// --- 内阁 Bot section removed: the roster cards are the only member view ----
+// The standing-office list (office row, 现役/未上朝/工作中, 派活 button, live step
+// block) is gone; the 品字形 member cards carry roster, usage and tasks. The
+// 通政使 office itself stays: its label, avatar fallback and duty prompt are
+// still part of the member model.
+const rosterTeam = { members: [
   { id: 'lead-session', name: 'lead', role: 'lead', phase: 'active' },
   { id: 'm-works', name: 'works', role: 'mate', phase: 'active' },
 ], tasks: [] };
-const botPanel = (association) => {
-  client.setMemberConfig(association === undefined ? {} : { associationMode: association });
-  return client.CabinetPanel({
-    sessionId: 'lead-session',
-    useSession: (select) => select({}),
-    useSessions: (select) => select({ projectionsBySession: { 'lead-session': { values: { agentTeam: botTeam } } } }),
-    useSessionStatus: (select) => select(new Map([['m-works', { running: true }]])),
-    t: (key) => client.zh[key] || key,
-  });
-};
-const botRow = (nodes, key) => nodes.find((node) => node.props?.['data-cabinet-bot-row'] === key);
-const botNodes = elements(botPanel(false));
-assert.ok(botNodes.some((node) => node.props?.['data-cabinet-bot-section'] === '1'), 'the panel shows the 内阁 Bot section');
-assert.equal(botRow(botNodes, 'lead') && botRow(botNodes, 'hanlin') ? true : false, true, 'bot rows render');
-for (const key of ['lead', 'hanlin', 'works', 'dali', 'yushi', 'tongzheng']) {
-  assert.ok(botRow(botNodes, key), 'standing office row: ' + key);
-}
-const rowText = (key) => JSON.stringify(botRow(botNodes, key));
-assert.ok(rowText('lead').includes('现役'), 'roster member is 现役');
-assert.ok(rowText('works').includes('工作中'), 'running member is 工作中');
-assert.ok(rowText('tongzheng').includes('未上朝'), 'absent office is 未上朝');
-assert.ok(rowText('tongzheng').includes('联想：关'), 'association mode off shows the state word');
-assert.ok(!JSON.stringify(botNodes).includes('不要' + ' spawn'), 'the removed off sentence never renders');
-assert.ok(!JSON.stringify(botNodes).includes('联想模式关闭'), 'no off-mode banner text');
-const botOn = elements(botPanel(true));
-assert.ok(JSON.stringify(botRow(botOn, 'tongzheng')).includes('联想：开'), 'association mode on shows 联想：开');
-// 派活 without an opener channel: rendered but inert, never a throw.
-const dispatchOf = (nodes, key) => nodes.find((node) => node.props?.['data-cabinet-bot-dispatch'] === key);
-for (const key of ['hanlin', 'tongzheng']) {
-  const button = dispatchOf(botNodes, key);
-  assert.equal(button.props.disabled, true, key + ': no channel → disabled');
-  assert.equal(button.props.onClick, undefined, key + ': no channel → no handler');
-}
-assert.doesNotThrow(() => { dispatchOf(botNodes, 'tongzheng').props.onClick?.(); }, 'a missing opener never throws');
+const rosterPanel = () => client.CabinetPanel({
+  sessionId: 'lead-session',
+  useSession: (select) => select({}),
+  useSessions: (select) => select({ projectionsBySession: { 'lead-session': { values: { agentTeam: rosterTeam } } } }),
+  useSessionStatus: (select) => select(new Map([['m-works', { running: true }]])),
+  t: (key) => client.zh[key] || key,
+});
+const rosterNodes = elements(rosterPanel());
+const rosterJson = JSON.stringify(rosterNodes);
+assert.ok(!rosterNodes.some((node) => node.props?.['data-cabinet-bot-section'] === '1'), 'the 内阁 Bot section no longer renders');
+assert.ok(!rosterNodes.some((node) => node.props?.['data-cabinet-bot-row'] !== undefined), 'no standing-office rows render');
+assert.ok(!rosterNodes.some((node) => node.props?.['data-cabinet-bot-state'] !== undefined), 'no 现役/未上朝 state cells render');
+assert.ok(!rosterNodes.some((node) => node.props?.['data-cabinet-bot-dispatch'] !== undefined), 'no 派活 button renders');
+assert.ok(!rosterNodes.some((node) => node.props?.['data-cabinet-bot-association'] !== undefined), 'no 联想 开/关 cell renders');
+assert.ok(!rosterNodes.some((node) => node.props?.['data-cabinet-live'] !== undefined), 'no live working block renders');
+assert.ok(rosterJson.includes(client.zh['section.roster']), 'the roster section title still renders');
+assert.ok(rosterNodes.some((node) => node.props?.['data-cabinet-task'] !== undefined || node.props?.key === 'usage'), 'member cards still carry usage/task content');
+// The office itself is untouched: ignore-only state, label, avatar and prompt.
+assert.equal(client.zh['member.tongzheng'], '通政使', '通政使 label stays in the dictionary');
+assert.equal(client.avatarFor('tongzheng'), client.AVATARS.neutral, '通政使 keeps using the neutral portrait');
+assert.equal(client.displayName('tongzheng'), '通政使 · tongzheng', '通政使 keeps its display name');
+assert.ok(client.factoryPromptFor('tongzheng').includes('通政使'), '通政使 keeps its duty prompt');
 
 // --- click-through: whole card, whole task row and Owner tag are targets ---
 // One click must open exactly one session. Every nested target stops the event,
@@ -1335,163 +1325,21 @@ assert.equal(client.usageFor({tokenUsage:{outputTokens:-1},contextPressure:{cont
   assert.equal(shown(sheetNode(english, 'writeScopes')), 'not recorded');
 }
 
-// 内阁 Bot opener: the same 派活 button opens the member through the existing
-// uiWorkspace channel, with the Lead session as parent (no new protocol).
-const dispatched = [];
+// The dispatch button is gone, so an injected workspace channel must not resurrect
+// any member-list anchor either: opening a member goes through the cards only.
+const openedAfterRemoval = [];
 client.apply({
   locale: { register: () => {}, bind: () => (key) => key },
   effect: (fn) => { try { return fn(); } catch (error) { return undefined; } },
   inject: (names, callback) => {
     if (Array.isArray(names) && names.includes('uiWorkspace')) {
-      callback({ uiWorkspace: { openSession: (target) => { dispatched.push(target); } }, effect: (fn) => { try { return fn(); } catch (error) { return undefined; } } });
+      callback({ uiWorkspace: { openSession: (target) => { openedAfterRemoval.push(target); } }, effect: (fn) => { try { return fn(); } catch (error) { return undefined; } } });
     }
   },
 });
-const liveBot = elements(botPanel(false));
-const liveWorks = liveBot.find((node) => node.props?.['data-cabinet-bot-dispatch'] === 'works');
-assert.equal(liveWorks.props.disabled, false, 'with a channel the 派活 button is live');
-assert.equal(typeof liveWorks.props.onClick, 'function', 'with a channel the button binds');
-assert.equal(liveWorks.props.onClick(), true, '派活 forwards to the opener');
-// The opener lives in the plugin sandbox, so compare the transported shape as JSON.
-assert.equal(JSON.stringify(dispatched), JSON.stringify([{ parentSessionId: 'lead-session', childSessionId: 'm-works', mode: 'continuable' }]),
-  '派活 opens that member session under the Lead');
-console.log('PASS 内阁 Bot roster: six standing offices with office, one-line duty and projection state (现役/未上朝/工作中); 通政使 shows 联想 开/关 with no instruction text; 派活 is inert without an opener and opens the member session with one');
+const rosterWithChannel = elements(rosterPanel());
+assert.ok(!rosterWithChannel.some((node) => node.props?.['data-cabinet-bot-dispatch'] !== undefined), 'a workspace channel does not bring the dispatch button back');
+assert.ok(!rosterWithChannel.some((node) => node.props?.['data-cabinet-bot-section'] === '1'), 'a workspace channel does not bring the section back');
+assert.deepEqual(openedAfterRemoval, [], 'rendering alone opens nothing');
+console.log('PASS 内阁 Bot section removal: no section box, office rows, 现役/未上朝 state, 派活 button, 联想 cell or live block renders, with or without a workspace opener; the roster section, member cards and the 通政使 office model (label/avatar/display name/duty prompt) stay');
 
-// ---- live working view: derivation, stall, controls, degrade, release ------
-// Fake sessions binding shaped like the real controller contract: retain(id,
-// {source}) → {binding:{eventSource:{getSnapshot,subscribe}, session}, release}.
-function fakeLive(entries) {
-  const state = { snapshot: { entries: entries || [], hasMore: false }, released: 0, cancels: 0, steers: [], retained: [], subscribes: 0 };
-  const service = {
-    retain(id, options) {
-      state.retained.push({ id, options });
-      const listeners = new Set();
-      state.subscribeCount = state.subscribes += 1;
-      const eventSource = { getSnapshot: () => state.snapshot, subscribe: (fn) => { listeners.add(fn); return () => { listeners.delete(fn); }; } };
-      const session = {
-        cancel: async () => { state.cancels += 1; return { ok: true }; },
-        prompt: async (content, mode) => { state.steers.push({ content, mode }); return { ok: true }; },
-      };
-      return { binding: { sessionId: id, eventSource, session }, release() { state.released += 1; } };
-    },
-  };
-  return { service, state };
-}
-const liveEvent = (type, data, seq) => ({ type: 'durable', event: { type, data, seq } });
-const liveEntries = [
-  liveEvent('turn/start', { turn: 1 }, 1),
-  liveEvent('step/start', { turn: 1, step: 2 }, 2),
-  liveEvent('tool/call', { turn: 1, step: 2, callId: 'c1', name: 'Bash', arguments: '{"command":"npm test -- --watch=false"}' }, 3),
-  liveEvent('tool/result', { meta: { callId: 'c1' }, message: 'ok' }, 4),
-  liveEvent('tool/call', { turn: 1, step: 2, callId: 'c2', name: 'Read', arguments: '{"file_path":"/tmp/a.ts"}' }, 5),
-  liveEvent('tool/result', { meta: { callId: 'c2' }, error: { type: 'tool-failed' } }, 6),
-  liveEvent('tool/call', { turn: 1, step: 2, callId: 'c3', name: 'Grep', arguments: '{"pattern":"TODO"}' }, 7),
-  liveEvent('assistant/message', { message: { parts: [{ type: 'text', text: 'x'.repeat(150) }] } }, 8),
-];
-const live = fakeLive(liveEntries);
-client.setLiveService(live.service);
-client.ensureLiveBinding('m-live');
-assert.equal(JSON.stringify(client.liveBindingIds()), JSON.stringify(['m-live']), 'one retain per wanted session');
-const view = client.liveViewOf('m-live', 1000);
-assert.equal(view.state, 'live');
-assert.equal(view.step, 2, 'step comes from step/start');
-assert.equal(view.tool.name, 'Grep', 'the current tool is the call with no result');
-assert.equal(view.tool.summary, 'TODO', 'argument summary is one line, not raw JSON');
-assert.ok(!view.tool.summary.includes('{') && !view.tool.summary.includes('\n'), 'no raw argument JSON leaks into the summary line');
-assert.equal(view.timeline.length, 3, 'timeline lists the calls so far');
-assert.equal(JSON.stringify(view.timeline.map((item) => item.status)), JSON.stringify(['ok', 'error', 'running']), 'tool statuses: ok / error / running');
-assert.equal([...view.tail].length, 120, 'assistant tail is bounded to 120 chars');
-assert.ok(view.tail.endsWith('xxxx'), 'tail keeps the newest text');
-const later = client.liveViewOf('m-live', 61000);
-assert.equal(later.elapsedMs, 60000, 'elapsed comes from the client clock at turn/start');
-assert.equal(later.stalled, false, 'fresh events are not a stall');
-const stalled = client.liveViewOf('m-live', 61000 + 121000);
-assert.equal(stalled.stalled, true, '120 s without events is a stall');
-assert.ok(client.liveStallText(stalled.quietMs).includes('可能卡住'), 'stall copy is 可能卡住');
-// cancel: one call, and the pending label survives until the run stops
-assert.equal(await client.requestLiveCancel('m-live'), true, 'cancel is requested');
-assert.equal(live.state.cancels, 1, 'cancel called exactly once');
-assert.equal(client.liveViewOf('m-live', 61000 + 121000).cancelRequested, true, 'pending cancel stays visible');
-// steer: one call with the text part and steer mode
-assert.equal(await client.sendLiveSteer('m-live', '改用只读'), true, 'steer accepted');
-assert.equal(live.state.steers.length, 1, 'steer called exactly once');
-assert.equal(JSON.stringify(live.state.steers[0]), JSON.stringify({ content: [{ type: 'text', text: '改用只读' }], mode: 'steer' }));
-assert.equal(await client.sendLiveSteer('m-live', '   '), false, 'a blank steer is not sent');
-assert.equal(live.state.steers.length, 1);
-// degraded: a throwing retain degrades to 实时通道不可用, never a throw
-const broken = { retain() { throw new Error('channel down'); } };
-client.releaseAllLive();
-client.setLiveService(broken);
-client.ensureLiveBinding('m-broken');
-assert.equal(client.liveViewOf('m-broken').state, 'unavailable', 'a failed retain degrades');
-client.setLiveService(null);
-client.ensureLiveBinding('m-off');
-assert.equal(client.liveViewOf('m-off').state, 'unavailable', 'a missing channel degrades');
-// only running members (plus the Lead) are retained; stopping releases
-client.releaseAllLive();
-const scoped = fakeLive([]);
-client.setLiveService(scoped.service);
-client.syncLiveIds(['lead-session', 'm-works']);
-assert.equal(JSON.stringify(client.liveBindingIds()), JSON.stringify(['lead-session', 'm-works']), 'retains only the Lead and running members');
-client.syncLiveIds(['lead-session']);
-assert.equal(JSON.stringify(client.liveBindingIds()), JSON.stringify(['lead-session']), 'a stopped member is released');
-assert.equal(scoped.state.released, 1, 'the released retain was let go');
-// panel: a running row grows a live block, and the block carries the controls
-client.releaseAllLive();
-const panelLive = fakeLive(liveEntries);
-client.setLiveService(panelLive.service);
-client.ensureLiveBinding('m-works');
-const liveBotNodes = elements(botPanel(false));
-const block = liveBotNodes.find((node) => node.props?.['data-cabinet-live'] === 'works');
-assert.ok(block, 'the running member shows a live block');
-const blockText = JSON.stringify(block);
-assert.ok(blockText.includes('步 2'), 'live block shows the step');
-assert.ok(blockText.includes('已跑'), 'live block shows elapsed time');
-assert.ok(blockText.includes('Grep'), 'live block names the current tool');
-assert.ok(blockText.includes('打断') && blockText.includes('插话'), 'live block carries both controls');
-// Real tool/result contract: identity is data.message.toolCallId, and a result
-// closes only its own call. Two parallel calls in one step must not cross-close.
-const parallel = fakeLive([
-  liveEvent('turn/start', { turn: 1 }, 1),
-  liveEvent('step/start', { turn: 1, step: 3 }, 2),
-  liveEvent('tool/call', { turn: 1, step: 3, callId: 'c1', name: 'Bash', arguments: '{"command":"first"}' }, 3),
-  liveEvent('tool/call', { turn: 1, step: 3, callId: 'c2', name: 'Read', arguments: '{"path":"second"}' }, 4),
-  liveEvent('tool/result', { turn: 1, step: 3, message: { toolCallId: 'c1' } }, 5),
-]);
-client.releaseAllLive();
-client.setLiveService(parallel.service);
-client.ensureLiveBinding('m-parallel');
-const parallelView = client.liveViewOf('m-parallel', 1000);
-assert.equal(JSON.stringify(parallelView.timeline.map((item) => item.status)), JSON.stringify(['ok', 'running']),
-  'only the matching call is closed; the parallel sibling stays running');
-assert.equal(parallelView.tool.name, 'Read', 'the still-running parallel call remains current');
-assert.equal(parallelView.tool.summary, 'second', 'its own argument summary still shows');
-// The real error path also pairs through message.toolCallId.
-const pairedError = fakeLive([
-  liveEvent('turn/start', { turn: 1 }, 1),
-  liveEvent('tool/call', { turn: 1, step: 1, callId: 'c9', name: 'Bash', arguments: '{"command":"npm test"}' }, 2),
-  liveEvent('tool/result', { turn: 1, step: 1, message: { toolCallId: 'c9' }, error: { type: 'cancelled' } }, 3),
-]);
-client.releaseAllLive();
-client.setLiveService(pairedError.service);
-client.ensureLiveBinding('m-paired');
-assert.equal(client.liveViewOf('m-paired', 1000).timeline[0].status, 'cancelled', 'message.toolCallId pairs the result');
-// StreamChunk: only text-delta chunks carry body text.
-const chunks = fakeLive([
-  liveEvent('turn/start', { turn: 1 }, 1),
-  liveEvent('assistant/live-chunk', { attemptId: 'a1', turn: 1, step: 1, chunk: { type: 'text-delta', text: '改' } }, 2),
-]);
-client.releaseAllLive();
-client.setLiveService(chunks.service);
-client.ensureLiveBinding('m-chunk');
-assert.equal(client.liveViewOf('m-chunk', 1000).tail, '改', 'a text-delta chunk reaches the tail immediately');
-chunks.state.snapshot = {
-  entries: [...chunks.state.snapshot.entries, liveEvent('assistant/live-chunk', { attemptId: 'a1', turn: 1, step: 1, chunk: { type: 'thinking-delta', text: '想' } }, 3)],
-  hasMore: false,
-};
-assert.equal(client.liveViewOf('m-chunk', 2000).tail, '改', 'thinking deltas never enter the assistant tail');
-
-client.releaseAllLive();
-client.setLiveService(null);
-assert.equal(JSON.stringify(client.liveBindingIds()), '[]', 'unmount/release leaves no retained session');
-console.log('PASS live working view: step/tool/tail/timeline derivation, 120 s stall copy, single cancel and steer calls, 实时通道不可用 degrade, retain scoped to Lead + running and released');

@@ -2530,10 +2530,6 @@ window.__ModuleLoader__.load({
 		// this stays empty, which reproduces v0.2.0 rendering exactly: the runtime
 		// member name and the built-in avatar, with no display-name layer.
 		const MEMBER_LABELS = { lead: '内阁首辅', hanlin: '翰林院编修', works: '工部尚书', dali: '大理寺卿', yushi: '左都御史', tongzheng: '通政使' };
-		/** Standing offices in rank order, for the visible bot roster. */
-		const MEMBER_KEYS_BOT = ['lead', ...AVATAR_KEYS.filter((key) => key !== 'lead')];
-		/** One-line duty for the visible bot roster; the long prompt stays separate. */
-		const BOT_DUTIES = { lead: '总揽全局，审题拆解与裁断', hanlin: '调研与文献考据', works: '动手执行与产出', dali: '独立核验', yushi: '验收并弹劾缺陷', tongzheng: '掌章奏通达，找旧事与旁证的联系' };
 		// Factory default prompt for the Lead (御下术). Product copy: shown in the
 		// settings box, restored by 「恢复默认」, and turned off by clearing the box.
 		// scripts/verify.mjs keeps this copy identical to index.js.
@@ -3891,7 +3887,6 @@ window.__ModuleLoader__.load({
 			}, tt('team.stale')));
 
 			const members = team?.members ?? [];
-			const associationOn = memberConfig.associationMode === true;
 			// The switch is a state word on the 通政使 row. Nothing is rendered when off:
 			// no banner, no instruction sentence, no roster notice.
 			const tasks = (team?.tasks ?? []).filter((task) => task.status !== 'deleted');
@@ -4005,28 +4000,6 @@ window.__ModuleLoader__.load({
 				const timer = setInterval(() => setUsageTick((tick) => tick + 1), PROJECTION_REFRESH_MS);
 				return () => { clearInterval(timer); };
 			}, [usageService, runningUsageKey]);
-			// Live working view: retain the Lead session plus every running member and
-			// nothing else. Membership changes re-sync; unmount releases every retain.
-			const liveIds = team
-				? [leadShown.id, ...mates.filter((member) => runningOf(member.id)).map((member) => member.id)]
-					.filter((id) => typeof id === 'string' && id !== '')
-				: [];
-			const liveIdsKey = JSON.stringify(liveIds);
-			const [liveTick, setLiveTick] = React.useState(0);
-			const [liveSteer, setLiveSteer] = React.useState({});
-			const [liveError, setLiveError] = React.useState({});
-			React.useEffect(() => {
-				syncLiveIds(liveIds);
-				const unsubscribe = subscribeLive(() => setLiveTick((tick) => tick + 1));
-				return () => { unsubscribe(); };
-			}, [liveIdsKey]);
-			React.useEffect(() => () => { releaseAllLive(); }, []);
-			React.useEffect(() => {
-				if (runningUsageIds.length === 0) return undefined;
-				const timer = setInterval(() => setLiveTick((tick) => tick + 1), 1000);
-				return () => { clearInterval(timer); };
-			}, [runningUsageKey]);
-
 			if (!team) {
 				body.push(h('div', {
 					key: 'empty',
@@ -4069,128 +4042,6 @@ window.__ModuleLoader__.load({
 				if (rosterNames.has(task.ownerName)) continue;
 				if (!foreignOwners.includes(task.ownerName)) foreignOwners.push(task.ownerName);
 			}
-
-			// ---- 内阁 Bot: the standing cabinet at a glance -----------------
-			// One row per office in rank order. State uses only existing data: roster
-			// membership from the agentTeam projection and `running` from the session
-			// status map. 派活 reuses the same opener channel as the member cards.
-			const botMemberOf = (key) => key === 'lead' ? lead : mates.find((member) => bureauOf(member.name).key === key);
-			// `liveTick` is the 1s heartbeat: reading it is what re-renders the block.
-			const liveNow = liveTick * 0 + Date.now();
-			const liveTokenText = (id) => {
-				const values = projections !== undefined && projections !== null ? projections[id]?.values : undefined;
-				const usage = tokenTotalOf(values?.tokenUsage?.totals ?? values?.tokenUsage);
-				return typeof usage === 'number' && Number.isFinite(usage) ? formatTokenCount(usage) : '';
-			};
-			const liveCancel = (id) => {
-				setLiveError((old) => ({ ...old, [id]: '' }));
-				requestLiveCancel(id).then((accepted) => {
-					if (!accepted) setLiveError((old) => ({ ...old, [id]: '打断请求失败' }));
-				});
-			};
-			const liveSubmitSteer = (id) => {
-				const text = (liveSteer[id] || '').trim();
-				if (text === '') return;
-				sendLiveSteer(id, text).then((accepted) => {
-					if (accepted) setLiveSteer((old) => ({ ...old, [id]: '' }));
-					else setLiveError((old) => ({ ...old, [id]: '插话失败' }));
-				});
-			};
-			const liveBlockOf = (key, member) => {
-				const view = liveViewOf(member.id, liveNow);
-				if (view.state === 'idle') return null;
-				const live = view.state === 'live';
-				const tokens = liveTokenText(member.id);
-				const controlStyle = { fontSize: 11, cursor: 'pointer' };
-				return h('div', {
-					key: 'live:' + key,
-					'data-cabinet-live': key,
-					'data-cabinet-live-state': view.state,
-					style: { margin: '4px 0 8px 86px', padding: '6px 8px', border: '1px dashed var(--dsw-alias-border-l3, rgba(127,127,127,.32))', borderRadius: 6, fontSize: 11, color: INK2, background: 'rgba(127,127,127,.04)' }
-				}, [
-					!live ? h('div', { key: 'unavailable' }, '实时通道不可用') : null,
-					live ? h('div', { key: 'meta', 'data-cabinet-live-meta': '1' }, [
-						'步 ' + (view.step === undefined ? '—' : view.step),
-						' · 已跑 ' + formatElapsed(view.elapsedMs),
-						view.tool === null ? ' · 等待工具' : ' · ' + view.tool.name + (view.tool.summary === '' ? '' : ' · ' + view.tool.summary)
-					].join('')) : null,
-					live && view.stalled ? h('div', { key: 'stall', 'data-cabinet-live-stall': '1', style: { color: '#d08700', marginTop: 3 } }, liveStallText(view.quietMs)) : null,
-					live && view.tail !== '' ? h('div', { key: 'tail', 'data-cabinet-live-tail': '1', style: { marginTop: 3, color: INK3, wordBreak: 'break-word' } }, '… ' + view.tail) : null,
-					live && view.timeline.length > 0 ? h('div', { key: 'timeline', 'data-cabinet-live-timeline': '1', style: { marginTop: 3, color: INK3, display: 'flex', gap: 8, flexWrap: 'wrap' } },
-						view.timeline.map((item) => h('span', { key: item.id }, item.name + ' ' + ({ running: '进行中', ok: '完成', error: '失败', cancelled: '已取消' }[item.status] || item.status)))) : null,
-					live && tokens !== '' ? h('div', { key: 'tokens', 'data-cabinet-live-tokens': '1', style: { marginTop: 3, color: INK3 } }, 'token ' + tokens) : null,
-					live ? h('div', { key: 'controls', style: { marginTop: 4, display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' } }, [
-						h('button', {
-							key: 'cancel',
-							type: 'button',
-							'data-cabinet-live-cancel': key,
-							disabled: view.cancelRequested,
-							style: { ...controlStyle, cursor: view.cancelRequested ? 'default' : 'pointer' },
-							onClick: view.cancelRequested ? undefined : () => liveCancel(member.id)
-						}, view.cancelRequested ? '已请求打断（待确认）' : '打断'),
-						h('input', {
-							key: 'steer',
-							type: 'text',
-							value: liveSteer[member.id] || '',
-							placeholder: '插话…',
-							'data-cabinet-live-steer-input': key,
-							style: { flex: 1, minWidth: 80, fontSize: 11 },
-							onChange: (event) => { const value = event?.target?.value ?? ''; setLiveSteer((old) => ({ ...old, [member.id]: value })); }
-						}),
-						h('button', {
-							key: 'send',
-							type: 'button',
-							'data-cabinet-live-steer': key,
-							disabled: (liveSteer[member.id] || '').trim() === '',
-							style: controlStyle,
-							onClick: () => liveSubmitSteer(member.id)
-						}, '插话')
-					]) : null,
-					live && liveError[member.id] ? h('div', { key: 'error', style: { marginTop: 3, color: '#f25a5a' } }, liveError[member.id]) : null
-				]);
-			};
-			const botRows = MEMBER_KEYS_BOT.flatMap((key) => {
-				const member = botMemberOf(key);
-				const state = member === undefined ? 'absent' : (runningOf(member.id) ? 'running' : 'active');
-				const canOpen = member !== undefined && typeof cabinetOpenSession === 'function' && openableMember(member);
-				const row = h('div', {
-					key: 'row:' + key,
-					'data-cabinet-bot-row': key,
-					style: { display: 'flex', alignItems: 'center', gap: 8, padding: '3px 0', fontSize: 11.5, color: INK2, opacity: member === undefined ? 0.65 : 1 }
-				}, [
-					h('span', { key: 'o', style: { minWidth: 78, color: INK, fontWeight: 600, flex: 'none' } }, tt('member.' + key)),
-					h('span', { key: 'd', style: { flex: 1, minWidth: 0, color: INK3 } }, BOT_DUTIES[key]),
-					key === 'tongzheng' ? h('span', {
-						key: 'a',
-						'data-cabinet-bot-association': associationOn ? 'on' : 'off',
-						style: { color: INK2, flex: 'none' }
-					}, tt(associationOn ? 'bot.association.on' : 'bot.association.off')) : null,
-					h('span', {
-						key: 's',
-						'data-cabinet-bot-state': state,
-						style: { color: state === 'running' ? INK : INK3, flex: 'none' }
-					}, tt('bot.state.' + state)),
-					h('button', {
-						key: 'go',
-						type: 'button',
-						'data-cabinet-bot-dispatch': key,
-						disabled: !canOpen,
-						style: { fontSize: 11, cursor: canOpen ? 'pointer' : 'default', flex: 'none' },
-						onClick: canOpen ? () => openMemberSession(member) : undefined
-					}, tt('bot.dispatch'))
-				]);
-				if (state !== 'running') return [row];
-				const block = liveBlockOf(key, member);
-				return block === null ? [row] : [row, block];
-			});
-			body.push(h('div', {
-				key: 'bots',
-				'data-cabinet-bot-section': '1',
-				style: { marginTop: 10, marginBottom: 6, padding: '8px 10px', border: '1px solid var(--dsw-alias-border-l3, rgba(127,127,127,.24))', borderRadius: 8 }
-			}, [
-				h('div', { key: 't', style: { fontSize: 12, fontWeight: 700, color: INK, marginBottom: 4 } }, tt('bot.title')),
-				...botRows
-			]));
 
 			body.push(h(SectionTitle, { key: 'sec' }, tt('section.roster')));
 
@@ -4323,211 +4174,6 @@ window.__ModuleLoader__.load({
 			]));
 
 			return h('div', { ref: panelRef, style: PANEL }, body);
-		}
-
-		// ---------- live working view (optional sessions channel) --------------
-		// ctx.inject(['sessions']) hands us the session controller. retain(id) is the
-		// documented way to observe one session's event window; the panel keeps one
-		// subscription per running member plus the Lead and releases everything else.
-		// Every read is defensive: a missing channel degrades the row to 实时通道不可用.
-		const LIVE_STALL_MS = 120000;
-		const LIVE_TAIL_MAX = 120;
-		const LIVE_TIMELINE_MAX = 5;
-		const LIVE_EVENT_TYPES = ['turn/start', 'step/start', 'tool/call', 'tool/result', 'assistant/message', 'assistant/live-chunk', 'user/message'];
-		let cabinetLiveService = null;
-		const LIVE_LISTENERS = new Set();
-		const LIVE_BINDINGS = new Map();
-		const LIVE_MARKS = new Map();
-
-		function subscribeLive(listener) {
-			LIVE_LISTENERS.add(listener);
-			return () => { LIVE_LISTENERS.delete(listener); };
-		}
-		function notifyLive() {
-			for (const listener of Array.from(LIVE_LISTENERS)) {
-				try { listener(); } catch (ignored) { /* a broken subscriber must not break the panel */ }
-			}
-		}
-		function setLiveService(service) {
-			cabinetLiveService = service === undefined ? null : service;
-			notifyLive();
-		}
-		function ensureLiveBinding(id) {
-			if (typeof id !== 'string' || id === '') return;
-			if (LIVE_BINDINGS.has(id)) return;
-			const service = cabinetLiveService;
-			if (!service || typeof service.retain !== 'function') { LIVE_BINDINGS.set(id, { error: 'unavailable' }); return; }
-			try {
-				const reference = service.retain(id, { source: 'cabinet-ui:live' });
-				const binding = reference.binding;
-				const eventSource = binding.eventSource;
-				const unsubscribe = eventSource && typeof eventSource.subscribe === 'function' ? eventSource.subscribe(() => notifyLive()) : undefined;
-				LIVE_BINDINGS.set(id, { reference, unsubscribe });
-			} catch (error) {
-				try { console.warn('[cabinet-ui] live retain failed:', error); } catch (ignored) { /* console may be unavailable */ }
-				LIVE_BINDINGS.set(id, { error: 'retain-failed' });
-			}
-		}
-		function releaseLiveBinding(id) {
-			const record = LIVE_BINDINGS.get(id);
-			if (record === undefined) return;
-			LIVE_BINDINGS.delete(id);
-			LIVE_MARKS.delete(id);
-			try { if (typeof record.unsubscribe === 'function') record.unsubscribe(); } catch (ignored) { /* already gone */ }
-			try { if (record.reference && typeof record.reference.release === 'function') record.reference.release(); } catch (ignored) { /* already gone */ }
-		}
-		function releaseAllLive() {
-			for (const id of Array.from(LIVE_BINDINGS.keys())) releaseLiveBinding(id);
-			LIVE_MARKS.clear();
-		}
-		function syncLiveIds(ids) {
-			const wanted = Array.isArray(ids) ? ids.filter((id) => typeof id === 'string' && id !== '') : [];
-			for (const id of Array.from(LIVE_BINDINGS.keys())) if (!wanted.includes(id)) releaseLiveBinding(id);
-			for (const id of wanted) ensureLiveBinding(id);
-		}
-		function liveBindingIds() { return Array.from(LIVE_BINDINGS.keys()); }
-		/**
-		 * Assistant text carried by one message or one live chunk. '' when absent.
-		 * `assistant/live-chunk` carries a StreamChunk object: only `text-delta`
-		 * chunks contribute body text (events.d.ts StreamChunk), so thinking or
-		 * tool deltas never leak into the assistant tail.
-		 */
-		function liveTextOf(data) {
-			if (data.chunk && typeof data.chunk === 'object' && data.chunk.type === 'text-delta' && typeof data.chunk.text === 'string') return data.chunk.text;
-			if (typeof data.text === 'string') return data.text;
-			const message = data.message;
-			if (typeof message === 'string') return message;
-			if (message && typeof message === 'object') {
-				if (typeof message.text === 'string') return message.text;
-				if (Array.isArray(message.parts)) return message.parts.map((part) => (typeof part === 'string' ? part : (part && typeof part.text === 'string' ? part.text : ''))).join('');
-			}
-			return '';
-		}
-		/** One display line from a raw tool argument JSON string; never the whole blob. */
-		function liveToolSummary(raw) {
-			if (typeof raw !== 'string' || raw.trim() === '') return '';
-			let parsed;
-			try { parsed = JSON.parse(raw); } catch { parsed = undefined; }
-			let picked = '';
-			if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-				for (const value of Object.values(parsed)) {
-					if (typeof value === 'string' && value.trim() !== '') { picked = value; break; }
-				}
-			}
-			const text = (picked !== '' ? picked : raw).trim().replace(/\s+/g, ' ');
-			return [...text].length > 60 ? [...text].slice(0, 60).join('') + '…' : text;
-		}
-		function liveStallText(quietMs) {
-			const seconds = Math.max(0, Math.round((typeof quietMs === 'number' && Number.isFinite(quietMs) ? quietMs : 0) / 1000));
-			return '可能卡住：已 ' + seconds + ' 秒无事件';
-		}
-		/**
-		 * Derive the live view for one retained session. Pure read of the cached
-		 * event window plus a client clock; the only state it writes is the
-		 * per-session mark (turn start, last change, cancel pending).
-		 */
-		function liveViewOf(id, now) {
-			const record = LIVE_BINDINGS.get(id);
-			if (record === undefined) return { state: 'idle' };
-			if (record.error !== undefined) return { state: 'unavailable' };
-			let snapshot;
-			try { snapshot = record.reference.binding.eventSource.getSnapshot(); } catch { return { state: 'unavailable' }; }
-			const entries = snapshot && Array.isArray(snapshot.entries) ? snapshot.entries : [];
-			const clock = typeof now === 'number' && Number.isFinite(now) ? now : Date.now();
-			let mark = LIVE_MARKS.get(id);
-			if (mark === undefined) { mark = {}; LIVE_MARKS.set(id, mark); }
-			let step, turn, tail = '', maxSeq = -1;
-			const calls = [];
-			const byId = new Map();
-			for (const entry of entries) {
-				const event = entry && entry.event;
-				if (!event || typeof event.type !== 'string' || !LIVE_EVENT_TYPES.includes(event.type)) continue;
-				const data = event.data && typeof event.data === 'object' ? event.data : {};
-				if (typeof event.seq === 'number' && event.seq > maxSeq) maxSeq = event.seq;
-				if (event.type === 'turn/start') {
-					if (typeof data.turn === 'number') turn = data.turn;
-				} else if (event.type === 'step/start') {
-					if (typeof data.step === 'number') step = data.step;
-					if (typeof data.turn === 'number') turn = data.turn;
-				} else if (event.type === 'tool/call') {
-					const callId = typeof data.callId === 'string' ? data.callId : 'call-' + calls.length;
-					const call = { id: callId, name: typeof data.name === 'string' && data.name !== '' ? data.name : '工具', summary: liveToolSummary(data.arguments), status: 'running' };
-					calls.push(call);
-					byId.set(callId, call);
-				} else if (event.type === 'tool/result') {
-					// Real contract: tool/result has turn/step/message/error?/meta? and the
-					// call identity lives on data.message.toolCallId (dsh-llm message.d.ts).
-					// meta.callId stays as a fallback; an unmatched result closes nothing.
-					const message = data.message && typeof data.message === 'object' ? data.message : undefined;
-					const callId = typeof message?.toolCallId === 'string' ? message.toolCallId
-						: (data.meta && typeof data.meta.callId === 'string' ? data.meta.callId : '');
-					const call = callId !== '' ? byId.get(callId) : undefined;
-					if (call !== undefined) {
-						const errorType = data.error && typeof data.error === 'object' && typeof data.error.type === 'string' ? data.error.type : '';
-						call.status = data.error ? (errorType === 'cancelled' ? 'cancelled' : 'error') : (data.cancelled === true ? 'cancelled' : 'ok');
-					}
-				} else if (event.type === 'assistant/message' || event.type === 'assistant/live-chunk') {
-					const text = liveTextOf(data);
-					if (text !== '') tail = [...(tail + text)].slice(-LIVE_TAIL_MAX).join('');
-				}
-			}
-			if (mark.count !== entries.length || mark.seq !== maxSeq) { mark.count = entries.length; mark.seq = maxSeq; mark.at = clock; }
-			if (mark.at === undefined) mark.at = clock;
-			if (turn !== undefined && mark.turn !== turn) { mark.turn = turn; mark.startedAt = clock; }
-			if (mark.startedAt === undefined) mark.startedAt = clock;
-			const running = calls.filter((call) => call.status === 'running');
-			const current = running.length > 0 ? running[running.length - 1] : null;
-			const quietMs = Math.max(0, clock - mark.at);
-			return {
-				state: 'live',
-				step,
-				elapsedMs: Math.max(0, clock - mark.startedAt),
-				tool: current === null ? null : { name: current.name, summary: current.summary },
-				tail,
-				timeline: calls.slice(-LIVE_TIMELINE_MAX),
-				stalled: quietMs >= LIVE_STALL_MS,
-				quietMs,
-				cancelRequested: mark.cancelRequested === true
-			};
-		}
-		/** Stop the running turn. Returns false when there is nothing to stop. */
-		async function requestLiveCancel(id) {
-			const record = LIVE_BINDINGS.get(id);
-			if (record === undefined || record.error !== undefined) return false;
-			let session;
-			try { session = record.reference.binding.session; } catch { return false; }
-			if (!session || typeof session.cancel !== 'function') return false;
-			let mark = LIVE_MARKS.get(id);
-			if (mark === undefined) { mark = {}; LIVE_MARKS.set(id, mark); }
-			mark.cancelRequested = true;
-			notifyLive();
-			try {
-				const result = await session.cancel();
-				if (result && result.ok === false) { mark.cancelRequested = false; notifyLive(); return false; }
-				return true;
-			} catch (error) {
-				mark.cancelRequested = false;
-				notifyLive();
-				try { console.warn('[cabinet-ui] cancel failed:', error); } catch (ignored) { /* console may be unavailable */ }
-				return false;
-			}
-		}
-		/** Steer the running turn with one line of text. */
-		async function sendLiveSteer(id, text) {
-			const value = typeof text === 'string' ? text.trim() : '';
-			if (value === '') return false;
-			const record = LIVE_BINDINGS.get(id);
-			if (record === undefined || record.error !== undefined) return false;
-			let session;
-			try { session = record.reference.binding.session; } catch { return false; }
-			if (!session || typeof session.prompt !== 'function') return false;
-			try {
-				const result = await session.prompt([{ type: 'text', text: value }], 'steer');
-				return !(result && result.ok === false);
-			} catch (error) {
-				try { console.warn('[cabinet-ui] steer failed:', error); } catch (ignored) { /* console may be unavailable */ }
-				return false;
-			}
 		}
 
 		// ---------- settings section: 内阁成员 ---------------------------------
@@ -5083,13 +4729,6 @@ window.__ModuleLoader__.load({
 			'header.subtitle': '首辅 · 阁臣 · 派活',
 			'summary.members': '成员',
 			'section.roster': '首辅与阁臣 · 派活与任务',
-			'bot.title': '内阁 Bot',
-			'bot.dispatch': '派活',
-			'bot.state.active': '现役',
-			'bot.state.absent': '未上朝',
-			'bot.state.running': '工作中',
-			'bot.association.on': '联想：开',
-			'bot.association.off': '联想：关',
 			'lead.tag': '内阁首辅',
 			'current': '当前',
 			'status.running': '干活中',
@@ -5190,13 +4829,6 @@ window.__ModuleLoader__.load({
 			'header.subtitle': 'Lead · ministers · dispatch',
 			'summary.members': 'Members',
 			'section.roster': 'Lead and ministers · dispatch',
-			'bot.title': '内阁 Bot',
-			'bot.dispatch': '派活',
-			'bot.state.active': '现役',
-			'bot.state.absent': '未上朝',
-			'bot.state.running': '工作中',
-			'bot.association.on': '联想：开',
-			'bot.association.off': '联想：关',
 			'lead.tag': '内阁首辅',
 			'current': 'current',
 			'status.running': 'working',
@@ -5347,18 +4979,12 @@ window.__ModuleLoader__.load({
 			// every card exactly as it was (cards then print their em dash).
 			ctx.inject(['sessions'], (scope) => {
 				const sessions = scope.sessions;
-				if (!sessions) return;
-				const projected = typeof sessions.refreshProjections === 'function';
-				const live = typeof sessions.retain === 'function';
-				if (!projected && !live) return;
+				if (!sessions || typeof sessions.refreshProjections !== 'function') return;
 				scope.effect(() => {
-					if (projected) { cabinetSessions = sessions; for (const notify of cabinetSessionsListeners) notify(); }
-					if (live) setLiveService(sessions);
-					return () => {
-						if (projected && cabinetSessions === sessions) { cabinetSessions = null; for (const notify of cabinetSessionsListeners) notify(); }
-						if (live) { releaseAllLive(); setLiveService(null); }
-					};
-				}, 'cabinet-ui: session projections and live window');
+					cabinetSessions = sessions;
+					for (const notify of cabinetSessionsListeners) notify();
+					return () => { if (cabinetSessions === sessions) { cabinetSessions = null; for (const notify of cabinetSessionsListeners) notify(); } };
+				}, 'cabinet-ui: session projections');
 			});
 			// Optional install channel for the memory-plugin card: its own guard, so
 			// a host without the plugin manager leaves the model-catalog remote and
