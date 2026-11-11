@@ -65,7 +65,7 @@ React.useRef = (initial) => {
 };
 
 
-const exportList = 'return { inject, apply, avatarFor, displayName, CabinetPanel, MemberCard, TaskLine, TaskEdgeLayer, buildTaskEdges, taskEdgesEqual, zh, en, BUREAUX, AVATARS, setMemberConfig, memberLabel, configuredAvatar, configuredPrompt, factoryPromptFor, DEFAULT_MEMBER_PROMPTS, DEFAULT_LEAD_PROMPT, CabinetMemberSettings, MemoryPluginCard, memoryPluginInstalledOf, SETTINGS_TABS, formatTokenCount, formatElapsed, tokenTotalOf, usageFor, planProjectionRequests, teamUsageOf, groupChatFold, markdownBlocksOf, inlineMarkdownTokens, markdownLinkHref, modelOptionsOf, modelCatalogNotice, modelSelectionOf, cabinetSessionChoices, defaultCabinetSession, CabinetMarkdown, CabinetPage, CabinetPanelIcon, GroupChatRow };';
+const exportList = 'return { inject, apply, avatarFor, displayName, CabinetPanel, MemberCard, TaskLine, TaskEdgeLayer, buildTaskEdges, taskEdgesEqual, zh, en, BUREAUX, AVATARS, setMemberConfig, memberLabel, configuredAvatar, configuredPrompt, factoryPromptFor, DEFAULT_MEMBER_PROMPTS, DEFAULT_LEAD_PROMPT, CabinetMemberSettings, MemoryPluginCard, memoryPluginInstalledOf, SETTINGS_TABS, formatTokenCount, formatElapsed, tokenTotalOf, usageFor, planProjectionRequests, teamUsageOf, groupChatFold, markdownBlocksOf, inlineMarkdownTokens, markdownLinkHref, modelOptionsOf, modelCatalogNotice, modelSelectionOf, cabinetSessionChoices, defaultCabinetSession, CabinetMarkdown, CabinetPage, CabinetPanelIcon, GroupChatRow, cabinetChatViewRows, chatStampNeeded, nearChatBottom, scrollChatToBottom };';
 runInNewContext(source.replace(exportPoint, exportList), {
   setTimeout: (fn, ms) => setTimeout(fn, ms === 120000 ? 20 : ms), clearTimeout,
   Date: RealmDate,
@@ -1639,7 +1639,7 @@ console.log('PASS 内阁 Bot section removal: no section box, office rows, 现�
   // targets the first officer row (assistant) instead of row 0.
   const firstOfficerRow = mergedRows.find((node) => node.props['data-cabinet-groupchat-row'] === 'assistant');
   assert.ok(firstOfficerRow, 'the merged view carries an officer row');
-  assert.ok(findNodes([firstOfficerRow], (node) => node.props?.size === 20 && node.props?.name === 'lead').length > 0, 'the first officer row carries the officer portrait');
+  assert.ok(findNodes([firstOfficerRow], (node) => node.props?.size === 28 && node.props?.name === 'lead').length > 0, 'the first officer row carries the officer portrait');
   assert.ok(findNodes(merged.tree, (node) => node.props?.key === 'name' && node.children.flat().includes(client.displayName('lead'))).length > 0, 'the officer name renders on the merged row');
   // This harness renders the panel several times into one tree, so rows repeat
   // as distinct objects; deduplicate by (kind,text) before counting.
@@ -2002,6 +2002,150 @@ console.log('PASS 内阁 Bot section removal: no section box, office rows, 现�
   const cacheFresh = groupRender();
   assert.ok(entriesReads > readsAfterReady, 'a new window revision refolds');
   assert.ok(textsOf(cacheFresh.tree).includes('缓存后到达'), 'the new revision reaches the merged view');
+  // 14) 微信式气泡、时间戳聚合、贴底滚动、@成员派活。
+  {
+    // Bubble structure: 别人靠左浅色气泡（头像在气泡外），自己靠右绿气泡（无头像）。
+    const otherRow = elements(client.GroupChatRow({ row: { kind: 'assistant', text: '**粗** 正文', time: 30000, seq: 1, tools: [] }, member: { name: 'works' }, t: (key) => client.zh[key] || key }));
+    const selfRow = elements(client.GroupChatRow({ row: { kind: 'user', text: '我来问', time: 31000, seq: 2, tools: [] }, member: { name: 'lead' }, t: (key) => client.zh[key] || key }));
+    const otherBubble = otherRow.find((node) => node.props?.['data-cabinet-bubble'] === 'other');
+    const selfBubble = selfRow.find((node) => node.props?.['data-cabinet-bubble'] === 'self');
+    assert.ok(otherBubble && selfBubble, 'both bubble kinds render (data-cabinet-bubble self|other)');
+    assert.equal(otherBubble.props.style.maxWidth, '70%', 'the other bubble caps its width near 70%');
+    assert.ok(String(otherBubble.props.style.borderRadius).includes('10px'), 'the other bubble is rounded');
+    assert.ok(String(otherBubble.props.style.padding).includes('7px'), 'the other bubble carries inner padding');
+    assert.ok(String(selfBubble.props.style.background).includes('95EC69'), 'the self bubble uses the WeChat green');
+    assert.ok(String(otherBubble.props.style.borderRadius).includes('10px'), 'bubble corners are rounded');
+    assert.ok(otherRow.some((node) => node.type === 'img'), 'the other row keeps a portrait beside the bubble');
+    assert.equal(selfRow.filter((node) => node.type === 'img').length, 0, 'the self row has no portrait');
+    assert.equal(selfRow.find((node) => node.props?.['data-cabinet-groupchat-row'] === 'user').props.style.alignItems, 'flex-end', 'the self row is right-aligned');
+    assert.ok(otherRow.some((node) => node.props?.['data-cabinet-markdown'] === '1'), 'markdown still renders inside the bubble');
+    const toolRow = elements(client.GroupChatRow({ row: { kind: 'assistant', text: '带工具', time: 32000, seq: 3, tools: [{ name: 'read_file', args: 'a.js' }] }, member: { name: 'works' }, t: (key) => client.zh[key] || key }));
+    const toolBubble = toolRow.find((node) => node.props?.['data-cabinet-bubble'] === 'other');
+    assert.ok(findNodes([toolBubble], (node) => node.props?.['data-cabinet-groupchat-tools'] === '1').length > 0, 'the tool fold stays inside the bubble');
+
+    // Timestamps + grouping: pure view-row mapping gives a centered stamp on the
+    // first line and after a ≥5min gap, and compacts same-author lines.
+    const tt0 = (key) => client.zh[key] || key;
+    const stampRow = elements(client.GroupChatRow({ row: { kind: 'assistant', text: '第一句', time: 100000, seq: 1, tools: [] }, member: { name: 'works' }, t: tt0, showTime: true }));
+    const stampNode = stampRow.find((node) => node.props?.['data-cabinet-groupchat-time'] !== undefined);
+    assert.ok(stampNode, 'a centered timestamp node renders when the view row asks for one');
+    assert.equal(String(stampNode.props.style.alignSelf), 'center', 'the timestamp sits centered above the bubble');
+    const compactRow = elements(client.GroupChatRow({ row: { kind: 'assistant', text: '第二句', time: 110000, seq: 2, tools: [] }, member: { name: 'works' }, t: tt0, compact: true }));
+    assert.equal(findNodes(compactRow, (node) => node.props?.key === 'name').length, 0, 'a compact same-author line omits the name');
+    const compactBubble = compactRow.find((node) => node.props?.['data-cabinet-bubble'] !== undefined);
+    assert.equal(compactBubble.props['data-cabinet-bubble-compact'], '1', 'the compact flag reaches the bubble');
+    const viewRows = client.cabinetChatViewRows([
+      { kind: 'assistant', time: 100000, memberName: 'works' },
+      { kind: 'assistant', time: 110000, memberName: 'works' },
+      { kind: 'assistant', time: 410000, memberName: 'works' },
+      { kind: 'assistant', time: 420000, memberName: 'lead' },
+      { kind: 'user', time: 430000 },
+      { kind: 'user', time: 440000 },
+    ]);
+    assert.deepEqual(viewRows.map((entry) => entry.showTime), [true, false, true, false, false, false], 'stamps appear on the first line and after a 5-minute gap, not on every line');
+    assert.deepEqual(viewRows.map((entry) => entry.compact), [false, true, true, false, false, true], 'consecutive same-author lines are compact');
+
+    const mountSettled = async () => {
+      remountGroup();
+      settleReady();
+      // `ready` is a real promise: let its .then fold the window before the
+      // asserting render, exactly like the browser's next commit.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      groupRender();
+      return groupRender();
+    };
+
+    // Scroll: the container exposes a callback ref that scrolls to the bottom on
+    // mount, a follow flag that drops when the reader scrolls up, and pure
+    // helpers with no timers.
+    assert.equal(client.nearChatBottom({ scrollTop: 0, scrollHeight: 1000, clientHeight: 400 }, 24), false, 'scrolled up is not near the bottom');
+    assert.equal(client.nearChatBottom({ scrollTop: 576, scrollHeight: 1000, clientHeight: 400 }, 24), true, 'within 24px of the bottom counts as near');
+    const fakeScroller = { scrollTop: 0, scrollHeight: 1200, clientHeight: 400, scrollTo: function (options) { this.called = (this.called || 0) + 1; this.lastTop = options.top; } };
+    assert.equal(client.scrollChatToBottom(fakeScroller), true);
+    assert.equal(fakeScroller.called, 1, 'scrollChatToBottom asks the node to scroll once');
+    assert.equal(fakeScroller.lastTop, 1200, 'it scrolls to scrollHeight');
+    const scrolled = await mountSettled();
+    const container = findNodes(scrolled.tree, (node) => node.props?.['data-cabinet-groupchat'] !== undefined)[0];
+    assert.equal(container.props['data-cabinet-groupchat-scroll'], '1', 'the chat container carries a stable scroll hook');
+    assert.equal(typeof container.props.ref, 'function', 'the chat container has a callback ref');
+    assert.equal(typeof container.props.onScroll, 'function', 'the chat container tracks scroll position');
+    assert.equal(container.props['data-cabinet-groupchat-follow'], '1', 'the view starts in follow mode');
+    const mountScroller = { scrollTop: 0, scrollHeight: 900, clientHeight: 300, scrollTo: function () { this.called = (this.called || 0) + 1; } };
+    container.props.ref(mountScroller);
+    assert.ok(mountScroller.called >= 1, 'attaching the ref scrolls to the bottom immediately');
+    container.props.onScroll({ target: { scrollTop: 0, scrollHeight: 900, clientHeight: 300 } });
+    const afterUp = groupRender();
+    const upContainer = findNodes(afterUp.tree, (node) => node.props?.['data-cabinet-groupchat'] !== undefined)[0];
+    assert.equal(upContainer.props['data-cabinet-groupchat-follow'], '0', 'scrolling up turns follow mode off');
+    upContainer.props.onScroll({ target: { scrollTop: 600, scrollHeight: 900, clientHeight: 300 } });
+    const afterBottom = groupRender();
+    const bottomContainer = findNodes(afterBottom.tree, (node) => node.props?.['data-cabinet-groupchat'] !== undefined)[0];
+    assert.equal(bottomContainer.props['data-cabinet-groupchat-follow'], '1', 'scrolling back to the bottom re-enables follow');
+    afterBottom.stop();
+    afterUp.stop();
+    scrolled.stop();
+
+    // @ mentions: typing @ opens the roster picker, choosing one stores a target
+    // separate from the body, and Enter delivers to that member's session.
+    sources['lead-session'] = makeSource([...leadEntries]);
+    sources['m-works'] = makeSource(worksEntries);
+    promptCalls.length = 0;
+    let mentionView = await mountSettled();
+    composerInputOf(mentionView.tree)[0].props.onChange({ target: { value: '帮我查 @' } });
+    mentionView = groupRender();
+    const mentionPanel = findNodes(mentionView.tree, (node) => node.props?.['data-cabinet-mention-panel'] !== undefined);
+    assert.equal(mentionPanel.length, 1, 'typing @ opens the member picker');
+    const options = findNodes(mentionView.tree, (node) => typeof node.props?.['data-cabinet-mention-option'] === 'string');
+    assert.ok(options.some((node) => node.props['data-cabinet-mention-option'] === 'm-works'), 'the picker lists the in-register officer');
+    assert.ok(options.some((node) => node.props['data-cabinet-mention-option'] === 'lead-session'), 'the picker lists the Lead');
+    options.find((node) => node.props['data-cabinet-mention-option'] === 'm-works').props.onClick();
+    mentionView = groupRender();
+    const mentionedInput = composerInputOf(mentionView.tree)[0];
+    assert.ok(String(mentionedInput.props.value).includes('@' + client.memberLabel('works')), 'choosing a member inserts a resolvable @office marker');
+    const chip = findNodes(mentionView.tree, (node) => node.props?.['data-cabinet-mention-target'] === 'm-works');
+    assert.equal(chip.length, 1, 'the target is stored separately from the body');
+    promptCalls.length = 0;
+    mentionedInput.props.onKeyDown({ key: 'Enter', preventDefault() {} });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(promptCalls.length, 1, 'a mentioned send goes out once, got ' + JSON.stringify(promptCalls.map((call) => call.id)));
+    assert.equal(promptCalls[0].id, 'm-works', 'the message is delivered to the mentioned member session');
+    assert.equal(promptCalls[0].mode, 'queue');
+    assert.equal(promptCalls[0].content[0].text, '帮我查', 'the body no longer carries the @ marker when the member is the addressee');
+    mentionView.stop();
+
+    // Explicit degradation: without a member SessionFace the send falls back to
+    // the Lead, keeps the @ marker in the body, and says so in the UI.
+    const leadOnlyService = {
+      refreshProjections: async () => {},
+      retain: (target, options) => {
+        retainCalls.push({ target, options });
+        const reference = makeReference(target);
+        if (target !== 'lead-session') {
+          const original = reference.binding;
+          Object.defineProperty(reference, 'binding', { configurable: true, get: () => ({ sessionId: original.sessionId, eventSource: original.eventSource }) });
+        }
+        return reference;
+      },
+    };
+    applyWithSessions(leadOnlyService);
+    let degradedView = await mountSettled();
+    composerInputOf(degradedView.tree)[0].props.onChange({ target: { value: '帮我查 @' } });
+    degradedView = groupRender();
+    findNodes(degradedView.tree, (node) => node.props?.['data-cabinet-mention-option'] === 'm-works')[0].props.onClick();
+    degradedView = groupRender();
+    promptCalls.length = 0;
+    composerInputOf(degradedView.tree)[0].props.onKeyDown({ key: 'Enter', preventDefault() {} });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    degradedView = groupRender();
+    assert.equal(promptCalls.length, 1, 'the degraded send goes out once');
+    assert.equal(promptCalls[0].id, 'lead-session', 'without a member face the message is sent to the Lead');
+    assert.ok(String(promptCalls[0].content[0].text).includes('@' + client.memberLabel('works')), 'the fallback body keeps the @ marker');
+    const fallbackNote = findNodes(degradedView.tree, (node) => node.props?.['data-cabinet-mention-fallback'] !== undefined);
+    assert.equal(fallbackNote.length, 1, 'the UI states the fallback instead of pretending the member was dispatched');
+    degradedView.stop();
+    applyWithSessions(groupService);
+    persistentRefs = null;
+  }
   cacheFresh.stop();
 
   // 13) The conversation now lives in the 左侧「内阁」整页: the page path keeps
@@ -2199,4 +2343,5 @@ console.log('PASS 群聊 tab: the right pane keeps the roster only (no 群聊 ta
   assert.ok(!names.includes('settings.section'), 'the old settings members section is gone (no second entry)');
   assert.equal(typeof registrations.find((entry) => entry.name === 'sidebar.panellist').component, 'function', 'the panellist registers an icon component');
 }
+console.log('PASS 第五批：微信式气泡（别人左侧浅色/自己右侧 #95EC69 绿、圆角内边距、maxWidth 70%、头像 28px、气泡内 markdown 与工具折叠仍在）、时间戳与连续同人聚合（首行与 ≥5 分钟/跨天显示、同人紧凑省名）、进入即贴底（ref 挂载滚到底、贴底跟随状态 data-cabinet-groupchat-follow 随滚动切换、纯函数无定时器）、@成员派活（输入 @ 弹首辅与阁臣候选、插入可解析 @官职名 标记、目标与正文分离、投递到成员会话、无成员通道时显式降级为发首辅并保留 @标记且 UI 说明）');
 console.log('PASS 第二批：markdown 双路径（宿主 MarkdownText 可解析时用组件、seed 缺失或 require 抛错时降级自绘且不炸插件；子集标题/列表/代码块/行内代码/粗体/链接/裸文本 + 无 innerHTML + javascript:/file: 拒绝）、模型目录真实 groups 与「本机无 adapter」显式提示、当前模型读 modelSelection 投影、模型保存后生效说明与 fail-closed 风险提示（且全源无「未生效」字样）、独立内阁整页自带会话选择器（agentTeam 优先、会话内记忆）、sidebar.panellist + main 注册且设置页旧 members section 已清理');

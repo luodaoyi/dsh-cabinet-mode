@@ -4380,11 +4380,55 @@ window.__ModuleLoader__.load({
 			}
 			return h(CabinetMarkdown, { text, t: tt });
 		}
+		// ---------- 微信式群聊：时间戳、贴底、气泡 -------------------------
+		const CHAT_TIME_GAP = 5 * 60 * 1000;
+		/** 每 ≥5 分钟或跨天在气泡上方显示一次居中灰字时间戳。 */
+		function chatStampNeeded(previous, row) {
+			if (row === undefined || row === null || typeof row.time !== 'number' || row.time <= 0) return false;
+			if (previous === undefined || previous === null) return true;
+			if (typeof previous.time !== 'number') return true;
+			if (new Date(previous.time).toDateString() !== new Date(row.time).toDateString()) return true;
+			return row.time - previous.time >= CHAT_TIME_GAP;
+		}
+		function chatStampText(time) {
+			const date = new Date(time);
+			const now = new Date();
+			return date.toDateString() === now.toDateString()
+				? date.toLocaleTimeString()
+				: date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
+		}
+		/** 距离底部 24px 内算「贴底」，只有贴底才跟随新消息。 */
+		function nearChatBottom(node, slack) {
+			if (node === null || node === undefined || typeof node.scrollHeight !== 'number') return true;
+			const height = typeof node.clientHeight === 'number' ? node.clientHeight : 0;
+			const top = typeof node.scrollTop === 'number' ? node.scrollTop : 0;
+			return node.scrollHeight - (top + height) <= (typeof slack === 'number' ? slack : 24);
+		}
+		/** 一次性滚到底：挂载/首次拿到消息各一次，绝不持续定时滚动。 */
+		function scrollChatToBottom(node) {
+			if (node === null || node === undefined) return false;
+			try {
+				if (typeof node.scrollTo === 'function') { node.scrollTo({ top: node.scrollHeight, behavior: 'auto' }); return true; }
+				node.scrollTop = node.scrollHeight;
+				return true;
+			} catch (error) { return false; }
+		}
+		/** 面板用的分组视图：连续同人紧凑、时间戳按规则显示。 */
+		function cabinetChatViewRows(rows) {
+			const list = Array.isArray(rows) ? rows : [];
+			return list.map((row, index) => {
+				const previous = index > 0 ? list[index - 1] : undefined;
+				const sameAuthor = previous !== undefined && previous.kind === row.kind
+					&& (previous.memberName || '') === (row.memberName || '')
+					&& row.kind !== 'error';
+				return { row, compact: sameAuthor, showTime: chatStampNeeded(previous, row) };
+			});
+		}
 		/**
 		 * One chat line: officer portrait + officer name + body. Tools fold into
 		 * a single 「N 个工具」 row that expands in place — never one line per call.
 		 */
-		function GroupChatRow({ row, member, t }) {
+		function GroupChatRow({ row, member, t, compact, showTime }) {
 			const tt = typeof t === 'function' ? t : (key) => key;
 			const [open, setOpen] = React.useState(false);
 			// A long body folds to a preview height; the toggle is the only way to
@@ -4402,14 +4446,11 @@ window.__ModuleLoader__.load({
 			const text = typeof row.text === 'string' ? row.text : '';
 			const long = row.kind !== 'error' && (text.split('\n').length > 12 || text.length > 600);
 			const folded = long && !expanded;
-			const header = h('div', {
+			// 气泡内的名字：别人靠左、自己靠右；连续同人时第二条起省略。
+			const header = compact === true ? null : h('div', {
 				key: 'head',
-				style: { display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, flexWrap: 'wrap' }
-			}, [
-				self ? null : h(Avatar, { key: 'avatar', name: key || 'neutral', size: 20, live: live }),
-				h('span', { key: 'name', title: name, style: { fontSize: 12, fontWeight: 600, color: INK } }, name || tt('groupchat.unknown')),
-				row.time ? h('span', { key: 'time', style: { fontSize: 10.5, color: INK3 } }, new Date(row.time).toLocaleTimeString()) : null
-			]);
+				style: { display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, flexWrap: 'wrap', justifyContent: self ? 'flex-end' : 'flex-start' }
+			}, h('span', { key: 'name', title: name, style: { fontSize: 11.5, fontWeight: 600, color: self ? INK2 : INK } }, name || tt('groupchat.unknown')));
 			// A failed member reads 「不可用」 on the line (the spec's wording) while
 			// the channel's own message stays reachable as the hover title.
 			const failed = row.kind === 'error';
@@ -4452,6 +4493,34 @@ window.__ModuleLoader__.load({
 					style: { wordBreak: 'break-word' }
 				}, (tool.name || 'tool') + (tool.args === '' ? '' : ' ' + tool.args)))) : null
 			]);
+			// 微信式气泡：自己=右侧绿气泡（无头像），别人=左侧浅色气泡（头像在气泡外）。
+			const bubble = h('div', {
+				key: 'bubble',
+				'data-cabinet-bubble': self ? 'self' : 'other',
+				'data-cabinet-bubble-compact': compact === true ? '1' : '0',
+				'data-cabinet-bubble-tail': self ? 'right' : 'left',
+				title: failed ? row.text : undefined,
+				style: {
+					maxWidth: '70%',
+					boxSizing: 'border-box',
+					display: 'flex',
+					flexDirection: 'column',
+					gap: 3,
+					minWidth: 0,
+					padding: '7px 10px',
+					borderRadius: self ? '10px 2px 10px 10px' : '2px 10px 10px 10px',
+					background: self ? 'var(--dsw-alias-bubble-self, #95EC69)' : 'var(--dsw-alias-bubble-other, #FFFFFF)',
+					border: self ? '1px solid rgba(46,125,50,.18)' : '1px solid rgba(127,127,127,.28)',
+					boxShadow: '0 1px 2px rgba(0,0,0,.06)'
+				}
+			}, [header, bodyNode, foldNode, toolNode]);
+			const line = h('div', {
+				key: 'line',
+				style: { display: 'flex', alignItems: 'flex-start', gap: 8, width: '100%', minWidth: 0, justifyContent: self ? 'flex-end' : 'flex-start' }
+			}, self ? [bubble] : [
+				h('div', { key: 'avatar', style: { flex: 'none', marginTop: 2 } }, h(Avatar, { name: key || 'neutral', size: 28, live: live })),
+				h('div', { key: 'col', style: { display: 'flex', flexDirection: 'column', minWidth: 0, maxWidth: 'calc(100% - 36px)' } }, [bubble])
+			]);
 			return h('div', {
 				key: 'row',
 				'data-cabinet-groupchat-row': row.kind,
@@ -4460,8 +4529,15 @@ window.__ModuleLoader__.load({
 				'data-cabinet-groupchat-author': self ? 'self' : undefined,
 				'data-cabinet-groupchat-error': row.kind === 'error' ? '1' : undefined,
 				className: row.kind === 'error' ? 'cabinet-status-failed' : (live ? 'cabinet-row-live' : undefined),
-				style: { display: 'flex', flexDirection: 'column', gap: 3, padding: '4px 0', minWidth: 0 }
-			}, [header, bodyNode, foldNode, toolNode]);
+				style: { display: 'flex', flexDirection: 'column', alignItems: self ? 'flex-end' : 'flex-start', gap: 2, padding: compact === true ? '1px 0' : '6px 0', minWidth: 0 }
+			}, [
+				showTime === true ? h('div', {
+					key: 'stamp',
+					'data-cabinet-groupchat-time': '1',
+					style: { alignSelf: 'center', fontSize: 10.5, color: INK3, background: 'rgba(127,127,127,.12)', borderRadius: 4, padding: '1px 6px', margin: '4px 0' }
+				}, chatStampText(row.time)) : null,
+				line
+			]);
 		}
 		function CabinetPanel({ sessionId, useSession, useSessions, useSessionStatus, t, activeTab: activeTabProp, hideTabs }) {
 			// Re-render when the mirrored member settings change (names/avatars).
@@ -4616,6 +4692,15 @@ window.__ModuleLoader__.load({
 			// an external re-render (a feed frame, a tab click elsewhere) repaints
 			// the input with the same text instead of clearing it.
 			const [draft, setDraft] = React.useState('');
+			// @ 提及：候选列表 + 已选目标（目标与正文分开保存，正文可去标记）。
+			const [mentions, setMentions] = React.useState([]);
+			const [mentionOpen, setMentionOpen] = React.useState(false);
+			const [mentionQuery, setMentionQuery] = React.useState('');
+			const [mentionNotice, setMentionNotice] = React.useState('');
+			// 贴底跟随：ref 判断 + 状态供 data 属性断言；只跟新消息，不持续定时滚。
+			const scrollNodeRef = React.useRef(null);
+			const followBottomRef = React.useRef(true);
+			const [following, setFollowing] = React.useState(true);
 			const [sending, setSending] = React.useState(false);
 			const [sendError, setSendError] = React.useState(null);
 			// Extra 「显示更早」 batches on top of the newest page.
@@ -4781,6 +4866,14 @@ window.__ModuleLoader__.load({
 			// Stable time merge: a member's rows keep their window order, equal
 			// timestamps keep roster order, and the 不可用 rows join last.
 			groupRows.sort((a, b) => (a.time - b.time) || (a.seq - b.seq) || 0);
+			// 进入即到底：挂载后一次、首次拿到消息后一次；用户上滚（非贴底）后
+			// 不再把视图拽回底部。没有定时器，只有这两个依赖点。
+			const chatTailKey = groupRows.length === 0 ? '' : String(groupRows[0].time) + ':' + String(groupRows[0].seq) + ':' + String(groupRows.length);
+			React.useEffect(() => {
+				if (activeTab !== 'groupchat') return;
+				if (followBottomRef.current !== true) return;
+				scrollChatToBottom(scrollNodeRef.current);
+			}, [activeTab, chatTailKey]);
 			// The standalone 内阁 page pins 群聊 and hides this bar: a pinned tab
 			// bar whose clicks cannot switch would be a dead control.
 			if (hideTabs !== true) body.push(h('div', {
@@ -4816,21 +4909,57 @@ window.__ModuleLoader__.load({
 					.map((member) => member.id)];
 				const target = leadCandidates.find((id) => typeof id === 'string' && id !== '' && group.canPrompt(id))
 					|| (typeof leadSessionId === 'string' ? leadSessionId : '');
-				const sendable = target !== '' && group.canPrompt(target);
+				// 候选成员：首辅 + 在册阁臣，带头像与官职名。
+				const mentionCandidates = [leadShown, ...mates]
+					.filter((entry) => entry !== undefined && entry !== null && typeof entry.id === 'string' && entry.id !== '')
+					.map((entry) => ({ id: entry.id, label: memberLabel(entry.name) || String(entry.name || entry.id), name: entry.name, role: entry.role }));
+				const mentionMatches = mentionOpen
+					? mentionCandidates.filter((candidate) => mentionQuery === ''
+						|| candidate.label.includes(mentionQuery)
+						|| String(candidate.name || '').toLowerCase().includes(mentionQuery)
+						|| candidate.id.toLowerCase().includes(mentionQuery))
+					: [];
+				const mentionTargetOf = (text) => mentions.find((entry) => text.includes('@' + entry.label)) || null;
+				const activeMention = mentionTargetOf(draft.trim());
+				const mentionReady = activeMention !== null && group.canPrompt(activeMention.id);
+				const sendable = (target !== '' && group.canPrompt(target)) || mentionReady;
+				const insertMention = (candidate) => {
+					const at = draft.lastIndexOf('@');
+					const next = (at >= 0 ? draft.slice(0, at) : draft) + '@' + candidate.label + ' ';
+					setDraft(next);
+					setMentions((list) => (list.some((entry) => entry.id === candidate.id) ? list : [...list, { id: candidate.id, label: candidate.label, name: candidate.name }]));
+					setMentionOpen(false);
+					setMentionQuery('');
+				};
 				const submit = () => {
 					const text = draft.trim();
 					// `sendingRef` is the synchronous guard: state has not committed
 					// yet when the same frame fires twice (Enter + button).
 					if (text === '' || sendingRef.current || !sendable) return;
+					const mention = mentionTargetOf(text);
+					// 目标与正文分离：直接投递成员时去掉 @标记（收件人即目标）；
+					// 降级给首辅时保留 @标记，让人看得出本该发给谁。
+					const direct = mention !== null && group.canPrompt(mention.id);
+					const deliver = direct ? mention.id : target;
+					const body = direct ? text.split('@' + mention.label).join('').trim() : text;
+					if (mention !== null && !direct) setMentionNotice(tt('groupchat.mention.fallback').replace('{name}', mention.label));
+					else setMentionNotice('');
 					sendingRef.current = true;
 					setSending(true);
 					setSendError(null);
-					group.promptSession(target, [{ type: 'text', text }], 'queue').then((result) => {
-						if (result && result.ok) setDraft('');
-						else {
+					group.promptSession(deliver, [{ type: 'text', text: body === '' ? text : body }], 'queue').then((result) => {
+						if (result && result.ok) { setDraft(''); setMentions([]); setMentionOpen(false); }
+						else if (direct) {
+							// 成员通道失败 → 显式降级给首辅，正文带回 @标记，并在 UI 说明。
+							return group.promptSession(target, [{ type: 'text', text }], 'queue').then((fallback) => {
+								if (fallback && fallback.ok) { setDraft(''); setMentions([]); setMentionOpen(false); setMentionNotice(tt('groupchat.mention.fallback').replace('{name}', mention.label)); }
+								else setSendError(tt('groupchat.composer.failed').replace('{error}', 'member session declined; lead fallback failed'));
+							});
+						} else {
 							const reason = result && result.error ? (result.error.message || String(result.error)) : 'prompt rejected';
 							setSendError(tt('groupchat.composer.failed').replace('{error}', String(reason)));
 						}
+						return undefined;
 					}, (error) => {
 						setSendError(tt('groupchat.composer.failed').replace('{error}', String(error && error.message ? error.message : error)));
 					}).then(() => {
@@ -4857,10 +4986,24 @@ window.__ModuleLoader__.load({
 							onChange: (event) => {
 								// The draft is component state: a feed frame or an external
 								// re-render repaints the same text instead of clearing it.
-								setDraft(event && event.target && typeof event.target.value === 'string' ? event.target.value : '');
+								const value = event && event.target && typeof event.target.value === 'string' ? event.target.value : '';
+								setDraft(value);
+								// 输入到未闭合的 @ 片段时弹候选；空白/过长片段不算提及。
+								const at = value.lastIndexOf('@');
+								const tail = at >= 0 ? value.slice(at + 1) : '';
+								const open = at >= 0 && tail.length <= 24 && !/\s/.test(tail);
+								setMentionOpen(open);
+								setMentionQuery(open ? tail.toLowerCase() : '');
 							},
 							onKeyDown: (event) => {
-								if (!event || event.key !== 'Enter' || event.shiftKey) return;
+								if (!event) return;
+								if (mentionOpen && event.key === 'Escape') { setMentionOpen(false); return; }
+								if (mentionOpen && event.key === 'Enter' && mentionMatches.length > 0) {
+									if (typeof event.preventDefault === 'function') event.preventDefault();
+									insertMention(mentionMatches[0]);
+									return;
+								}
+								if (event.key !== 'Enter' || event.shiftKey) return;
 								if (typeof event.preventDefault === 'function') event.preventDefault();
 								submit();
 							}
@@ -4875,6 +5018,37 @@ window.__ModuleLoader__.load({
 							onClick: submit
 						}, sending ? tt('groupchat.composer.sending') : tt('groupchat.composer.send'))
 					]),
+					mentionOpen && mentionMatches.length > 0
+						? h('div', {
+							key: 'mentions',
+							role: 'listbox',
+							'data-cabinet-mention-panel': '1',
+							style: { display: 'flex', flexDirection: 'column', gap: 2, padding: 4, border: '1px solid var(--dsw-alias-border-l3, rgba(127,127,127,.3))', borderRadius: 6, background: 'var(--dsw-alias-bg-l2, #fff)', maxHeight: 180, overflow: 'auto' }
+						}, mentionMatches.map((candidate) => h('button', {
+							key: candidate.id,
+							type: 'button',
+							role: 'option',
+							'data-cabinet-mention-option': candidate.id,
+							onMouseDown: (event) => { if (event && typeof event.preventDefault === 'function') event.preventDefault(); },
+							onClick: () => insertMention(candidate),
+							style: { display: 'flex', alignItems: 'center', gap: 6, font: 'inherit', fontSize: 12, padding: '3px 6px', borderRadius: 6, border: 0, background: 'transparent', cursor: 'pointer', textAlign: 'left', color: INK }
+						}, [
+							h('span', { key: 'a', style: { flex: 'none' } }, h(Avatar, { name: candidate.name || 'neutral', size: 18 })),
+							h('span', { key: 'n' }, candidate.label)
+						]))) : null,
+					mentions.filter((entry) => draft.includes('@' + entry.label)).length > 0
+						? h('div', {
+							key: 'targets',
+							'data-cabinet-mention-target': mentions.filter((entry) => draft.includes('@' + entry.label)).map((entry) => entry.id).join(','),
+							style: { display: 'flex', gap: 4, flexWrap: 'wrap', fontSize: 11, color: INK2 }
+						}, [h('span', { key: 'l' }, tt('groupchat.mention.to') + ' '), ...mentions.filter((entry) => draft.includes('@' + entry.label)).map((entry) => h('span', {
+							key: entry.id,
+							'data-cabinet-mention-chip': entry.id,
+							style: { padding: '0 6px', borderRadius: 10, background: 'rgba(79,140,255,.14)', color: INK, fontSize: 11 }
+						}, '@' + entry.label))]) : null,
+					mentionNotice !== ''
+						? h('div', { key: 'mention-note', 'data-cabinet-mention-fallback': '1', role: 'status', style: { fontSize: 11, color: INK3 } }, mentionNotice)
+						: null,
 					!sendable
 						? h('div', { key: 'unavailable', 'data-cabinet-groupchat-composer-hint': '1', style: { fontSize: 11, color: INK3 } }, tt('groupchat.composer.unavailable'))
 						: (sendError === null ? null : h('div', { key: 'failed', 'data-cabinet-groupchat-composer-hint': '1', style: { fontSize: 11, color: INK3 } }, sendError))
@@ -4883,7 +5057,20 @@ window.__ModuleLoader__.load({
 					key: 'groupchat',
 					role: 'tabpanel',
 					'data-cabinet-groupchat': '1',
-					style: { display: 'flex', flexDirection: 'column', gap: 8 }
+					'data-cabinet-groupchat-scroll': '1',
+					'data-cabinet-groupchat-follow': following ? '1' : '0',
+					ref: (node) => {
+						scrollNodeRef.current = node;
+						// 挂载即到底（ref 回调在首次 commit 时运行）。
+						if (node !== null && node !== undefined) scrollChatToBottom(node);
+					},
+					onScroll: (event) => {
+						const node = event !== null && event !== undefined && event.target ? event.target : null;
+						const next = nearChatBottom(node, 24);
+						followBottomRef.current = next;
+						setFollowing(next);
+					},
+					style: { display: 'flex', flexDirection: 'column', gap: 8, overflowY: 'auto', maxHeight: '100%', minHeight: 0 }
 				}, [
 					hidden > 0
 						? h('button', {
@@ -4897,11 +5084,13 @@ window.__ModuleLoader__.load({
 						: null,
 					rows.length === 0
 						? h('div', { key: 'empty', 'data-cabinet-groupchat-empty': '1', style: { fontSize: 12, color: INK2, lineHeight: 1.6 } }, tt('groupchat.empty'))
-						: shown.map((row, index) => h(GroupChatRow, {
+						: cabinetChatViewRows(shown).map((entry, index) => h(GroupChatRow, {
 							key: 'row:' + index,
-							row,
-							member: row.member || memberByName.get(row.memberName),
-							t: tt
+							row: entry.row,
+							member: entry.row.member || memberByName.get(entry.row.memberName),
+							t: tt,
+							compact: entry.compact,
+							showTime: entry.showTime
 						})),
 					composer
 				]));
@@ -5836,6 +6025,8 @@ window.__ModuleLoader__.load({
 			'groupchat.tools.count': '{n} 个工具',
 			'groupchat.tools.hide': '收起工具',
 			'groupchat.you': '你',
+			'groupchat.mention.to': '将发给：',
+			'groupchat.mention.fallback': '已降级：无法直接投递到 {name} 的会话，本条改发首辅，正文保留 @ 标记。',
 			'groupchat.fold.expand': '展开',
 			'groupchat.fold.collapse': '收起',
 			'groupchat.older': '显示更早（还有 {n} 条）',
@@ -5972,6 +6163,8 @@ window.__ModuleLoader__.load({
 			'groupchat.tools.count': '{n} tools',
 			'groupchat.tools.hide': 'Hide tools',
 			'groupchat.you': 'You',
+			'groupchat.mention.to': 'To:',
+			'groupchat.mention.fallback': 'Degraded: could not deliver to {name}\'s session; sent to the Lead with the @ marker kept in the text.',
 			'groupchat.fold.expand': 'Show more',
 			'groupchat.fold.collapse': 'Show less',
 			'groupchat.older': 'Show earlier ({n} more)',
