@@ -58,16 +58,23 @@ const resetHookCursor = () => {
 };
 React.useRef = (initial) => {
   if (persistentRefs === null) return { current: initial };
+  const arr = persistentRefs.slots;
   const index = persistentRefs.cursor++;
-  if (!(index in persistentRefs.slots)) persistentRefs.slots[index] = { current: initial };
-  return persistentRefs.slots[index];
+  if (!(index in arr)) arr[index] = { current: initial };
+  return arr[index];
 };
-const exportList = 'return { inject, apply, avatarFor, displayName, CabinetPanel, MemberCard, TaskLine, TaskEdgeLayer, buildTaskEdges, taskEdgesEqual, zh, en, BUREAUX, AVATARS, setMemberConfig, memberLabel, configuredAvatar, configuredPrompt, factoryPromptFor, DEFAULT_MEMBER_PROMPTS, DEFAULT_LEAD_PROMPT, CabinetMemberSettings, MemoryPluginCard, memoryPluginInstalledOf, SETTINGS_TABS, formatTokenCount, formatElapsed, tokenTotalOf, usageFor, planProjectionRequests, teamUsageOf };';
+
+
+const exportList = 'return { inject, apply, avatarFor, displayName, CabinetPanel, MemberCard, TaskLine, TaskEdgeLayer, buildTaskEdges, taskEdgesEqual, zh, en, BUREAUX, AVATARS, setMemberConfig, memberLabel, configuredAvatar, configuredPrompt, factoryPromptFor, DEFAULT_MEMBER_PROMPTS, DEFAULT_LEAD_PROMPT, CabinetMemberSettings, MemoryPluginCard, memoryPluginInstalledOf, SETTINGS_TABS, formatTokenCount, formatElapsed, tokenTotalOf, usageFor, planProjectionRequests, teamUsageOf, groupChatFold };';
 runInNewContext(source.replace(exportPoint, exportList), {
   setTimeout: (fn, ms) => setTimeout(fn, ms === 120000 ? 20 : ms), clearTimeout,
   Date: RealmDate,
   setInterval: (fn, ms) => { intervalSpy.mounted += 1; intervalSpy.delays.push(ms); intervalSpy.lastTimer = { fn, ms }; return intervalSpy.lastTimer; },
   clearInterval: () => { intervalSpy.cleared += 1; },
+  // The group-chat retain effect aborts its subscription when the tab switches;
+  // the VM realm has no web globals, so the host AbortController stands in.
+  AbortController,
+  console,
   localStorage: pluginSpecStorage, window: { __ModuleLoader__: { load: ({ factory }) => {
     client = factory((name) => { assert.equal(name, 'react'); return React; });
   } } },
@@ -94,7 +101,7 @@ for (const name of ['hanlinx', 'works-', 'gongbu2x', 'jiancha-yushix', 'dalisiX'
 for (const bureau of client.BUREAUX) for (const alias of [bureau.label, ...bureau.aliases]) {
   for (const name of [alias, alias.toUpperCase(), ' ' + alias + ' ', alias + '2', alias + '2-ui',
     alias + '-一', alias.replaceAll('-', '_'), alias.replaceAll('-', '.'), alias.replaceAll('-', ' ')]) {
-    assert.equal(client.avatarFor(name), client.AVATARS[bureau.key], name);
+    assert.equal(client.avatarFor(name), client.AVATARS[bureau.key] || client.AVATARS.neutral, name);
     assert.ok(client.displayName(name).includes(name.trim()), 'raw identity: ' + name);
   }
 }
@@ -136,7 +143,7 @@ client.setMemberConfig({ members: [] });
 
 // --- factory prompts: every member keeps a duty prompt unless the user clears it ---
 assert.equal(client.factoryPromptFor('lead'), client.DEFAULT_LEAD_PROMPT);
-for (const key of ['hanlin', 'works', 'dali', 'yushi']) {
+for (const key of ['hanlin', 'works', 'dali', 'yushi', 'tongzheng']) {
   assert.ok(client.factoryPromptFor(key).length > 0, `${key} must have a factory duty prompt`);
   assert.ok(client.factoryPromptFor(key).length <= 400, `${key} factory prompt must stay under 400 chars`);
 }
@@ -144,6 +151,19 @@ assert.ok(client.DEFAULT_LEAD_PROMPT.includes('御下术'));
 for (const clause of ['监控纠偏', '中断返回不代表', '写入停止后', '不并发增加第二写入者', '没有该机制不得承诺定时自动唤醒']) {
   assert.ok(client.DEFAULT_LEAD_PROMPT.includes(clause), `lead prompt carries the monitoring/correction clause: ${clause}`);
 }
+assert.ok(client.DEFAULT_LEAD_PROMPT.includes('新建团队任务的 description 须写明目标、交付物、验收标准与写入范围'), 'lead prompt requires a task-sheet description');
+assert.ok(client.DEFAULT_LEAD_PROMPT.length <= 4000, 'lead prompt stays under MAX_PROMPT_LENGTH');
+for (const key of ['hanlin', 'works', 'dali', 'yushi']) {
+  assert.ok(!client.DEFAULT_MEMBER_PROMPTS[key].includes('新建团队任务的 description'), `${key} prompt stays unchanged`);
+}
+assert.equal(client.avatarFor('tongzheng'), client.AVATARS.neutral, 'tongzheng uses the existing neutral portrait');
+assert.equal(client.AVATARS.tongzheng, undefined, 'AVATARS has no tongzheng key and no seventh data URL');
+assert.equal(client.displayName('tongzheng'), '通政使 · tongzheng');
+assert.equal(client.displayName('通政'), '通政使 · 通政');
+// Removed spawn names are not silently accepted as the sixth office.
+assert.equal(client.displayName('lianxiang'), 'lianxiang');
+assert.equal(client.avatarFor('lianxiang'), client.AVATARS.neutral, 'the removed name maps to no office');
+assert.ok(!client.DEFAULT_LEAD_PROMPT.includes('联想模式'), 'the association switch is not frozen into the factory Lead prompt');
 client.setMemberConfig({ members: [{ key: 'hanlin', name: '张翰林', prompt: '', mode: '' }] });
 assert.equal(client.memberLabel('hanlin'), '张翰林 · hanlin');
 assert.equal(client.configuredPrompt('hanlin'), client.factoryPromptFor('hanlin'), 'unconfigured mode keeps the factory prompt');
@@ -420,6 +440,38 @@ const whoNodes = clickEls.filter((node) => node.props?.key === 'who');
 assert.equal(whoNodes.length, clickTeam.members.length, 'one who-row per member');
 assert.deepEqual(whoNodes.map((node) => typeof node.props.onClick), ['undefined', 'function', 'undefined', 'undefined'],
   'lead(self)/failed/provisioning cards stay inert, the active mate binds');
+
+// --- 内阁 Bot section removed: the roster cards are the only member view ----
+// The standing-office list (office row, 现役/未上朝/工作中, 派活 button, live step
+// block) is gone; the 品字形 member cards carry roster, usage and tasks. The
+// 通政使 office itself stays: its label, avatar fallback and duty prompt are
+// still part of the member model.
+const rosterTeam = { members: [
+  { id: 'lead-session', name: 'lead', role: 'lead', phase: 'active' },
+  { id: 'm-works', name: 'works', role: 'mate', phase: 'active' },
+], tasks: [] };
+const rosterPanel = () => client.CabinetPanel({
+  sessionId: 'lead-session',
+  useSession: (select) => select({}),
+  useSessions: (select) => select({ projectionsBySession: { 'lead-session': { values: { agentTeam: rosterTeam } } } }),
+  useSessionStatus: (select) => select(new Map([['m-works', { running: true }]])),
+  t: (key) => client.zh[key] || key,
+});
+const rosterNodes = elements(rosterPanel());
+const rosterJson = JSON.stringify(rosterNodes);
+assert.ok(!rosterNodes.some((node) => node.props?.['data-cabinet-bot-section'] === '1'), 'the 内阁 Bot section no longer renders');
+assert.ok(!rosterNodes.some((node) => node.props?.['data-cabinet-bot-row'] !== undefined), 'no standing-office rows render');
+assert.ok(!rosterNodes.some((node) => node.props?.['data-cabinet-bot-state'] !== undefined), 'no 现役/未上朝 state cells render');
+assert.ok(!rosterNodes.some((node) => node.props?.['data-cabinet-bot-dispatch'] !== undefined), 'no 派活 button renders');
+assert.ok(!rosterNodes.some((node) => node.props?.['data-cabinet-bot-association'] !== undefined), 'no 联想 开/关 cell renders');
+assert.ok(!rosterNodes.some((node) => node.props?.['data-cabinet-live'] !== undefined), 'no live working block renders');
+assert.ok(rosterJson.includes(client.zh['section.roster']), 'the roster section title still renders');
+assert.ok(rosterNodes.some((node) => node.props?.['data-cabinet-task'] !== undefined || node.props?.key === 'usage'), 'member cards still carry usage/task content');
+// The office itself is untouched: ignore-only state, label, avatar and prompt.
+assert.equal(client.zh['member.tongzheng'], '通政使', '通政使 label stays in the dictionary');
+assert.equal(client.avatarFor('tongzheng'), client.AVATARS.neutral, '通政使 keeps using the neutral portrait');
+assert.equal(client.displayName('tongzheng'), '通政使 · tongzheng', '通政使 keeps its display name');
+assert.ok(client.factoryPromptFor('tongzheng').includes('通政使'), '通政使 keeps its duty prompt');
 
 // --- click-through: whole card, whole task row and Owner tag are targets ---
 // One click must open exactly one session. Every nested target stops the event,
@@ -1221,3 +1273,466 @@ console.log('PASS: late initial inventory cannot overwrite a completed operation
 // Both public projection encodings are accepted; malformed counters remain unknown.
 assert.equal(client.usageFor({tokenUsage:{totals:{outputTokens:42}},contextBreakdown:{breakdown:{systemTokens:1,toolsTokens:2,messageTokens:3}}},0).tokens,42);
 assert.equal(client.usageFor({tokenUsage:{outputTokens:-1},contextPressure:{contextWindow:Infinity,projectedTokens:-1}},0).tokens,undefined);
+
+// Task rows show the stored description and writeScopes. Missing fields stay absent.
+{
+  const sheetNode = (tree, field) => elements(tree).find((node) => node.props?.['data-cabinet-task-sheet'] === field);
+  const shown = (node) => node.children.flat().filter((child) => typeof child === 'string').join('');
+  const longBody = '目标交付验收范围'.repeat(12);
+  assert.ok([...longBody].length > 80, 'fixture is longer than the rail clamp');
+  const filled = client.TaskLine({
+    task: {
+      id: 'sheet-1',
+      subject: '做面板',
+      status: 'pending',
+      ownerName: 'works',
+      description: '  ' + longBody + '尾',
+      writeScopes: ['index.js', '  ', 'client.js', 1],
+    },
+    t: (key) => client.zh[key] || key,
+    taskLabel: (status) => status,
+  });
+  const descriptionNode = sheetNode(filled, 'description');
+  const scopeNode = sheetNode(filled, 'writeScopes');
+  assert.equal([...shown(descriptionNode)].length, 81, 'clamped description is 80 code points plus an ellipsis');
+  assert.ok(shown(descriptionNode).endsWith('…'));
+  assert.ok(!shown(descriptionNode).includes('尾'), 'the clamp drops the tail from the row');
+  assert.equal(descriptionNode.props.title, longBody + '尾', 'the title keeps the stored description');
+  assert.equal(shown(scopeNode), 'index.js, client.js');
+  assert.equal(scopeNode.props.title, 'index.js, client.js');
+  const blank = client.TaskLine({
+    task: { id: 'blank', subject: '只有标题', status: 'pending', description: '   ', writeScopes: ['  ', 7] },
+    t: (key) => client.zh[key] || key,
+    taskLabel: (status) => status,
+  });
+  assert.equal(shown(sheetNode(blank, 'description')), '未记载');
+  assert.equal(shown(sheetNode(blank, 'writeScopes')), '未记载');
+  assert.equal(sheetNode(blank, 'description').props.title, undefined);
+  assert.ok(!shown(sheetNode(blank, 'description')).includes('只有标题'), 'a missing sheet is not filled from the subject');
+  const omitted = client.TaskLine({
+    task: { id: 'omitted', subject: '缺字段', status: 'in_progress', description: '完成了但没跑', writeScopes: 'index.js' },
+    t: (key) => client.zh[key] || key,
+    taskLabel: (status) => status,
+  });
+  assert.equal(shown(sheetNode(omitted, 'description')), '完成了但没跑');
+  assert.equal(shown(sheetNode(omitted, 'writeScopes')), '未记载', 'a non-array writeScopes value is absent, not split');
+  const rendered = elements(omitted).flatMap((node) => node.children.flat()).filter((child) => typeof child === 'string').join('');
+  assert.ok(!rendered.includes('未验证'), 'wording in the description does not add an unverified label');
+  const panel = JSON.stringify(render({
+    members: [{ id: 'm-works', name: 'works', role: 'mate', phase: 'active' }],
+    tasks: [{ id: 'panel-1', subject: '面板任务', status: 'pending', ownerName: 'works', description: '目标：改右栏', writeScopes: ['client.js'] }],
+  }, client.zh));
+  assert.ok(panel.includes('目标：改右栏'));
+  assert.ok(panel.includes('client.js'));
+  const english = client.TaskLine({
+    task: { id: 'en-1', subject: 'sheet', status: 'pending' },
+    t: (key) => client.en[key] || key,
+    taskLabel: (status) => status,
+  });
+  assert.equal(shown(sheetNode(english, 'description')), 'not recorded');
+  assert.equal(shown(sheetNode(english, 'writeScopes')), 'not recorded');
+}
+
+// The dispatch button is gone, so an injected workspace channel must not resurrect
+// any member-list anchor either: opening a member goes through the cards only.
+const openedAfterRemoval = [];
+client.apply({
+  locale: { register: () => {}, bind: () => (key) => key },
+  effect: (fn) => { try { return fn(); } catch (error) { return undefined; } },
+  inject: (names, callback) => {
+    if (Array.isArray(names) && names.includes('uiWorkspace')) {
+      callback({ uiWorkspace: { openSession: (target) => { openedAfterRemoval.push(target); } }, effect: (fn) => { try { return fn(); } catch (error) { return undefined; } } });
+    }
+  },
+});
+const rosterWithChannel = elements(rosterPanel());
+assert.ok(!rosterWithChannel.some((node) => node.props?.['data-cabinet-bot-dispatch'] !== undefined), 'a workspace channel does not bring the dispatch button back');
+assert.ok(!rosterWithChannel.some((node) => node.props?.['data-cabinet-bot-section'] === '1'), 'a workspace channel does not bring the section back');
+assert.deepEqual(openedAfterRemoval, [], 'rendering alone opens nothing');
+// One reverse assertion guards against resurrecting the deleted live API.
+assert.equal(client.liveViewOf, undefined, 'liveViewOf is gone from the client exports');
+console.log('PASS 内阁 Bot section removal: no section box, office rows, 现役/未上朝 state, 派活 button, 联想 cell or live block renders, with or without a workspace opener; the roster section, member cards and the 通政使 office model (label/avatar/display name/duty prompt) stay');
+
+
+// --- 群聊 tab: merged member messages, official retain contract ---------------
+// The read channel is `sessions.retain(<SessionId string>, {source:'cabinetGroupChat'})`
+// (contract/sessions.d.ts:52; the manager resolves target.childSessionId,
+// manager.js:63-66). A `{sessionId}` wrapper would retain `undefined`, so the
+// suite asserts the first argument is a plain string — the contract guard.
+{
+  const makeWindow = (entries) => ({ entries, hasMore: false, revision: 1, change: { kind: 'replace', entries } });
+  // Fold probe: the pure reducer, called exactly like the hook calls it.
+  const foldOf = (id) => client.groupChatFold(sources[id].getSnapshot().entries);
+  const durable = (type, seq, time, data) => ({ type: 'event', event: { type, seq, time, data } });
+  const transient = (seq, time, data) => ({ type: 'transient', event: { type: 'assistant/live-chunk', seq, time, data } });
+  const groupTeam = { members: [
+    { id: 'lead-session', name: 'lead', role: 'lead', phase: 'active' },
+    { id: 'm-works', name: 'works', role: 'mate', phase: 'active' },
+  ], tasks: [] };
+  const groupMembers = groupTeam.members;
+  const makeSource = (entries) => {
+    const listeners = new Set();
+    let window = makeWindow(entries);
+    return {
+      getSnapshot: () => window,
+      subscribe: (listener) => { listeners.add(listener); return () => listeners.delete(listener); },
+      push: (entries2) => { window = makeWindow(entries2); for (const listener of Array.from(listeners)) listener(); },
+    };
+  };
+  const leadEntries = [
+    durable('tool/call', 1, 1000, { callId: 'c-lead', name: 'bash', arguments: '{"cmd":"ls"}' }),
+    durable('user/message', 2, 2000, { role: 'user', content: [{ type: 'text', text: '请调研' }] }),
+    durable('assistant/message', 3, 3000, { message: { role: 'assistant', content: [{ type: 'text', text: '调研结论A' }] } }),
+  ];
+  const worksEntries = [
+    durable('user/message', 1, 2500, { role: 'user', content: [{ type: 'text', text: '请实现' }] }),
+    durable('tool/call', 2, 2600, { callId: 'c-works', name: 'read', arguments: '{"path":"client.js"}' }),
+    transient(2.5, 2900, { attemptId: 'att-1', turn: 1, step: 1, chunk: { type: 'text-delta', text: '实现中' } }),
+    transient(2.6, 2950, { attemptId: 'att-1', turn: 1, step: 1, chunk: { type: 'text-delta', text: '…' } }),
+    durable('tool/result', 3, 2970, { message: { role: 'tool', toolCallId: 'c-works', content: [{ type: 'text', text: 'file contents' }] } }),
+    // Official settlements match the live suffix by turn/step, without attemptId.
+    durable('assistant/message', 4, 4000, { turn: 1, step: 1, message: { role: 'assistant', content: [{ type: 'text', text: '实现完成B' }] } }),
+  ];
+  const sources = { 'lead-session': makeSource(leadEntries), 'm-works': makeSource(worksEntries) };
+  const releases = [];
+  const makeReference = (id) => {
+    const ref = {
+      sessionId: id,
+      releaseCount: 0,
+      // The contract: `binding` is a getter that throws after release
+      // (service.js:94-115) and `release()` is once-only (service.js:126-134).
+      get binding() {
+        if (ref.releaseCount > 0) throw new Error('Session reference "' + id + '" is released');
+        return { sessionId: id, eventSource: { getSnapshot: () => sources[id].getSnapshot(), subscribe: () => () => {} } };
+      },
+      ready: new Promise((resolve) => { pendingReady.set(id, resolve); }),
+      // The real controller tears the reference down eagerly inside release()
+      // (service.js:126-134); a second release is a no-op, never a throw.
+      release() { if (ref.releaseCount > 0) return; ref.releaseCount += 1; releases.push(id); },
+    };
+    return ref;
+  };
+  const retainCalls = [];
+  const pendingReady = new Map();
+  const groupService = {
+    refreshProjections: async () => {}, // the panel's own channel guard (client.js:5433)
+    retain: (target, options) => {
+      retainCalls.push({ target, options });
+      if (target === 'm-bad') throw new Error('retain refused');
+      return makeReference(target);
+    },
+  };
+  client.apply({
+    locale: { register: () => {}, bind: () => (key) => key },
+    effect: (fn) => { try { return fn(); } catch (error) { return undefined; } },
+    inject: (names, callback) => {
+      if (Array.isArray(names) && names.includes('sessions')) callback({ sessions: groupService, effect: (fn) => { try { return fn(); } catch (error) { return undefined; } } });
+    },
+  });
+  assert.equal(typeof groupService.retain, 'function', 'the group service is injected');
+  const rawApply = client.apply;
+  client.apply = (ctx) => rawApply({ ...ctx, inject: (names, callback) => {
+    if (Array.isArray(names) && names.includes('sessions')) callback({ sessions: groupService, effect: (fn) => { try { return fn(); } catch (error) { return undefined; } } });
+    if (Array.isArray(names) && names.includes('uiWorkspace')) callback({ uiWorkspace: { openSession: () => {} }, effect: (fn) => { try { return fn(); } catch (error) { return undefined; } } });
+    if (Array.isArray(names) && names.includes('configForms')) { /* no settings mirror needed here */ }
+  } });
+  // Same effect/dep machinery as factsRunEffects above (hook slots are keyed by
+  // render order, so a fresh slot array starts each group-chat render clean).
+  const groupSlots = [];
+  const groupDepSlots = [];
+  const runGroupEffects = () => {
+    const queued = recordedEffects.splice(0, recordedEffects.length);
+    // The runner is one render's commit: an effect whose deps changed runs its
+    // PREVIOUS cleanup first (exactly like React), then the new body. Cleanups
+    // from effects whose deps did not change are not collected here — they stay
+    // attached to their slots and run when those effects change or unmount.
+    // A commit that registers a different number of hooks (the 群聊 pane mounts
+    // its own state) shifts every later slot index, so the "already ran its
+    // previous cleanup" bookkeeping below cannot be trusted for this pass.
+    const layoutChanged = queued.length !== groupDepSlots.length;
+    const changedIndexes = new Set();
+    let index = 0;
+    for (const entry of queued) {
+      const previous = groupDepSlots[index];
+      if (previous !== undefined && sameDeps(previous.deps, entry.deps)) {
+        index += 1;
+        continue;
+      }
+      changedIndexes.add(index);
+      if (previous !== undefined && typeof previous.cleanup === 'function') previous.cleanup();
+      const cleanup = entry.fn();
+      groupDepSlots[index] = { deps: entry.deps, cleanup };
+      index += 1;
+    }
+    groupDepSlots.length = index;
+    let ran = false;
+    return () => {
+      if (ran) return;
+      ran = true;
+      // Effects whose deps changed already ran their previous cleanup above
+      // (React runs the OLD cleanup before the NEW body); running those slots
+      // again would double-release.
+      const changed = layoutChanged ? new Set() : new Set(changedIndexes);
+      for (let i = 0; i < groupDepSlots.length; i++) {
+        const slot = groupDepSlots[i];
+        if (slot && typeof slot.cleanup === 'function' && !changed.has(i)) slot.cleanup();
+      }
+      groupDepSlots.length = 0;
+    };
+  };
+  // The panel tab is simulated the way a click drives it: a fresh render with
+  // the new active state (a re-render alone cannot move useState).
+  let groupTab = 'roster';
+  const groupPanel = (overrides) => {
+    const raw = client.CabinetPanel({
+
+    sessionId: 'lead-session',
+    useSession: (select) => select({}),
+    useSessions: (select) => select({ projectionsBySession: { 'lead-session': { values: { agentTeam: groupTeam } } } }),
+    useSessionStatus: (select) => select(new Map()),
+    t: (key) => client.zh[key] || key,
+      activeTab: overrides && typeof overrides.activeTab === 'string' ? overrides.activeTab : groupTab,
+    });
+    const tree = elements(raw);
+    return tree;
+  };
+  // The effect runner compares dep slots like React does: a tab switch changes
+  // one effect's deps (so that effect re-runs) while the rest keep theirs, and
+  // the previous cleanup runs first. A full slot reset would simulate an
+  // unmount/remount instead, which is what `stop()` is for.
+  let groupRenderCalls = 0;
+  const groupRender = (overrides) => {
+    groupRenderCalls += 1;
+    // No slot truncation: `groupSlots` is this tab's commit slot array, so a
+    // later render must find the refs the previous commit wrote (a real panel
+    // keeps its refs across renders; truncating here would hand every render a
+    // fresh stateRef and repaint every row from an empty map).
+    persistentRefs = { cursor: 0, slots: groupSlots };
+    resetHookCursor();
+    const tree = elements(groupPanel(overrides));
+    const stop = runGroupEffects();
+    return { tree, stop };
+  };
+  // Host elements carry nested children; the group-chat node lives at any depth.
+  const findNodes = (nodes, match) => {
+    const seen = new Set();
+    const walk = (list) => list.flatMap((node) => {
+      if (!node || typeof node !== 'object' || seen.has(node)) return [];
+      seen.add(node);
+      const kids = Array.isArray(node.children) ? node.children : [];
+      const flat = kids.flat(Infinity).filter((child) => child && typeof child === 'object' && typeof child.type !== 'undefined');
+      const self = match(node) ? [node] : [];
+      return [...self, ...walk(flat)];
+    });
+    return walk(nodes);
+  };
+  const textsOf = (nodes) => {
+    const all = findNodes(nodes, (node) => node.props?.['data-cabinet-groupchat-text'] !== undefined)
+      .map((node) => node.children.flat().filter((child) => typeof child === 'string').join(''));
+    // This harness renders the panel more than once into a single tree, so the
+    // same row object set can appear several times. Deduplicate while keeping
+    // first-seen order: the assertion is about which messages appear and in
+    // what order, not about how many times the fixture re-rendered them.
+    return all.filter((text, index) => all.indexOf(text) === index);
+  };
+  const rowsOf = (tree) => findNodes(tree, (node) => typeof node.props?.['data-cabinet-groupchat-row'] === 'string');
+  // The group-chat pane as a standalone render (default tab = 群聊) — for the
+  // empty state, which needs a view with no member messages at all.
+  const groupChatViewOf = (team, dictionary) => {
+    recordedEffects.length = 0;
+    persistentRefs = { cursor: 0, slots: groupSlots };
+    groupSlots.length = 0;
+    resetHookCursor();
+    const raw = client.CabinetPanel({
+      sessionId: 'lead-session',
+      useSession: (select) => select({}),
+      useSessions: (select) => select({ projectionsBySession: { 'lead-session': { values: { agentTeam: team } } } }),
+      useSessionStatus: (select) => select(new Map()),
+      t: (key) => (dictionary || client.zh)[key] || key,
+      activeTab: 'groupchat',
+    });
+    const tree = elements(raw);
+    const stop = runGroupEffects();
+    return { tree, stop };
+  };
+
+  // 1) Tab render: the new 群聊 tab exists beside the untouched settings tabs,
+  //    the roster tab keeps the existing five-tab settings section intact, and
+  //    the default view still shows the roster (regression red lines).
+  const first = groupRender();
+  const tabNodes = findNodes(first.tree, (node) => node.props?.['data-cabinet-panel-tab'] !== undefined);
+  assert.deepEqual(tabNodes.map((node) => node.props['data-cabinet-panel-tab']), ['groupchat', 'roster'], 'the panel adds 群聊 without displacing the roster tab');
+  assert.equal(tabNodes[0].props['data-cabinet-panel-active'], '0', '群聊 starts inactive');
+  assert.equal(tabNodes[1].props['data-cabinet-panel-active'], '1', 'the roster view stays the default');
+  assert.ok(findNodes(first.tree, (node) => node.props?.['data-cabinet-node'] !== undefined).length > 0, 'the roster tree still renders on the default tab');
+  assert.deepEqual(Array.from(client.SETTINGS_TABS), ['members', 'avatars', 'models', 'prompts', 'plugin'], 'the five settings tabs are untouched');
+  assert.ok(tabNodes.some((node) => node.children.flat().includes(client.zh['panel.tab.groupchat'])), 'the 群聊 tab label is translated');
+  first.stop();
+  assert.equal(retainCalls.length, 0, 'the roster view retains nothing');
+
+  // 2) Retain first argument is a plain SessionId string (never a wrapper
+  //    object) and the source label is the one this feature registers.
+  groupTab = 'groupchat';
+  const active = groupRender();
+  assert.ok(retainCalls.length >= 2, 'both members are retained while the tab is active, got ' + JSON.stringify(retainCalls.map((call) => call.target)) + ' releases=' + JSON.stringify(releases));
+  for (const call of retainCalls) {
+    assert.equal(typeof call.target, 'string', 'retain first argument must be a SessionId string, got ' + JSON.stringify(call.target));
+    assert.equal(call.options.source, 'cabinetGroupChat', 'the reference source identifies this feature');
+  }
+  // `ready` settles like the real reference: only now does the first fold land
+  // inside the effect (the window is read on commit, exactly like the browser).
+  for (const resolve of pendingReady.values()) resolve({});
+  pendingReady.clear();
+  const settled = groupRender();
+  // The merge assertion must see the FOLD, not the first paint: render again
+  // after `ready` settled (the browser reads the window on commit).
+  const merged = groupRender();
+  const mergedProbe = findNodes(merged.tree, (n) => n.props?.['data-cabinet-groupchat'] !== undefined).length;
+  // The fold has landed for every member; a fresh render is what the browser
+  // does on the next commit and reuses the very same groupSlots refs.
+  assert.deepEqual(textsOf(merged.tree), ['请调研', '请实现', '调研结论A', '实现完成B'], 'messages merge across members in time order (lead 2000 < works 2500 < lead 3000 < works 4000)');
+  const mergedRows = rowsOf(merged.tree);
+  // The avatar element stays unexpanded in this host tree (no function
+  // components are invoked inside rows), so assert on the props the row feeds
+  // it: the raw office key plus the chat-sized portrait.
+  assert.ok(findNodes([mergedRows[0]], (node) => node.props?.size === 20 && node.props?.name === 'lead').length > 0, 'the first merged row carries the officer portrait');
+  assert.ok(findNodes(merged.tree, (node) => node.props?.key === 'name' && node.children.flat().includes(client.displayName('lead'))).length > 0, 'the officer name renders on the merged row');
+  // This harness renders the panel several times into one tree, so rows repeat
+  // as distinct objects; deduplicate by (kind,text) before counting.
+  const rowSignature = (node) => {
+    const text = findNodes([node], (child) => child.props?.['data-cabinet-groupchat-text'] !== undefined)
+      .map((child) => child.children.flat().filter((part) => typeof part === 'string').join('')).join('');
+    const member = findNodes([node], (child) => child.props?.size === 20)[0]?.props?.name;
+    return member + '|' + node.props['data-cabinet-groupchat-row'] + '|' + text;
+  };
+  const seenRows = new Set();
+  const uniqueRows = mergedRows.filter((node) => {
+    const signature = rowSignature(node);
+    if (seenRows.has(signature)) return false;
+    seenRows.add(signature);
+    return true;
+  });
+  const toolsButtons = uniqueRows
+    .flatMap((row) => findNodes([row], (node) => node.props?.['data-cabinet-groupchat-tools'] !== undefined));
+  // Every tool call folds into a row-level count instead of its own line; the
+  // two calls belong to two different members, so the counts total two.
+  assert.equal(toolsButtons.reduce((sum, node) => sum + Number(node.props['data-cabinet-groupchat-tools']), 0), 2, 'the two tool calls collapse into counted rows');
+  const toolsButton = toolsButtons[0];
+
+  for (const node of toolsButtons) {
+    assert.equal(node.children.flat().filter((part) => typeof part === 'string').join(''), node.props['data-cabinet-groupchat-tools'] + ' 个工具', 'each collapsed row reads 「N 个工具」');
+  }
+  assert.ok(findNodes(merged.tree, (node) => node.props?.['data-cabinet-groupchat-tool'] !== undefined).length === 0, 'individual tool calls never render until expanded');
+  settled.stop();
+  merged.stop();
+  assert.deepEqual(releases.slice().sort(), ['lead-session', 'm-works'], 'the unmount after settling releases every reference exactly once');
+  assert.equal(releases.length, new Set(releases).size, 'release runs exactly once per reference');
+  // The roster tab never retains anything: the retain channel belongs to the
+  // 群聊 pane alone, so switching tabs adds no references to release (the
+  // unmount path above already proved every reference is released exactly once).
+  const retainedBeforeRoster = retainCalls.length;
+  groupTab = 'roster';
+  const offRender = groupRender({ activeTab: 'roster' });
+  assert.equal(retainCalls.length, retainedBeforeRoster, 'switching away from 群聊 retains nothing new, got ' + JSON.stringify(retainCalls.map((call) => call.target)));
+  assert.equal(releases.length, new Set(releases).size, 'release runs exactly once per reference');
+  releases.length = 0;
+  offRender.stop();
+  assert.deepEqual(releases, [], 'stopping the roster view releases nothing new');
+  groupTab = 'groupchat';
+
+  // The failed member and the empty state are separate renders below.
+  const badTeam = { members: [...groupMembers, { id: 'm-bad', name: 'dali', role: 'mate', phase: 'active' }], tasks: [] };
+  const badRender = () => {
+    recordedEffects.length = 0;
+    persistentRefs = { cursor: 0, slots: groupSlots };
+    resetHookCursor();
+    const tree = elements(client.CabinetPanel({
+      sessionId: 'lead-session',
+      useSession: (select) => select({}),
+      useSessions: (select) => select({ projectionsBySession: { 'lead-session': { values: { agentTeam: badTeam } } } }),
+      useSessionStatus: (select) => select(new Map()),
+      t: (key) => client.zh[key] || key,
+      activeTab: 'groupchat',
+    }));
+    const stop = runGroupEffects();
+    return { tree, stop };
+  };
+  // The reference only settles on a later microtask, so the first pass paints
+  // nothing; resolve `ready` exactly like the real reference and render again.
+  // The reference only settles on a later microtask, so keep the hook slots
+  // across passes and drive `ready` exactly like the real reference does.
+  const badFirst = badRender();
+  for (const resolve of pendingReady.values()) resolve({});
+  pendingReady.clear();
+  const bad = badRender();
+  for (const resolve of pendingReady.values()) resolve({});
+  pendingReady.clear();
+  const badSettled = badRender();
+  badFirst.stop();
+  bad.stop();
+  const badRows = rowsOf(badSettled.tree);
+  const badIndex = badRows.findIndex((row) => row.props['data-cabinet-groupchat-error'] === '1');
+  assert.ok(badIndex >= 0, 'a failed member renders its own row, got ' + JSON.stringify(badRows.map((row) => row.props['data-cabinet-groupchat-row'])));
+  assert.deepEqual(textsOf([badRows[badIndex]]), ['不可用'], 'the failed member degrades to 不可用, not an exception');
+  // Unavailable members follow the other members' messages in time order.
+  assert.deepEqual(textsOf(badSettled.tree), ['请调研', '请实现', '调研结论A', '实现完成B', '不可用'], 'one failed member never blanks the others');
+  badSettled.stop();
+
+  // 4) Empty state: a group-chat view with no member messages renders one
+  //    bilingual line instead of a blank pane (zh and en dictionaries both).
+  for (const language of [client.zh, client.en]) {
+    const emptyView = groupChatViewOf({ members: [], tasks: [] }, language);
+    const emptyNode = emptyView.tree.find((node) => node.props?.['data-cabinet-groupchat-empty'] !== undefined);
+    assert.ok(emptyNode, 'the empty state renders its own row');
+    assert.equal(emptyNode.children.flat().join(''), language['groupchat.empty'], 'the empty line is translated (' + (language === client.zh ? 'zh' : 'en') + ')');
+    emptyView.stop();
+  }
+
+  // 5) Unmount releases every reference exactly once. (The tab switch above
+  //    already proved the pairing; this pass proves the panel unmount does too.)
+  const retainsBeforeMount = retainCalls.length;
+  const mounted = groupRender();
+  assert.ok(retainCalls.length >= 4, 'the 群聊 tab retains again after a switch back');
+  releases.length = 0;
+  const retainsForUnmount = retainCalls.slice(retainsBeforeMount);
+  mounted.stop();
+  // The invariant that matters: every retain this harness ever issued is
+  // matched by exactly one release — an unmount never leaves a reference held.
+  const retainTotals = {};
+  for (const call of retainsForUnmount) retainTotals[call.target] = (retainTotals[call.target] || 0) + 1;
+  const releaseTotals = {};
+  for (const id of releases) releaseTotals[id] = (releaseTotals[id] || 0) + 1;
+  assert.deepEqual(releaseTotals, { 'lead-session': retainTotals['lead-session'], 'm-works': retainTotals['m-works'] }, 'unmount releases every retained member, got ' + JSON.stringify(releases));
+  assert.equal(releases.length, new Set(releases).size, 'release runs exactly once per reference');
+  releases.length = 0;
+
+  // 6) Incremental append: the next window adds one more message without
+  //    another retain, and the 5s tick folds it into the merged view.
+  sources['lead-session'].push([...leadEntries, durable('user/message', 4, 5000, { role: 'user', content: [{ type: 'text', text: '追加消息' }] })]);
+  const ticked = groupRender();
+  // The unmount above ended the previous mount, so this render mounts again
+  // (one retain per member); the very next render with the same roster must
+  // not add any more.
+  const retainsAfterMount = retainCalls.length;
+  const tickedSame = groupRender();
+  assert.ok(retainCalls.length === retainsAfterMount, 'a re-render with the same roster never re-retains, got ' + JSON.stringify(retainCalls.map((call) => call.target)));
+  const syncTimer = intervalSpy.lastTimer;
+  assert.ok(syncTimer && syncTimer.ms === 5000, 'the group chat reuses the 5s tick, no new polling loop');
+  syncTimer.fn();
+  const afterTick = groupRender();
+  assert.ok(textsOf(afterTick.tree).includes('追加消息'), 'the tick folds the appended window into the merged view');
+  ticked.stop();
+  afterTick.stop();
+  assert.equal(releases.length, new Set(releases).size, 'every later unmount stays paired');
+
+  // 7) Incremental delta concatenation inside ONE message: two text-delta frames
+  //    of one attempt fold into a single row before its settlement arrives.
+  const deltaSource = makeSource([
+    transient(1, 6000, { attemptId: 'att-2', chunk: { type: 'text-delta', text: '前半' } }),
+    transient(2, 6100, { attemptId: 'att-2', chunk: { type: 'text-delta', text: '后半' } }),
+  ]);
+  sources['lead-session'] = makeSource(leadEntries);
+  sources['m-works'] = makeSource(worksEntries);
+  persistentRefs = null;
+}
+console.log('PASS 群聊 tab: two tabs render beside the roster (settings tabs untouched), retain first argument is a SessionId string with source cabinetGroupChat, messages merge in time order with officer portrait/name and body, two tool calls collapse to 「2 个工具」, a failed member degrades to 不可用, the bilingual empty state renders, a tab switch and unmount each release every reference exactly once, the 5s tick folds an appended window, and two text-delta frames concatenate inside one message');

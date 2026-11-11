@@ -28,8 +28,11 @@ nodes(tree).find(n=>n.props['data-cabinet-settings-tab']==='models').props.onCli
 tree=render();
 assert.ok(pickers(tree).every(n=>n.type==='input'&&n.props.disabled));
 assert.equal(nodes(tree).filter(n=>n.props.key==='mh').length,0,'loading is not unavailable');
-tree=await settle();assert.equal(pickers(tree).length,5);assert.ok(pickers(tree).every(n=>n.type==='input'&&!n.props.disabled));assert.equal(pickers(tree)[0].props.value,'old/kept');
-assert.equal(nodes(tree).filter(n=>n.props.key==='mh').length,5,'completed empty catalog shows fallback hint');
+tree=await settle();assert.equal(pickers(tree).length,6);assert.ok(pickers(tree).every(n=>n.type==='input'&&!n.props.disabled));assert.equal(pickers(tree)[0].props.value,'old/kept');
+const cardTitles=nodes(tree).filter(n=>n.type==='strong'&&n.props?.key==='n').map(n=>String(n.children[0]));
+assert.equal(cardTitles.length,6,'one model card per member');
+assert.equal(cardTitles[5],client[locale]['member.tongzheng'],'the sixth member card is tongzheng');
+assert.equal(nodes(tree).filter(n=>n.props.key==='mh').length,6,'completed empty catalog shows fallback hint');
 async function refresh(next){response=next;nodes(tree).find(n=>n.props.key==='catalog').props.onClick();tree=await settle();}
 await refresh({ok:true,value:{groups:[],failures:[{id:'offline'}]}});assert.ok(pickers(tree).every(n=>n.type==='input'));assert.equal(pickers(tree)[0].props.value,'old/kept');
 await refresh({ok:true,value:{groups:[{id:'local',models:[{id:'model+variant'}]}]}});assert.ok(pickers(tree).every(n=>n.type==='select'));assert.equal(pickers(tree)[0].props.value,'old/kept');assert.ok(nodes(pickers(tree)[0]).some(n=>n.type==='option'&&n.props.value==='old/kept'));

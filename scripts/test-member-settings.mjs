@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import vm from 'node:vm';
-import {sectionText, bureauOf, Config, DEFAULT_MEMBER_PROMPTS, memberModel, modelRoute, clampModel, MAX_MODEL_LENGTH, apply} from '../index.js';
+import {sectionText, bureauOf, Config, DEFAULT_MEMBER_PROMPTS, memberModel, modelRoute, clampModel, MAX_MODEL_LENGTH, associationModeOf, associationLine, apply} from '../index.js';
 let client;
 const source=readFileSync(new URL('../client.js',import.meta.url),'utf8');
 const sandbox = {
@@ -24,8 +24,8 @@ assert.equal(editor.state.conflict,true);const writes=f.writes.length;assert.equ
 editor.cancel();assert.equal(editor.state.draft.hanlin.name,'OTHER-TAB');assert.equal(editor.state.draft.works.name,'');
 for(const key of ['lead','hanlin','works','dali','yushi'])editor.avatar(key,client.AVATARS[key]);
 assert.equal(await editor.save(),true);editor.reset();
-for(const key of ['lead','hanlin','works','dali','yushi']){assert.equal(editor.state.avatars[key],'');assert.equal(editor.state.draft[key].mode,'');}
-assert.equal(await editor.save(),true);assert.equal(f.writes.at(-1).ops.length,6,'one atomic mutation resets every field');
+for(const key of ['lead','hanlin','works','dali','yushi','tongzheng']){assert.equal(editor.state.avatars[key],'');assert.equal(editor.state.draft[key].mode,'');}
+assert.equal(await editor.save(),true);assert.equal(f.writes.at(-1).ops.length,7,'one atomic mutation resets every avatar field plus the association switch');
 for(const key of ['Lead','Hanlin','Works','Dali','Yushi'])assert.equal(f.getSnapshot().value['avatar'+key],'');
 editor.update('works',{name:'discard'});close();assert.equal(await editor.save(),false);assert.notEqual(f.getSnapshot().value.members.find(x=>x.key==='works').name,'discard');
 const reopened=client.createMemberEditor(f,()=>{});reopened.connect();assert.equal(reopened.state.draft.works.name,'');
@@ -42,7 +42,9 @@ assert.equal(sectionText(ctx,{},undefined),'');
 for(const bureau of client.BUREAUX)for(const alias of [bureau.label,...bureau.aliases])for(const name of [alias,alias+'2',alias+'-一',alias.replaceAll('-','_'),alias.replaceAll('-','.')]){
   assert.equal(bureauOf(name).key,bureau.key,name);
   const config={members:[{key:bureau.key,name:'CUSTOM',prompt:'PROMPT-'+bureau.key,mode:'custom'}],['avatar'+bureau.key[0].toUpperCase()+bureau.key.slice(1)]:client.AVATARS.works};
-  client.setMemberConfig(config);assert.equal(client.avatarFor(name),client.AVATARS.works,name);assert.ok(client.memberLabel(name).includes(name));assert.ok(client.memberLabel(name).includes('CUSTOM'));
+  client.setMemberConfig(config);
+  const expectedAvatar = bureau.key === 'tongzheng' ? client.AVATARS.neutral : client.AVATARS.works;
+  assert.equal(client.avatarFor(name), expectedAvatar, name);assert.ok(client.memberLabel(name).includes(name));assert.ok(client.memberLabel(name).includes('CUSTOM'));
   member={role:bureau.key==='lead'?'lead':'teammate',name};assert.ok(sectionText(ctx,config,agent).includes('PROMPT-'+bureau.key),name);
 }
 for(const name of ['hanlinx','jiancha-yushix','dalisiX','x-dalisi','CUSTOM']){
@@ -51,7 +53,7 @@ for(const name of ['hanlinx','jiancha-yushix','dalisiX','x-dalisi','CUSTOM']){
 member={role:'teammate',name:'lead'};assert.equal(sectionText(ctx,{},agent),'','a teammate cannot inherit Lead policy by naming itself lead');
 for(const key of ['lead','hanlin','works','dali','yushi'])for(const mode of ['off','custom','']){
   const config={members:[{key,mode,prompt:''}]};member={role:key==='lead'?'lead':'teammate',name:key};client.setMemberConfig(config);
-  if(mode!==''){assert.equal(sectionText(ctx,config,agent),'');assert.equal(client.configuredPrompt(key),'');}
+  if(mode!==''){assert.equal(client.configuredPrompt(key),'');assert.equal(sectionText(ctx,config,agent),'');}
   else assert.ok(sectionText(ctx,config,agent).length>0);
 }
 for (const raw of [{members: 'bad',avatarLead:42},{avatarLead:'data:image/svg+xml;base64,AAAA'},{avatarLead:'data:image/png;base64,'+'A'.repeat(50000)}]) { Config(raw); client.setMemberConfig(raw); assert.equal(client.avatarFor('lead'),client.AVATARS.lead); }
@@ -122,6 +124,35 @@ for (const id of ['model+variant','@org/model','model normal','org/model',' trai
  me.update('works',{model:value});assert.equal(await me.save(),true);assert.equal(mf.getSnapshot().value.members.find(x=>x.key==='works').model,value);
 }
 me.update('works',{model:'not-a-route'});assert.equal(await me.save(),false);assert.equal(me.state.errors.works,'member.error.model');
+
+// Association mode defaults off. A non-boolean stored value stays off, and the live line is outside the factory Lead prompt.
+assert.equal(associationModeOf({}), false);
+assert.equal(associationModeOf({associationMode:'yes'}), false);
+assert.equal(associationModeOf({associationMode:1}), false);
+assert.equal(associationModeOf({associationMode:true}), true);
+assert.equal(associationLine({}), '', 'off renders nothing at all');
+assert.match(associationLine({associationMode:true}), /派活通政使/);
+assert.ok(!sectionText(ctx,{associationMode:false},agent).includes('联想'));
+member={role:'lead',name:'lead'};
+assert.equal(sectionText(ctx,{members:[{key:'lead',mode:'custom',prompt:''}],associationMode:false},agent), '', 'off adds no line to the Lead block');
+assert.match(sectionText(ctx,{associationMode:true},agent), /派活通政使/);
+assert.ok(!sectionText(ctx,{associationMode:true},agent).includes('不要' + ' spawn'));
+const saved=form({members:[],associationMode:false});
+const switchEditor=client.createMemberEditor(saved,()=>{});switchEditor.connect();
+assert.equal(switchEditor.state.associationMode,false,'the switch starts off');
+switchEditor.association(true);
+assert.equal(await switchEditor.save(),true);
+assert.equal(saved.getSnapshot().value.associationMode,true);
+switchEditor.association('yes');
+assert.equal(await switchEditor.save(),true);
+assert.equal(saved.getSnapshot().value.associationMode,false,'a non-boolean switch write is stored as off');
+member={role:'teammate',name:'tongzheng'};
+const tongzhengText=sectionText(ctx,{members:[{key:'tongzheng',mode:'',prompt:''}]},agent);
+assert.match(tongzhengText, /通政使/);
+assert.match(tongzhengText, /旧事、旁证、相邻经验/);
+assert.ok(!/rsrs|--limit|--per|--min-cos/.test(tongzhengText), 'the duty prompt hardcodes no subcommand or flag');
+member={role:'teammate',name:'lianxiang'};
+assert.equal(sectionText(ctx,{members:[{key:'tongzheng',mode:'',prompt:''}]},agent), '', 'the removed spawn name is not mapped to the sixth office');
 me.cancel();assert.notEqual(me.state.draft.works.model,'not-a-route');
 me.update('works',{model:''});assert.equal(await me.save(),true);assert.equal(mf.getSnapshot().value.members.find(x=>x.key==='works').model,'');
 console.log('PASS opaque IDs round-trip, failed providers isolated, invalid route rejects Save, cancel and clear persist');

@@ -2,6 +2,24 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.8.0] - 2026-11-11
+
+### Added
+
+- Task rows show the description and write scopes already stored on the team task. A missing description or write scope is shown as unrecorded, not inferred.
+- The default Lead prompt tells the Lead that every new team task description states the objective, deliverable, acceptance check, and write scope.
+- Add the sixth standing office 通政使 (`tongzheng`, the Ming 通政使司) with the existing neutral portrait; it looks for links to earlier matters, side evidence and adjacent experience after the Lead dispatches it, and never re-ranks or overrides a confirmed hit. Association mode defaults to off and, when off, renders nothing at all.
+- The static cabinet persona names the sixth office and keeps one turn, the existing tool-step budget, and recall-then-show memory order.
+- The right sidebar gains a 群聊 tab that merges the Lead's and each member's messages in time order with portraits and office names; tool calls collapse into one counted 「N 个工具」 row instead of separate entries; a member whose session cannot be retained degrades to its own 不可用 row instead of disappearing.
+
+### Fixed
+
+- Read user messages from the official event payload and retire live text by the settled reply's turn and step, avoiding missing prompts and duplicate replies.
+- Count each tool call once under its preceding assistant message; keep calls without an assistant in a separate collapsed row.
+- Keep group-chat polling attached to the current roster, report snapshot/subscription failures, and release session references on tab changes, service loss and unmount.
+- Reattach roster layout observers after returning from group chat, keep expanded tool rows tied to their message, and place unavailable members after messages.
+- Reset association mode with the corresponding member or all settings, keep it independent of the Lead prompt, and omit missing built-in portraits and duplicate English translation keys.
+
 ## [0.7.1] - 2026-11-09
 
 ### Fixed
