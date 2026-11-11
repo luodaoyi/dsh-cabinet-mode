@@ -128,6 +128,11 @@ jobs:
         env:
           DSH_MODULE_ROOT: ${{ runner.temp }}/cabinet-browser/node_modules
         run: node scripts/test-groupchat-contract.mjs
+      - name: Install Chinese fonts for bilingual visual checks
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes fonts-noto-cjk
+          fc-match -f '%{family}\n' 'Noto Sans CJK SC' | grep -F 'Noto Sans CJK SC'
       - name: Real Chromium lifecycle, layout and keyboard regressions
         env:
           DSH_BROWSER_TEST_ROOT: ${{ runner.temp }}/cabinet-browser
