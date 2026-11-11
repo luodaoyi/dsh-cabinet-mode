@@ -76,7 +76,14 @@ runInNewContext(source.replace(exportPoint, exportList), {
   AbortController,
   console,
   localStorage: pluginSpecStorage, window: { __ModuleLoader__: { load: ({ factory }) => {
-    client = factory((name) => { assert.equal(name, 'react'); return React; });
+    client = factory((name) => {
+      // The web boot seeds the primitives table; this harness deliberately does
+      // not, and lets the require throw, so the plugin must take the fallback
+      // path without crashing (the factory-top try/catch).
+      if (name === '@deepseek-ai/dsh-client-ui-primitives') throw new Error('primitives not seeded in this harness');
+      assert.equal(name, 'react');
+      return React;
+    });
   } } },
 });
 for (const [english, chinese] of [
@@ -2060,10 +2067,42 @@ console.log('PASS 群聊 tab: the right pane keeps the roster only (no 群聊 ta
   const plainTree = elements(client.CabinetMarkdown({ text: '纯文本一行', t: (key) => key }));
   assert.deepEqual(plainTree.filter((node) => node.props?.['data-cabinet-markdown-paragraph'] === '1').map((node) => node.children.flat().join('')), ['纯文本一行'], 'plain text degrades to a single paragraph of text');
 
-  // A group-chat line renders through the subset (the failed row keeps its wording).
-  const mdRow = elements(client.GroupChatRow({ row: { kind: 'assistant', text: '# 小标题\n- 项', time: 7000, seq: 9, tools: [] }, member: { name: 'lead' }, t: (key) => client.zh[key] || key, expanded: true }));
-  assert.ok(mdRow.some((node) => node.props?.['data-cabinet-markdown'] === '1'), 'a chat body goes through the markdown renderer');
+  // A group-chat line renders through the subset when the host module table has
+  // no primitives (this main instance throws on that spec on purpose).
+  const mdRowBody = { row: { kind: 'assistant', text: '# 小标题\n- 项', time: 7000, seq: 9, tools: [] }, member: { name: 'lead' }, t: (key) => client.zh[key] || key, expanded: true };
+  const mdRow = elements(client.GroupChatRow(mdRowBody));
+  assert.equal(typeof client.apply, 'function', 'a throwing primitives require never crashes the plugin');
+  assert.ok(mdRow.some((node) => node.props?.['data-cabinet-markdown'] === '1'), 'without the host component the local subset renders the body');
   assert.ok(mdRow.some((node) => node.props?.['data-cabinet-markdown-heading'] === '1'), 'a chat heading is a heading, not literal text');
+  assert.equal(mdRow.filter((node) => node.type === 'host-markdown').length, 0, 'the fallback never invokes a host markdown component');
+  // Safety red lines for the local renderer: no innerHTML, http(s)-only links
+  // with a safe rel/target, and refused schemes kept as plain text.
+  const clientCode = source.split('\n').filter((line) => {
+    const text = line.trim();
+    return !text.startsWith('//') && !text.startsWith('*') && !text.startsWith('/*');
+  }).join('\n');
+  assert.ok(!clientCode.includes('innerHTML') && !clientCode.includes('dangerouslySetInnerHTML'), 'no markdown path builds raw HTML');
+  // Host path: when the module table serves MarkdownText (as the web boot does),
+  // the row body must be that component with the documented props.
+  let hostMarkdownClient;
+  runInNewContext(source.replace(exportPoint, exportList), {
+    window: { __ModuleLoader__: { load: ({ factory }) => {
+      const HostMarkdown = (props) => ({ type: 'host-markdown', props, children: [] });
+      hostMarkdownClient = factory((name) => {
+        if (name === '@deepseek-ai/dsh-client-ui-primitives') return { MarkdownText: HostMarkdown };
+        assert.equal(name, 'react');
+        return React;
+      });
+    } } },
+  });
+  const hostRow = elements(hostMarkdownClient.GroupChatRow(mdRowBody));
+  const hostBody = hostRow.filter((node) => node.type === 'host-markdown');
+  assert.equal(hostBody.length, 1, 'the host MarkdownText renders the chat body when the seed serves it');
+  assert.equal(hostBody[0].props.text, mdRowBody.row.text, 'the host component receives the message text verbatim');
+  assert.equal(hostBody[0].props.streaming, false, 'a settled message is not streamed');
+  assert.equal(hostBody[0].props.labels.code.copyLabel, '复制代码', 'the host component receives the code labels');
+  assert.equal(hostBody[0].props.labels.footnotes, '脚注', 'the host component receives the footnotes label');
+  assert.equal(hostRow.filter((node) => node.props?.['data-cabinet-markdown'] === '1').length, 0, 'the host path does not also render the local subset');
 
   // Model catalog: the real shape flattens, and every empty/failed state says why.
   const realCatalog = { default: { provider: 'magpie', model: 'flash' }, routableProviders: ['magpie'], groups: [{ id: 'magpie', name: 'Magpie', models: [{ id: 'flash', name: 'Flash' }] }], failures: [] };
@@ -2149,7 +2188,15 @@ console.log('PASS 群聊 tab: the right pane keeps the roster only (no 群聊 ta
   assert.ok(names.includes('main'), 'the root main slot gets the 内阁 page');
   assert.ok(registrations.some((entry) => entry.name === 'sidebar.panellist' && entry.id === 'cabinet' && typeof entry.label === 'function'), 'the panellist entry carries id and a label thunk');
   assert.ok(registrations.some((entry) => entry.name === 'main' && entry.key === 'cabinet'), 'the main page is keyed to the same id');
+  const panellistEntry = registrations.find((entry) => entry.name === 'sidebar.panellist');
+  assert.equal(panellistEntry.order, 60, 'the panellist entry declares order 60');
+  const iconActive = elements(panellistEntry.component({ size: 18, active: true }));
+  const iconIdle = elements(panellistEntry.component({ size: 20, active: false }));
+  assert.equal(iconActive[0].props.width, 18, 'the icon reads its size prop');
+  assert.equal(iconActive[0].props.height, 18, 'the icon is square at the requested size');
+  assert.equal(iconActive[0].props['data-cabinet-panel-icon'], '1', 'the icon reads its active prop');
+  assert.equal(iconIdle[0].props['data-cabinet-panel-icon'], '0', 'an inactive panel icon is marked idle');
   assert.ok(!names.includes('settings.section'), 'the old settings members section is gone (no second entry)');
   assert.equal(typeof registrations.find((entry) => entry.name === 'sidebar.panellist').component, 'function', 'the panellist registers an icon component');
 }
-console.log('PASS 第二批：markdown 子集（标题/列表/代码块/行内代码/粗体/链接/裸文本 + javascript: 拒绝）、模型目录真实 groups 与「本机无 adapter」显式提示、当前模型读 modelSelection 投影、模型保存后生效说明与 fail-closed 风险提示（且全源无「未生效」字样）、独立内阁整页自带会话选择器（agentTeam 优先、会话内记忆）、sidebar.panellist + main 注册且设置页旧 members section 已清理');
+console.log('PASS 第二批：markdown 双路径（宿主 MarkdownText 可解析时用组件、seed 缺失或 require 抛错时降级自绘且不炸插件；子集标题/列表/代码块/行内代码/粗体/链接/裸文本 + 无 innerHTML + javascript:/file: 拒绝）、模型目录真实 groups 与「本机无 adapter」显式提示、当前模型读 modelSelection 投影、模型保存后生效说明与 fail-closed 风险提示（且全源无「未生效」字样）、独立内阁整页自带会话选择器（agentTeam 优先、会话内记忆）、sidebar.panellist + main 注册且设置页旧 members section 已清理');
