@@ -65,7 +65,7 @@ React.useRef = (initial) => {
 };
 
 
-const exportList = 'return { inject, apply, avatarFor, displayName, chatBubbleName, bureauOf, CabinetPanel, MemberCard, TaskLine, TaskEdgeLayer, buildTaskEdges, taskEdgesEqual, zh, en, BUREAUX, AVATARS, setMemberConfig, memberLabel, configuredAvatar, configuredPrompt, factoryPromptFor, DEFAULT_MEMBER_PROMPTS, DEFAULT_LEAD_PROMPT, CabinetMemberSettings, MemoryPluginCard, memoryPluginInstalledOf, SETTINGS_TABS, formatTokenCount, formatElapsed, tokenTotalOf, usageFor, planProjectionRequests, teamUsageOf, groupChatFold, markdownBlocksOf, inlineMarkdownTokens, markdownLinkHref, modelOptionsOf, modelCatalogNotice, modelSelectionOf, cabinetSessionChoices, cabinetSessionGroups, defaultCabinetSession, CabinetMarkdown, CabinetPage, CabinetPanelIcon, GroupChatRow, STYLE_CSS, cabinetGroupMemberStates, mergeGroupChat, cabinetChatViewRows, chatStampNeeded, nearChatBottom, scrollChatToBottom, scrollFollowingTail, cabinetScopeRows, openCabinetSession };';
+const exportList = 'return { inject, apply, avatarFor, displayName, chatBubbleName, chatBubbleNames, bureauOf, CabinetPanel, MemberCard, TaskLine, TaskEdgeLayer, buildTaskEdges, taskEdgesEqual, zh, en, BUREAUX, AVATARS, setMemberConfig, memberLabel, configuredAvatar, configuredPrompt, factoryPromptFor, DEFAULT_MEMBER_PROMPTS, DEFAULT_LEAD_PROMPT, CabinetMemberSettings, MemoryPluginCard, memoryPluginInstalledOf, SETTINGS_TABS, formatTokenCount, formatElapsed, tokenTotalOf, usageFor, planProjectionRequests, teamUsageOf, groupChatFold, markdownBlocksOf, inlineMarkdownTokens, markdownLinkHref, modelOptionsOf, modelCatalogNotice, modelSelectionOf, cabinetSessionChoices, cabinetSessionGroups, defaultCabinetSession, CabinetMarkdown, CabinetPage, CabinetPanelIcon, GroupChatRow, STYLE_CSS, cabinetGroupMemberStates, mergeGroupChat, cabinetChatViewRows, chatStampNeeded, nearChatBottom, scrollChatToBottom, scrollFollowingTail, cabinetScopeRows, openCabinetSession };';
 runInNewContext(source.replace(exportPoint, exportList), {
   setTimeout: (fn, ms) => setTimeout(fn, ms === 120000 ? 20 : ms), clearTimeout,
   Date: RealmDate,
@@ -1669,6 +1669,32 @@ console.log('PASS 内阁 Bot section removal: no section box, office rows, 现�
   assert.ok(trioRows.every((row) => typeof row.fullTitle === 'string' && row.fullTitle.includes(' · ')), 'the full identity stays reachable through the name title');
   const userRowForName = elements(client.GroupChatRow({ row: { kind: 'user', text: '我的话', time: 1000, seq: 1, tools: [] }, t: (key) => client.zh[key] || key }));
   assert.equal(findNodes([userRowForName], (node) => node.props?.key === 'name' && deepText(node) !== client.zh['groupchat.you']).length, 0, 'the user line never shows an officer name');
+  // B) 同名成员必须可区分：chatBubbleName 是单名计算，不同原始名可能撞名，
+  // chatBubbleNames 在同一份成员表内保证唯一（自定义名优先、后缀稳定）。
+  assert.equal(client.chatBubbleName('gongbu-shangshu'), '工部尚书', 'the plain slug maps to the office label');
+  assert.notEqual(client.chatBubbleName('gongbu-shangshu'), client.chatBubbleName('gongbu-shangshu-2'), 'slug and slug-2 already differ on their own, got ' + client.chatBubbleName('gongbu-shangshu-2'));
+  // 真正撞名的情形：slug 与中文名指向同一 office，单名计算给出同一个结果。
+  assert.equal(client.chatBubbleName('gongbu-shangshu'), client.chatBubbleName('工部尚书'), 'this pair collides under single-name computation');
+  const collideMembers = [{ id: 'a', name: 'gongbu-shangshu' }, { id: 'b', name: '工部尚书' }];
+  const collideTable = client.chatBubbleNames(collideMembers);
+  const collideNames = [collideTable.get('gongbu-shangshu'), collideTable.get('工部尚书')];
+  assert.equal(new Set(collideNames).size, 2, 'two members that would collide still get distinct nicknames, got ' + JSON.stringify(collideNames));
+  assert.equal(collideNames[0], '工部尚书', 'the first (sorted) member keeps the plain label, got ' + JSON.stringify(collideNames));
+  assert.equal(collideNames[1], '工部尚书2', 'the second colliding member gets a numeric suffix, got ' + JSON.stringify(collideNames));
+  // 同一份成员表、不同顺序 → 结果一致（后缀稳定，不会因成员重排闪变）。
+  const reordered = client.chatBubbleNames([{ id: 'b', name: '工部尚书' }, { id: 'a', name: 'gongbu-shangshu' }]);
+  assert.equal(reordered.get('gongbu-shangshu'), collideTable.get('gongbu-shangshu'), 'the suffix does not depend on member order');
+  assert.equal(reordered.get('工部尚书'), collideTable.get('工部尚书'), 'both sides stay stable after reordering');
+  // 相似 id 的两个成员也互不相同。
+  const similarTable = client.chatBubbleNames([{ id: 'a', name: 'gongbu-shangshu' }, { id: 'b', name: 'gongbu-shangshu-2' }]);
+  assert.notEqual(similarTable.get('gongbu-shangshu'), similarTable.get('gongbu-shangshu-2'), 'gongbu-shangshu and gongbu-shangshu-2 render different nicknames, got ' + JSON.stringify([...similarTable]));
+  // 自定义名优先于自动后缀。
+  client.setMemberConfig({ members: [{ key: 'works', name: '工部尚书·甲' }] });
+  const customTable = client.chatBubbleNames([{ id: 'a', name: 'gongbu-shangshu' }, { id: 'b', name: '工部尚书' }]);
+  assert.equal(customTable.get('gongbu-shangshu'), '工部尚书·甲', 'a custom name wins over the automatic nickname, got ' + String(customTable.get('gongbu-shangshu')));
+  assert.notEqual(customTable.get('gongbu-shangshu'), customTable.get('工部尚书'), 'the other member still gets a distinct nickname');
+  client.setMemberConfig({ members: [] });
+
   // D) 联想模式开关：全局、可见、默认关、切换生效、带 token 用量提示。
   const associationNodes = mountSettings({ t: (key) => client.zh[key] || key })();
   const associationRow = findNodes(associationNodes, (node) => node.props?.['data-cabinet-association-row'] !== undefined)[0];
@@ -1859,7 +1885,15 @@ console.log('PASS 内阁 Bot section removal: no section box, office rows, 现�
   assert.ok(realUserRow, 'the real prompt renders as a user row, got ' + JSON.stringify(userRows.map(rowTextOf)));
   assert.equal(realUserRow.props['data-cabinet-groupchat-self'], '1', 'the user row is marked as the reader');
   assert.equal(realUserRow.props['data-cabinet-groupchat-author'], 'self', 'the user row carries no cabinet author');
-  assert.deepEqual(findNodes([realUserRow], (node) => node.props?.key === 'name').map((node) => node.children.flat().join('')), [client.zh['groupchat.you']], 'the user line reads 「你」');
+  // 微信式：自己的气泡不显示昵称 —— 名字节点完全不存在，可访问性标识留在
+  // header 的 aria-label 上，self 标记照旧可识别。
+  assert.deepEqual(findNodes([realUserRow], (node) => node.props?.key === 'name'), [], 'the user line renders no name node at all');
+  const userHead = findNodes([realUserRow], (node) => node.props?.['data-cabinet-groupchat-head'] !== undefined)[0];
+  assert.ok(userHead, 'the user row still has a header container for its accessibility label');
+  assert.equal(userHead.props['aria-label'], client.zh['groupchat.you'], 'the accessibility label still identifies the user line as 「你」');
+  assert.equal(realUserRow.props['data-cabinet-groupchat-self'], '1', 'the self marker survives the name removal');
+  const officerHead = findNodes([firstOfficerRow], (node) => node.props?.['data-cabinet-groupchat-head'] !== undefined)[0];
+  assert.ok(findNodes([officerHead], (node) => node.props?.key === 'name').length > 0, 'officer rows still render their name node');
   assert.equal(findNodes([realUserRow], (node) => node.props?.size === 20).length, 0, 'the user line carries no cabinet portrait');
   assert.deepEqual(findNodes([realUserRow], (node) => node.props?.size === 20), [], 'no avatar node hides in the user row');
   userView.stop();

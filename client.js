@@ -2551,6 +2551,51 @@ window.__ModuleLoader__.load({
 			const separator = label.lastIndexOf(' · ');
 			return separator > 0 ? label.slice(0, separator) : label;
 		}
+		/**
+		 * 会话内的气泡昵称表（name -> 昵称），保证「不同成员必定显示不同名字」。
+		 *
+		 * 为什么需要：chatBubbleName 只按单个名字算中文称呼，不同原始名可能算出
+		 * 同一个结果（例：slug「gongbu-shangshu」与中文名「工部尚书」都得到
+		 * 「工部尚书」；「gongbu-shangshu-sdk」这类带项目注记的成员也会撞上）。
+		 * 真机验收里两个不同成员都显示「工部尚书」，就是这种情况。
+		 *
+		 * 规则（按微信习惯，顺序固定、结果稳定）：
+		 * 1) memberConfig 里的自定义名优先——用户自己起的名字不参与自动改名；
+		 * 2) 其余成员按原始 name 升序处理（与成员数组顺序无关，避免重排导致后缀闪变），
+		 *    昵称取 chatBubbleName；若已被占用，追加「2」「3」…直到唯一。
+		 * 同一成员在同一份成员表下永远得到同一个结果。
+		 */
+		function chatBubbleNames(members) {
+			const list = Array.isArray(members) ? members : [];
+			const taken = new Set();
+			const table = new Map();
+			const names = [];
+			for (const member of list) {
+				const name = member !== null && member !== undefined && typeof member.name === 'string' ? member.name : '';
+				if (name === '' || table.has(name)) continue;
+				const custom = configuredName(name);
+				if (custom) {
+					// 自定义名同样要唯一：两个成员若被起成同一个名字，后来者加序号。
+					let label = custom;
+					let index = 2;
+					while (taken.has(label)) { label = custom + String(index); index += 1; }
+					table.set(name, label);
+					taken.add(label);
+				} else {
+					names.push(name);
+				}
+			}
+			names.sort();
+			for (const name of names) {
+				const base = chatBubbleName(name);
+				let label = base;
+				let index = 2;
+				while (taken.has(label)) { label = base + String(index); index += 1; }
+				taken.add(label);
+				table.set(name, label);
+			}
+			return table;
+		}
 		function neutralAvatar() {
 			// Unidentified members get an unranked portrait, never a guessed office.
 			return AVATARS.neutral;
@@ -4509,7 +4554,7 @@ window.__ModuleLoader__.load({
 		 * One chat line: officer portrait + officer name + body. Tools fold into
 		 * a single 「N 个工具」 row that expands in place — never one line per call.
 		 */
-		function GroupChatRow({ row, member, t, compact, showTime, onOpenSession }) {
+		function GroupChatRow({ row, member, t, compact, showTime, onOpenSession, displayName: displayNameOverride }) {
 			const tt = typeof t === 'function' ? t : (key) => key;
 			const [open, setOpen] = React.useState(false);
 			// A long body folds to a preview height; the toggle is the only way to
@@ -4539,17 +4584,25 @@ window.__ModuleLoader__.load({
 			// visible line shows the office label instead.
 			const key = self ? '' : (member && member.name ? member.name : (row.memberName || ''));
 			// 气泡上方显示中文昵称（微信式）；完整身份（含原始 id）留在 title。
-			const name = self ? tt('groupchat.you') : (key === '' ? '' : chatBubbleName(key));
+			// 昵称优先用会话内唯一化后的表（见 chatBubbleNames），回退单名计算。
+			const resolvedName = displayNameOverride !== undefined && displayNameOverride !== null && displayNameOverride !== ''
+				? String(displayNameOverride)
+				: (key === '' ? '' : chatBubbleName(key));
+			const name = self ? tt('groupchat.you') : resolvedName;
 			const nameTitle = self || key === '' ? undefined : memberLabel(key);
 			const live = row.kind === 'live';
 			const text = typeof row.text === 'string' ? row.text : '';
 			const long = row.kind !== 'error' && (text.split('\n').length > 12 || text.length > 600);
 			const folded = long && !expanded;
 			// 气泡内的名字：别人靠左、自己靠右；连续同人时第二条起省略。
+			// 自己的气泡不显示昵称（微信习惯：头像在右、无名字）；可访问性标识放在
+			// header 的 aria-label 上，不再渲染可见名字节点。别人的行照旧显示昵称。
 			const header = compact === true ? null : h('div', {
 				key: 'head',
+				'aria-label': self ? tt('groupchat.you') : undefined,
+				'data-cabinet-groupchat-head': '1',
 				style: { display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, flexWrap: 'wrap', justifyContent: self ? 'flex-end' : 'flex-start' }
-			}, h('span', { key: 'name', ...openProps, title: nameTitle, style: { fontSize: 11.5, fontWeight: 600, color: self ? INK2 : INK, ...(openProps.style || {}) } }, name || tt('groupchat.unknown')));
+			}, self ? null : h('span', { key: 'name', ...openProps, title: nameTitle, style: { fontSize: 11.5, fontWeight: 600, color: INK, ...(openProps.style || {}) } }, name || tt('groupchat.unknown')));
 			// A failed member reads 「不可用」 on the line (the spec's wording) while
 			// the channel's own message stays reachable as the hover title.
 			const failed = row.kind === 'error';
@@ -4875,6 +4928,8 @@ window.__ModuleLoader__.load({
 			// owner is actually running (the blocker's owner running makes its flow
 			// edge bright/fast — same language as the cabinet-task-live pulse).
 			const memberByName = new Map(members.map((member) => [member.name, member]));
+			// 气泡昵称：同一会话内不同成员必定显示不同名字（规则见 chatBubbleNames）。
+			const bubbleNames = chatBubbleNames(members);
 			const edgeLead = members.find((member) => member.role === 'lead');
 			const liveTaskIds = new Set();
 			for (const task of tasks) {
@@ -5301,6 +5356,8 @@ window.__ModuleLoader__.load({
 							key: 'row:' + index,
 							row: entry.row,
 							member: entry.row.member || memberByName.get(entry.row.memberName),
+							// 会话内唯一化的昵称（重名成员各自可辨，见 chatBubbleNames）。
+							displayName: bubbleNames.get((entry.row.member || memberByName.get(entry.row.memberName) || {}).name),
 							t: tt,
 							compact: entry.compact,
 							showTime: entry.showTime,
