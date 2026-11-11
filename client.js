@@ -4405,6 +4405,26 @@ window.__ModuleLoader__.load({
 			flushList();
 			return blocks;
 		}
+		// 原生 <select>/<option> 不吃继承色：真机里下拉展开是白底 + 极浅文字，
+		// 几乎看不清（根因是 select 的 background:transparent 让弹层退回 UA 白底，
+		// 文字仍是主题浅色）。这里给插件内**所有** select/option 用同一套成对 token：
+		//  background → var(--dsw-alias-bg-layer-1, light-dark(#ffffff,#26292d))
+		//  color      → var(--dsw-alias-label-primary, light-dark(#0f1115,#f9fafb))
+		// 再加 colorScheme:'light dark'：Chromium 的原生弹层（未悬停项）跟随
+		// 页面 color-scheme 取色，深色主题下不会退回白底。
+		// 这两个 --dsw-* 变量已核过在宿主产物里存在（与气泡同一批 token）。
+		const CABINET_SELECT_STYLE = {
+			boxSizing: 'border-box',
+			background: 'var(--dsw-alias-bg-layer-1, light-dark(#ffffff, #26292d))',
+			color: 'var(--dsw-alias-label-primary, light-dark(#0f1115, #f9fafb))',
+			colorScheme: 'light dark',
+			border: '1px solid var(--dsw-alias-border-l3, rgba(127,127,127,.4))'
+		};
+		const CABINET_OPTION_STYLE = {
+			background: 'var(--dsw-alias-bg-layer-1, light-dark(#ffffff, #26292d))',
+			color: 'var(--dsw-alias-label-primary, light-dark(#0f1115, #f9fafb))',
+			colorScheme: 'light dark'
+		};
 		const MARKDOWN_TEXT_STYLE = { margin: 0 };
 		/**
 		 * Render the subset. `data-cabinet-markdown` marks a rendered body and
@@ -6180,9 +6200,9 @@ window.__ModuleLoader__.load({
 					key: 'select',
 					'data-cabinet-page-session': '1',
 					value: selected,
-					style: { maxWidth: 320, fontSize: 12, padding: '3px 6px', borderRadius: 6, background: 'transparent', color: INK, border: '1px solid var(--dsw-alias-border-l3, rgba(127,127,127,.4))' },
+					style: { ...CABINET_SELECT_STYLE, maxWidth: 320, fontSize: 12, padding: '3px 6px', borderRadius: 6 },
 					onChange: (event) => setChosen(event !== null && event !== undefined && event.target !== null && event.target !== undefined ? String(event.target.value ?? '') : '')
-				}, choices.map((choice) => h('option', { key: choice.id, value: choice.id }, (choice.hasTeam ? '★ ' : '') + choice.title))),
+				}, choices.map((choice) => h('option', { key: choice.id, value: choice.id, style: CABINET_OPTION_STYLE }, (choice.hasTeam ? '★ ' : '') + choice.title))),
 				choices.length === 0 ? h('span', { key: 'empty', 'data-cabinet-page-session-empty': '1', style: { fontSize: 11, color: INK3 } }, tt('page.session.empty')) : null
 			]);
 			// 会话列表的数据：优先用面板折叠后的行（摘要/时间），成员表退化为
@@ -6422,18 +6442,7 @@ window.__ModuleLoader__.load({
 				return mode === 'custom' ? draft[key].prompt : factoryPromptFor(key);
 			};
 			const inputStyle = { width: '100%', boxSizing: 'border-box', fontSize: 13, color: INK, background: 'transparent', border: '1px solid var(--dsw-alias-border-l3, rgba(127,127,127,.4))', borderRadius: 6, padding: '6px 8px' };
-			// 原生 <select>/<option> 不吃继承色：真机里下拉展开是白底 + 极浅文字，
-			// 几乎看不清。这里显式给主题背景与文字（成对 token + light-dark 兜底）。
-			// 这两个变量已核过在宿主产物里存在（与气泡/输入框同一批 token）。
-			const selectStyle = {
-				...inputStyle,
-				background: 'var(--dsw-alias-bg-layer-1, light-dark(#ffffff, #26292d))',
-				color: 'var(--dsw-alias-label-primary, light-dark(#0f1115, #f9fafb))'
-			};
-			const optionStyle = {
-				background: 'var(--dsw-alias-bg-layer-1, light-dark(#ffffff, #26292d))',
-				color: 'var(--dsw-alias-label-primary, light-dark(#0f1115, #f9fafb))'
-			};
+
 			const cards = MEMBER_SECTION_FIELDS.map((key) => {
 				const preview = memberAvatarOf(key, avatars);
 				return h('div', { key, style: { border: '1px solid var(--dsw-alias-border-l3, rgba(127,127,127,.28))', borderRadius: 8, padding: '10px 12px', marginBottom: 10 } }, [
@@ -6513,14 +6522,14 @@ window.__ModuleLoader__.load({
 							// Real groups only: an empty catalog never degrades to a
 							// selectable fake 「使用 DSH 默认模型」 row.
 							modelOptions.length > 0 ? (function () {
-								const opts = [h('option', { key: '', value: '', style: optionStyle }, t(key === 'lead' ? 'member.model.defaultLead' : 'member.model.default'))];
-								if (value !== '' && !modelOptions.some((option) => option.value === value)) opts.push(h('option', { key: 'current', value, style: optionStyle }, value));
-								for (const option of modelOptions) opts.push(h('option', { key: option.value, value: option.value, style: optionStyle }, option.label));
+								const opts = [h('option', { key: '', value: '', style: CABINET_OPTION_STYLE }, t(key === 'lead' ? 'member.model.defaultLead' : 'member.model.default'))];
+								if (value !== '' && !modelOptions.some((option) => option.value === value)) opts.push(h('option', { key: 'current', value, style: CABINET_OPTION_STYLE }, value));
+								for (const option of modelOptions) opts.push(h('option', { key: option.value, value: option.value, style: CABINET_OPTION_STYLE }, option.label));
 								return h('select', {
 									key: 'mi',
 									'data-cabinet-model-select': key,
 									value,
-									style: selectStyle,
+									style: { ...CABINET_SELECT_STYLE, width: '100%', fontSize: 13, padding: '6px 8px', borderRadius: 6 },
 									onChange: (event) => update(key, { model: event?.target?.value ?? '' })
 								}, opts);
 							}()) : h('input', {

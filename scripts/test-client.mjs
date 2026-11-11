@@ -2918,15 +2918,25 @@ console.log('PASS 群聊 tab: the right pane keeps the roster only (no 群聊 ta
       assert.ok(!source.includes(ghost), ghost + ' (invented in an earlier batch) must not come back');
     }
     assert.ok(/var\(--dsw-alias-bg-layer-1, light-dark\(#ffffff, #26292d\)\)/.test(css), 'the other bubble uses the real bg-layer-1 token with a paired fallback');
-// 1) 原生 select/option 必须成对配色（真机下拉白底白字）。
-const styleSource = source;
-const selectBlock = styleSource.slice(styleSource.indexOf('const selectStyle ='), styleSource.indexOf('const optionStyle ='));
-const optionBlock = styleSource.slice(styleSource.indexOf('const optionStyle ='), styleSource.indexOf('const optionStyle =') + 400);
-assert.ok(/background:\s*'var\(--dsw-alias-bg-layer-1, light-dark\(#ffffff, #26292d\)\)'/.test(selectBlock), 'the model select sets a themed background');
-assert.ok(/color:\s*'var\(--dsw-alias-label-primary, light-dark\(#0f1115, #f9fafb\)\)'/.test(selectBlock), 'the model select sets a themed text colour');
-assert.ok(/background:\s*'var\(--dsw-alias-bg-layer-1, light-dark\(#ffffff, #26292d\)\)'/.test(optionBlock), 'the option elements set the same themed background');
-assert.ok(/color:\s*'var\(--dsw-alias-label-primary, light-dark\(#0f1115, #f9fafb\)\)'/.test(optionBlock), 'the option elements set the same themed text colour');
-assert.ok(!/background:\s*'(#fff|white)'/.test(styleSource), 'no bare white background is hardcoded anywhere in the source');
+// 1) 原生 select/option 必须成对配色 —— 插件内**所有** select 走同一套 token。
+//    根因（真机白底浅字）：select 的 background:'transparent' 让原生弹层退回
+//    UA 白底，文字仍是主题浅色。这里既断言共用样式的定义，也断言渲染出来的
+//    每个 select/option 节点都带成对背景与字色，且不再出现 transparent。
+const selectStyleBlock = source.slice(source.indexOf('const CABINET_SELECT_STYLE ='), source.indexOf('const CABINET_OPTION_STYLE ='));
+const optionStyleBlock = source.slice(source.indexOf('const CABINET_OPTION_STYLE ='), source.indexOf('const CABINET_OPTION_STYLE =') + 400);
+for (const [label, block] of [['select', selectStyleBlock], ['option', optionStyleBlock]]) {
+  assert.ok(/background:\s*'var\(--dsw-alias-bg-layer-1, light-dark\(#ffffff, #26292d\)\)'/.test(block), 'the shared ' + label + ' style sets a themed background');
+  assert.ok(/color:\s*'var\(--dsw-alias-label-primary, light-dark\(#0f1115, #f9fafb\)\)'/.test(block), 'the shared ' + label + ' style sets a themed text colour');
+  assert.ok(/colorScheme:\s*'light dark'/.test(block), 'the shared ' + label + ' style also opts into the page color-scheme, so Chromium paints the popup for the right theme');
+}
+// 两处 select 复用同一个对象（不是复制一份）。
+assert.equal((source.match(/style:\s*\{\s*\.\.\.CABINET_SELECT_STYLE/g) || []).length, 2, 'both selects spread the one shared style object');
+// 每个 option 都用共用样式（会话下拉 1 个 + 模型下拉 3 个），且没有遗留的局部样式名。
+assert.ok((source.match(/style:\s*CABINET_OPTION_STYLE/g) || []).length >= 4, 'every option uses the one shared option style, got ' + (source.match(/style:\s*CABINET_OPTION_STYLE/g) || []).length);
+assert.equal((source.match(/style:\s*optionStyle/g) || []).length, 0, 'no leftover local optionStyle remains');
+// 源码层面：任何 select 都不许再用 transparent 背景（这正是本次根因）。
+assert.ok(!/h\('select'[\s\S]{0,400}?background:\s*'transparent'/.test(source), 'no select falls back to a transparent background');
+assert.ok(!/background:\s*'(#fff|white)'/.test(source), 'no bare white background is hardcoded anywhere in the source');
 
     assert.ok(!/background:[^;,}]*\b#fff\b/i.test(css) && !/background:[^;,}]*#ffffff\b(?!\s*,)/i.test(css), 'no bubble/panel background falls back to a bare white');
     for (const rule of ['.cabinet-chat-bubble.cabinet-chat-self{', '.cabinet-chat-bubble.cabinet-chat-other{', '.cabinet-tool-line{']) {
@@ -3072,6 +3082,34 @@ assert.ok(!/background:\s*'(#fff|white)'/.test(styleSource), 'no bare white back
     const syncTree0 = elements(pageClient.CabinetPage(syncProps));
     const syncSelect = (tree) => tree.find((node) => node.props?.['data-cabinet-page-session'] !== undefined);
     assert.equal(syncSelect(syncTree0).props.value, 's-b', 'the dropdown starts on the default (newest) session');
+  // 顶部会话下拉（真机截图里那个）：select 本体与每个 option 都必须成对配色，
+  // 不许再出现 transparent/裸白底（这正是白底浅字的根因）。
+  const pickerStyle = syncSelect(syncTree0).props.style;
+  assert.ok(String(pickerStyle.background).includes('bg-layer-1'), 'the session picker select carries the themed background, got ' + String(pickerStyle.background));
+  assert.ok(String(pickerStyle.color).includes('label-primary'), 'the session picker select carries the themed text colour, got ' + String(pickerStyle.color));
+  assert.equal(pickerStyle.colorScheme, 'light dark', 'the session picker select opts into the page color-scheme');
+  assert.ok(!String(pickerStyle.background).includes('transparent'), 'the session picker select is not transparent');
+  const pickerOptions = syncTree0.filter((node) => node.type === 'option');
+  assert.ok(pickerOptions.length >= 2, 'the picker renders its options');
+  for (const option of pickerOptions) {
+    assert.ok(String(option.props.style?.background).includes('bg-layer-1'), 'every picker option sets the themed background');
+    assert.ok(String(option.props.style?.color).includes('label-primary'), 'every picker option sets the themed text colour');
+    assert.equal(option.props.style?.colorScheme, 'light dark', 'every picker option opts into the color-scheme too');
+  }
+  // 模型下拉（成员设置里）同样成对。
+  const modelSettingsNodes = mountSettings({ t: (key) => client.zh[key] || key })();
+  const modelSelect = modelSettingsNodes.filter((node) => node.type === 'select')[0];
+  if (modelSelect !== undefined) {
+    assert.ok(String(modelSelect.props.style?.background).includes('bg-layer-1'), 'the model select shares the themed background');
+    assert.ok(String(modelSelect.props.style?.color).includes('label-primary'), 'the model select shares the themed text colour');
+    assert.equal(modelSelect.props.style?.colorScheme, 'light dark', 'the model select opts into the color-scheme');
+    const modelOptions = modelSettingsNodes.filter((node) => node.type === 'option');
+    assert.ok(modelOptions.length >= 1, 'the model select renders options');
+    for (const option of modelOptions) {
+      assert.ok(String(option.props.style?.background).includes('bg-layer-1'), 'every model option sets the themed background');
+      assert.ok(String(option.props.style?.color).includes('label-primary'), 'every model option sets the themed text colour');
+    }
+  }
     // 点左列 → 下拉跟随
     items(syncTree0).find((node) => node.props['data-cabinet-conversation-id'] === 's-a').props.onClick();
     resetHookCursor();
