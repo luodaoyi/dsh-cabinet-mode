@@ -65,7 +65,7 @@ React.useRef = (initial) => {
 };
 
 
-const exportList = 'return { inject, apply, avatarFor, displayName, CabinetPanel, MemberCard, TaskLine, TaskEdgeLayer, buildTaskEdges, taskEdgesEqual, zh, en, BUREAUX, AVATARS, setMemberConfig, memberLabel, configuredAvatar, configuredPrompt, factoryPromptFor, DEFAULT_MEMBER_PROMPTS, DEFAULT_LEAD_PROMPT, CabinetMemberSettings, MemoryPluginCard, memoryPluginInstalledOf, SETTINGS_TABS, formatTokenCount, formatElapsed, tokenTotalOf, usageFor, planProjectionRequests, teamUsageOf, groupChatFold, markdownBlocksOf, inlineMarkdownTokens, markdownLinkHref, modelOptionsOf, modelCatalogNotice, modelSelectionOf, cabinetSessionChoices, defaultCabinetSession, CabinetMarkdown, CabinetPage, CabinetPanelIcon, GroupChatRow, cabinetChatViewRows, chatStampNeeded, nearChatBottom, scrollChatToBottom };';
+const exportList = 'return { inject, apply, avatarFor, displayName, CabinetPanel, MemberCard, TaskLine, TaskEdgeLayer, buildTaskEdges, taskEdgesEqual, zh, en, BUREAUX, AVATARS, setMemberConfig, memberLabel, configuredAvatar, configuredPrompt, factoryPromptFor, DEFAULT_MEMBER_PROMPTS, DEFAULT_LEAD_PROMPT, CabinetMemberSettings, MemoryPluginCard, memoryPluginInstalledOf, SETTINGS_TABS, formatTokenCount, formatElapsed, tokenTotalOf, usageFor, planProjectionRequests, teamUsageOf, groupChatFold, markdownBlocksOf, inlineMarkdownTokens, markdownLinkHref, modelOptionsOf, modelCatalogNotice, modelSelectionOf, cabinetSessionChoices, defaultCabinetSession, CabinetMarkdown, CabinetPage, CabinetPanelIcon, GroupChatRow, cabinetChatViewRows, chatStampNeeded, nearChatBottom, scrollChatToBottom, cabinetScopeRows, openCabinetSession };';
 runInNewContext(source.replace(exportPoint, exportList), {
   setTimeout: (fn, ms) => setTimeout(fn, ms === 120000 ? 20 : ms), clearTimeout,
   Date: RealmDate,
@@ -1410,6 +1410,8 @@ console.log('PASS 内阁 Bot section removal: no section box, office rows, 现�
   // The composer's only public send channel is the retained reference's own
   // SessionFace.prompt(content, mode) (contract/session.d.ts ISession.prompt).
   const promptCalls = [];
+  // uiWorkspace.openSession targets recorded by the injected stub (drill-down).
+  const openedTargets = [];
   const makeReference = (id) => {
     const ref = {
       sessionId: id,
@@ -1454,7 +1456,7 @@ console.log('PASS 内阁 Bot section removal: no section box, office rows, 现�
   const rawApply = client.apply;
   client.apply = (ctx) => rawApply({ ...ctx, inject: (names, callback) => {
     if (Array.isArray(names) && names.includes('sessions')) callback({ sessions: groupService, effect: (fn) => { try { return fn(); } catch (error) { return undefined; } } });
-    if (Array.isArray(names) && names.includes('uiWorkspace')) callback({ uiWorkspace: { openSession: () => {} }, effect: (fn) => { try { return fn(); } catch (error) { return undefined; } } });
+    if (Array.isArray(names) && names.includes('uiWorkspace')) callback({ uiWorkspace: { openSession: (target) => { openedTargets.push(target); } }, effect: (fn) => { try { return fn(); } catch (error) { return undefined; } } });
     if (Array.isArray(names) && names.includes('configForms')) { /* no settings mirror needed here */ }
   } });
   // Same effect/dep machinery as factsRunEffects above (hook slots are keyed by
@@ -2304,12 +2306,135 @@ console.log('PASS 群聊 tab: the right pane keeps the roster only (no 群聊 ta
   assert.ok(leadOption && JSON.stringify(leadOption).includes('首辅会话'), 'the lead session option is labelled');
   assert.ok(page.some((node) => node.props?.['data-cabinet-page-side'] !== undefined), 'the page renders its settings column');
   assert.ok(page.some((node) => node.props?.['data-cabinet-page-main'] !== undefined), 'the page renders its main column');
-  assert.ok(page.some((node) => node.props?.['data-cabinet-settings-tab'] === 'members'), 'the member settings live inside the page');
+  const settingsEntry = page.find((node) => node.props?.['data-cabinet-conversation-settings'] !== undefined);
+  assert.ok(settingsEntry, 'the page folds member settings into one left-column entry');
+  const settingsColumn = page.find((node) => node.props?.['data-cabinet-page-settings'] !== undefined);
+  const listColumn = page.find((node) => node.props?.['data-cabinet-page-list'] !== undefined);
+  assert.equal(settingsColumn.props.style.display, 'none', 'member settings do not occupy the left column by default');
+  assert.equal(listColumn.props.style.display, 'flex', 'the conversation list owns the left column by default');
+  settingsEntry.props.onClick();
+  resetHookCursor();
+  const settingsOpen = elements(client.CabinetPage(pageProps));
+  assert.ok(settingsOpen.some((node) => node.props?.['data-cabinet-settings-tab'] === 'members'), 'the entry opens the member settings inside the page');
+  assert.equal(settingsOpen.find((node) => node.props?.['data-cabinet-page-settings'] !== undefined).props.style.display, 'flex', 'opening the entry swaps the left column to settings');
+  assert.equal(settingsOpen.find((node) => node.props?.['data-cabinet-page-list'] !== undefined).props.style.display, 'none', 'the conversation list steps aside while settings are open');
+  const closeSettings = settingsOpen.find((node) => node.props?.['data-cabinet-settings-close'] !== undefined);
+  assert.ok(closeSettings, 'the settings view carries a close control');
+  closeSettings.props.onClick();
+  resetHookCursor();
+  const closedAgain = elements(client.CabinetPage(pageProps));
+  assert.equal(closedAgain.find((node) => node.props?.['data-cabinet-page-list'] !== undefined).props.style.display, 'flex', 'closing settings returns to the conversation list');
   selectNode.props.onChange({ target: { value: 's-new' } });
   resetHookCursor();
   const picked = elements(client.CabinetPage(pageProps));
   assert.equal(picked.find((node) => node.props?.['data-cabinet-page-session'] !== undefined).props.value, 's-new', 'a manual pick is remembered in session-local state');
   persistentRefs = null;
+
+  // 第六批 A/B：左列会话列表 + 点消息进成员完整会话。
+  {
+    // 用独立实例渲染整页，避免前序 block 的模块状态/快照串味。
+    let pageClient = null;
+    runInNewContext(source.replace(exportPoint, 'return { apply, CabinetPage, GroupChatRow, zh, memberLabel, cabinetScopeRows, openCabinetSession };'), {
+      window: { __ModuleLoader__: { load: ({ factory }) => {
+        pageClient = factory((name) => {
+          if (name === '@deepseek-ai/dsh-client-ui-primitives') throw new Error('primitives not seeded');
+          assert.equal(name, 'react');
+          return React;
+        });
+      } } },
+      console,
+    });
+    // 状态在 hookStates（useState）里，ref 在 persistentRefs（useRef）里：两者都要清。
+    persistentRefs = { cursor: 0, slots: [] };
+    hookStates.slots.length = 0;
+    hookStates.cursor = 0;
+    const teamList = {
+      ids: ['s-lead'],
+      byId: { 's-lead': { title: '首辅会话', updatedAt: 50 } },
+      projectionsBySession: { 's-lead': { values: { agentTeam: { members: [
+        { name: 'lead', role: 'lead', id: 's-lead' },
+        { name: 'works', role: 'mate', id: 'm-works' }
+      ], tasks: [] } } } }
+    };
+    const teamProps = { useSessions: (select) => select(teamList), useSessionStatus: (select) => select(new Map()), t: (key) => pageClient.zh[key] || key };
+    const items = (tree) => tree.filter((node) => node.props?.['data-cabinet-conversation-item'] !== undefined);
+    resetHookCursor();
+    const tree0 = elements(pageClient.CabinetPage(teamProps));
+    const itemIds = items(tree0).map((node) => node.props['data-cabinet-conversation-id']);
+    assert.deepEqual(itemIds, ['all', 's-lead', 'm-works'], 'the left column lists 全部/群聊, the Lead and every in-register officer, got ' + JSON.stringify(itemIds) + ' pick=' + (tree0.find((n)=>n.props?.['data-cabinet-page-session'])||{}).props?.value + ' pages=' + tree0.filter((n)=>n.props?.['data-cabinet-page']!==undefined).length + ' zhkey=' + pageClient.zh['conversation.all']);
+    assert.deepEqual(items(tree0).map((node) => node.props['data-cabinet-conversation-name']), [pageClient.zh['conversation.all'], pageClient.memberLabel('lead'), pageClient.memberLabel('works')], 'each conversation carries the office name');
+    assert.equal(items(tree0)[0].props['data-cabinet-conversation-selected'], '1', '全部/群聊 is the default selection');
+    assert.ok(tree0.filter((node) => node.props?.['data-cabinet-conversation-summary'] !== undefined).length >= 3, 'each conversation carries a summary slot');
+    assert.ok(tree0.some((node) => node.props?.['data-cabinet-groupchat'] !== undefined), 'the merged group chat is still reachable through the page');
+    items(tree0).find((node) => node.props['data-cabinet-conversation-id'] === 'm-works').props.onClick();
+    resetHookCursor();
+    const tree1 = elements(pageClient.CabinetPage(teamProps));
+    assert.equal(items(tree1).find((node) => node.props['data-cabinet-conversation-id'] === 'm-works').props['data-cabinet-conversation-selected'], '1', 'clicking a conversation selects it');
+    assert.equal(items(tree1).find((node) => node.props['data-cabinet-conversation-id'] === 'all').props['data-cabinet-conversation-selected'], '0', 'the previous selection is cleared');
+    items(tree1).find((node) => node.props['data-cabinet-conversation-id'] === 'all').props.onClick();
+    resetHookCursor();
+    const tree2 = elements(pageClient.CabinetPage(teamProps));
+    assert.equal(items(tree2)[0].props['data-cabinet-conversation-selected'], '1', '全部/群聊 can always be re-selected');
+    const scopeFixture = [
+      { kind: 'assistant', text: 'a', memberName: 'works', member: { id: 'm-works' } },
+      { kind: 'assistant', text: 'b', memberName: 'lead', member: { id: 's-lead' } },
+      { kind: 'user', text: 'mine' }
+    ];
+    assert.deepEqual(pageClient.cabinetScopeRows(scopeFixture, 'm-works', 's-lead').map((row) => row.text), ['a'], 'a member conversation shows only that member rows');
+    assert.deepEqual(pageClient.cabinetScopeRows(scopeFixture, 's-lead', 's-lead').map((row) => row.text), ['b', 'mine'], 'the Lead conversation owns the user line too');
+    assert.equal(pageClient.cabinetScopeRows(scopeFixture, '', 's-lead').length, 3, '全部/群聊 keeps the merged stream intact');
+    persistentRefs = null;
+
+    // B) 点消息进完整会话：复用既有 uiWorkspace 下钻通道。
+    const openCalls = [];
+    const openableRow = elements(pageClient.GroupChatRow({
+      row: { kind: 'assistant', text: '看这里', time: 1000, seq: 1, tools: [] },
+      member: { name: 'works', id: 'm-works', phase: 'active' },
+      t: (key) => pageClient.zh[key] || key,
+      onOpenSession: (target) => openCalls.push(target.id)
+    }));
+    const hotZone = openableRow.find((node) => node.props?.['data-cabinet-open-session'] === 'm-works');
+    assert.ok(hotZone, 'the message header/avatar is a drill-down hot zone for its session');
+    assert.equal(hotZone.props.style.cursor, 'pointer', 'the hot zone shows a pointer cursor');
+    assert.ok(String(hotZone.props.title).includes('DSH'), 'the hot zone explains it opens the full DSH session');
+    hotZone.props.onClick();
+    assert.deepEqual(openCalls, ['m-works'], 'clicking the hot zone asks for that member session');
+    const failedRow = elements(pageClient.GroupChatRow({
+      row: { kind: 'assistant', text: 'x', time: 1, seq: 1, tools: [] },
+      member: { name: 'works', id: 'm-works', phase: 'failed' },
+      t: (key) => pageClient.zh[key] || key,
+      onOpenSession: () => { throw new Error('must not be bound'); }
+    }));
+    const disabledHotZone = failedRow.find((node) => node.props?.['data-cabinet-open-disabled'] === '1');
+    assert.ok(disabledHotZone, 'a failed member degrades the hot zone to disabled');
+    assert.equal(disabledHotZone.props.onClick, undefined, 'the disabled hot zone binds no handler');
+    assert.ok(String(disabledHotZone.props.title).includes('不可打开'), 'the disabled hot zone explains why');
+    const anonRow = elements(pageClient.GroupChatRow({
+      row: { kind: 'assistant', text: 'y', time: 1, seq: 1, tools: [] },
+      member: { name: 'works' },
+      t: (key) => pageClient.zh[key] || key,
+      onOpenSession: () => {}
+    }));
+    assert.equal(anonRow.filter((node) => node.props?.['data-cabinet-open-session'] !== undefined).length, 0, 'without a session id there is no hot zone at all');
+    // 通道本身：成员走 childSessionId + continuable，首辅走 plain 字符串；无服务时不抛异常。
+    assert.equal(pageClient.openCabinetSession('m-works', 's-lead'), false, 'without a uiWorkspace service the channel degrades to false, not an exception');
+    const opened = [];
+    try {
+      pageClient.apply({
+        effect: (fn) => { try { const cleanup = fn(); return typeof cleanup === 'function' ? cleanup : () => {}; } catch (error) { return () => {}; } },
+        locale: { register: () => {}, bind: () => (key) => pageClient.zh[key] || key },
+        inject: (names, callback) => {
+          if (Array.isArray(names) && names.includes('uiWorkspace')) callback({ uiWorkspace: { openSession: (target) => opened.push(target) }, effect: (fn) => { fn(); return () => {}; } });
+        },
+      });
+    } catch (error) { globalThis.__applyError = String(error && error.message ? error.message : error); }
+    assert.equal(pageClient.openCabinetSession('m-works', 's-lead'), true, 'the member drill-down succeeds through the injected workspace');
+    assert.equal(JSON.stringify(opened[0]), JSON.stringify({ parentSessionId: 's-lead', childSessionId: 'm-works', mode: 'continuable' }), 'the same payload the native roster uses for a teammate');
+    opened.length = 0;
+    assert.equal(pageClient.openCabinetSession('s-lead', 's-lead'), true, 'the Lead session takes the plain-string branch');
+    assert.equal(opened[0], 's-lead', 'the Lead opens its own session id directly');
+    assert.equal(pageClient.openCabinetSession('', 's-lead'), false, 'a missing session id degrades to false instead of throwing');
+  }
 
   // Registrations: sidebar entry + main page exist, the settings duplicate is gone.
   const registrations = [];
@@ -2343,5 +2468,6 @@ console.log('PASS 群聊 tab: the right pane keeps the roster only (no 群聊 ta
   assert.ok(!names.includes('settings.section'), 'the old settings members section is gone (no second entry)');
   assert.equal(typeof registrations.find((entry) => entry.name === 'sidebar.panellist').component, 'function', 'the panellist registers an icon component');
 }
+console.log('PASS 第六批：左列改会话列表（全部/群聊 + 首辅 + 在册阁臣，头像/官职名/摘要/时间槽，默认选中全部，点击切换选中且群聊合并流仍可达）、成员设置收成左列单入口（默认不占位，点开替换左列、关闭回列表）、点消息头/头像经既有 uiWorkspace 通道（openCabinetSession → childSessionId + continuable / 首辅 plain id）进成员完整会话，无 id 或成员失败时退化为不可点并给提示，无服务时返回 false 不抛异常');
 console.log('PASS 第五批：微信式气泡（别人左侧浅色/自己右侧 #95EC69 绿、圆角内边距、maxWidth 70%、头像 28px、气泡内 markdown 与工具折叠仍在）、时间戳与连续同人聚合（首行与 ≥5 分钟/跨天显示、同人紧凑省名）、进入即贴底（ref 挂载滚到底、贴底跟随状态 data-cabinet-groupchat-follow 随滚动切换、纯函数无定时器）、@成员派活（输入 @ 弹首辅与阁臣候选、插入可解析 @官职名 标记、目标与正文分离、投递到成员会话、无成员通道时显式降级为发首辅并保留 @标记且 UI 说明）');
 console.log('PASS 第二批：markdown 双路径（宿主 MarkdownText 可解析时用组件、seed 缺失或 require 抛错时降级自绘且不炸插件；子集标题/列表/代码块/行内代码/粗体/链接/裸文本 + 无 innerHTML + javascript:/file: 拒绝）、模型目录真实 groups 与「本机无 adapter」显式提示、当前模型读 modelSelection 投影、模型保存后生效说明与 fail-closed 风险提示（且全源无「未生效」字样）、独立内阁整页自带会话选择器（agentTeam 优先、会话内记忆）、sidebar.panellist + main 注册且设置页旧 members section 已清理');

@@ -4413,6 +4413,17 @@ window.__ModuleLoader__.load({
 				return true;
 			} catch (error) { return false; }
 		}
+		/** 单会话过滤：'全部/群聊' 传空串；用户发言归首辅会话。 */
+		function cabinetScopeRows(rows, focusId, leadSessionId) {
+			const list = Array.isArray(rows) ? rows : [];
+			if (typeof focusId !== 'string' || focusId === '') return list;
+			return list.filter((row) => {
+				if (row === null || row === undefined || typeof row !== 'object') return false;
+				if (row.kind === 'user') return focusId === leadSessionId;
+				const memberId = row.member && typeof row.member.id === 'string' ? row.member.id : '';
+				return memberId !== '' && memberId === focusId;
+			});
+		}
 		/** 面板用的分组视图：连续同人紧凑、时间戳按规则显示。 */
 		function cabinetChatViewRows(rows) {
 			const list = Array.isArray(rows) ? rows : [];
@@ -4428,7 +4439,7 @@ window.__ModuleLoader__.load({
 		 * One chat line: officer portrait + officer name + body. Tools fold into
 		 * a single 「N 个工具」 row that expands in place — never one line per call.
 		 */
-		function GroupChatRow({ row, member, t, compact, showTime }) {
+		function GroupChatRow({ row, member, t, compact, showTime, onOpenSession }) {
 			const tt = typeof t === 'function' ? t : (key) => key;
 			const [open, setOpen] = React.useState(false);
 			// A long body folds to a preview height; the toggle is the only way to
@@ -4438,6 +4449,22 @@ window.__ModuleLoader__.load({
 			// The user's own line reads 「你」: no office label and no cabinet
 			// portrait, so the merged view never attributes the user to a bureau.
 			const self = row.kind === 'user';
+			// 下钻热区：复用既有 uiWorkspace 通道（panel 传入 openMemberSession）；
+			// 成员 id 缺失、或成员未就绪/失败时退化为不可点，并给出 title 提示。
+			const memberId = member && typeof member.id === 'string' ? member.id : '';
+			const memberOpenable = typeof onOpenSession === 'function'
+				&& memberId !== ''
+				&& member !== null && member !== undefined
+				&& member.phase !== 'failed'
+				&& member.phase !== 'provisioning';
+			const openProps = memberId === '' ? {} : {
+				onClick: memberOpenable ? () => { try { onOpenSession(member); } catch (ignored) { /* channel guards itself */ } } : undefined,
+				title: memberOpenable ? tt('groupchat.open') : tt('groupchat.openUnavailable'),
+				'data-cabinet-open-session': memberOpenable ? memberId : undefined,
+				'data-cabinet-open-disabled': memberOpenable ? undefined : '1',
+				role: memberOpenable ? 'button' : undefined,
+				style: { cursor: memberOpenable ? 'pointer' : 'default', minWidth: 0 }
+			};
 			// Avatar keys off the raw member id key ('lead', 'works', …); the
 			// visible line shows the office label instead.
 			const key = self ? '' : (member && member.name ? member.name : (row.memberName || ''));
@@ -4450,7 +4477,7 @@ window.__ModuleLoader__.load({
 			const header = compact === true ? null : h('div', {
 				key: 'head',
 				style: { display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, flexWrap: 'wrap', justifyContent: self ? 'flex-end' : 'flex-start' }
-			}, h('span', { key: 'name', title: name, style: { fontSize: 11.5, fontWeight: 600, color: self ? INK2 : INK } }, name || tt('groupchat.unknown')));
+			}, h('span', { key: 'name', ...openProps, style: { fontSize: 11.5, fontWeight: 600, color: self ? INK2 : INK, ...(openProps.style || {}) } }, name || tt('groupchat.unknown')));
 			// A failed member reads 「不可用」 on the line (the spec's wording) while
 			// the channel's own message stays reachable as the hover title.
 			const failed = row.kind === 'error';
@@ -4518,7 +4545,7 @@ window.__ModuleLoader__.load({
 				key: 'line',
 				style: { display: 'flex', alignItems: 'flex-start', gap: 8, width: '100%', minWidth: 0, justifyContent: self ? 'flex-end' : 'flex-start' }
 			}, self ? [bubble] : [
-				h('div', { key: 'avatar', style: { flex: 'none', marginTop: 2 } }, h(Avatar, { name: key || 'neutral', size: 28, live: live })),
+				h('div', { key: 'avatar', ...openProps, style: { flex: 'none', marginTop: 2, ...(openProps.style || {}) } }, h(Avatar, { name: key || 'neutral', size: 28, live: live })),
 				h('div', { key: 'col', style: { display: 'flex', flexDirection: 'column', minWidth: 0, maxWidth: 'calc(100% - 36px)' } }, [bubble])
 			]);
 			return h('div', {
@@ -4539,7 +4566,7 @@ window.__ModuleLoader__.load({
 				line
 			]);
 		}
-		function CabinetPanel({ sessionId, useSession, useSessions, useSessionStatus, t, activeTab: activeTabProp, hideTabs }) {
+		function CabinetPanel({ sessionId, useSession, useSessions, useSessionStatus, t, activeTab: activeTabProp, hideTabs, focusSessionId, onGroupSnapshot }) {
 			// Re-render when the mirrored member settings change (names/avatars).
 			const [, setMemberRevision] = React.useState(0);
 			React.useEffect(() => subscribeMemberConfig(() => setMemberRevision((revision) => revision + 1)), []);
@@ -4874,6 +4901,17 @@ window.__ModuleLoader__.load({
 				if (followBottomRef.current !== true) return;
 				scrollChatToBottom(scrollNodeRef.current);
 			}, [activeTab, chatTailKey]);
+			// 左列会话列表的数据源：把折叠后的行与在册成员交给页面（页面只读展示，
+			// 不再另开一条 retain 通道）。依赖收敛到尾行签名，避免逐帧回调。
+			const snapshotSignature = groupRows.length === 0 ? '' : String(groupRows.length) + ':' + String(groupRows[groupRows.length - 1].time) + ':' + String(groupRows[groupRows.length - 1].seq);
+			React.useEffect(() => {
+				if (typeof onGroupSnapshot !== 'function') return;
+				onGroupSnapshot({
+					leadSessionId,
+					rows: groupRows,
+					members: orderedMembers.map((member) => ({ id: member.id, name: member.name, role: member.role, phase: member.phase }))
+				});
+			}, [snapshotSignature]);
 			// The standalone 内阁 page pins 群聊 and hides this bar: a pinned tab
 			// bar whose clicks cannot switch would be a dead control.
 			if (hideTabs !== true) body.push(h('div', {
@@ -4891,8 +4929,33 @@ window.__ModuleLoader__.load({
 				style: { fontSize: 11, cursor: 'pointer', padding: '3px 8px', borderRadius: 6, border: '1px solid var(--dsw-alias-border-l3, rgba(127,127,127,.4))', background: activeTab === id ? 'rgba(79,140,255,.16)' : 'transparent', color: activeTab === id ? INK : INK2 },
 				onClick: () => setActiveTab(id)
 			}, tt('panel.tab.' + id)))));
+			// ---- click-to-open a member's child session (optional channel) ----
+			// cabinetOpenSession is filled by ctx.inject(['uiWorkspace']) in apply()
+			// and stays null when the service is missing — the helpers below then
+			// return false and the click does nothing. Availability follows the
+			// native roster's inert rule (agent-team: failed / provisioning never
+			// open); lead-owned and unassigned tasks resolve to no member at all,
+			// so the panel hands TaskLine null and nothing is bound.
+			// 首辅会话（member.id === sessionId）走 openCabinetSession 的 plain 分支，
+			// 打开的就是宿主原生该 session 的完整视图（工具、diff、审批都在）。
+			const openableMember = (member) => Boolean(member)
+				&& typeof member.id === 'string' && member.id !== ''
+				&& member.phase !== 'failed'
+				&& member.phase !== 'provisioning';
+			const openMemberSession = (member) => openableMember(member)
+				&& (member.id === sessionId
+					? openCabinetSession(member.id, member.id)
+					: openCabinetSession(member.id, leadSessionId));
+
 			if (activeTab === 'groupchat') {
-				const rows = groupRows.length > 0 ? groupRows : (liveText === '' ? [] : [{ kind: 'live', time: 0, seq: 0, text: liveText, tools: [] }]);
+				// 单会话视图：'全部/群聊'（focusSessionId 空）看合并流；选了某成员就
+				// 只留该成员的行，用户发言归首辅会话。
+				const focusId = typeof focusSessionId === 'string' ? focusSessionId : '';
+				const scopedGroupRows = cabinetScopeRows(groupRows, focusId, leadSessionId);
+				const scopedLiveText = focusId === ''
+					? liveText
+					: orderedMembers.filter((member) => member && member.id === focusId).map((member) => group.views(member.id).liveText).filter((text) => text !== '').join('\n');
+				const rows = scopedGroupRows.length > 0 ? scopedGroupRows : (scopedLiveText === '' ? [] : [{ kind: 'live', time: 0, seq: 0, text: scopedLiveText, tools: [] }]);
 				// Only the newest page is mounted by default: a long team history
 				// must not cost a full row mount on every frame. 「显示更早」 adds one
 				// page at a time from the already-folded rows (no refold, no re-read).
@@ -5090,7 +5153,10 @@ window.__ModuleLoader__.load({
 							member: entry.row.member || memberByName.get(entry.row.memberName),
 							t: tt,
 							compact: entry.compact,
-							showTime: entry.showTime
+							showTime: entry.showTime,
+							// 复用早前 task-2 的下钻通道：openMemberSession → openCabinetSession
+							// → uiWorkspace.openSession（成员为 childSessionId，首辅走 plain 分支）。
+							onOpenSession: openMemberSession
 						})),
 					composer
 				]));
@@ -5114,19 +5180,6 @@ window.__ModuleLoader__.load({
 			const unassigned = tasks.filter((task) => !task.ownerName);
 			const leadOwn = tasks.filter((task) => task.ownerName !== undefined && isLeadTask(task));
 
-			// ---- click-to-open a member's child session (optional channel) ----
-			// cabinetOpenSession is filled by ctx.inject(['uiWorkspace']) in apply()
-			// and stays null when the service is missing — the helpers below then
-			// return false and the click does nothing. Availability follows the
-			// native roster's inert rule (agent-team: self / failed / provisioning
-			// never open); lead-owned and unassigned tasks resolve to no member at
-			// all, so the panel hands TaskLine null and nothing is bound.
-			const openableMember = (member) => Boolean(member)
-				&& typeof member.id === 'string' && member.id !== ''
-				&& member.id !== sessionId
-				&& member.phase !== 'failed'
-				&& member.phase !== 'provisioning';
-			const openMemberSession = (member) => openableMember(member) && openCabinetSession(member.id, leadSessionId);
 			const ownerMemberOf = (task) => (task && task.ownerName && !isLeadTask(task) ? memberByName.get(task.ownerName) : undefined);
 			const openOwnerSession = (task) => openMemberSession(ownerMemberOf(task));
 			// Per-task opener handed to TaskLine: null means "do not bind".
@@ -5680,6 +5733,11 @@ window.__ModuleLoader__.load({
 			const choices = cabinetSessionChoices(list);
 			const preferred = defaultCabinetSession(choices);
 			const [chosen, setChosen] = React.useState('');
+			// 左列视图：会话列表 或 成员设置（设置只占左列，绝不与聊天区争主区位）。
+			const [leftMode, setLeftMode] = React.useState('list');
+			// 主区查看对象：'all' = 合并群聊流；某成员 id = 只看该会话。
+			const [focus, setFocus] = React.useState('all');
+			const [groupSnapshot, setGroupSnapshot] = React.useState(null);
 			const selected = chosen !== '' && choices.some((choice) => choice.id === chosen) ? chosen : preferred;
 			const projections = list !== null && typeof list === 'object' && list.projectionsBySession !== null && typeof list.projectionsBySession === 'object' ? list.projectionsBySession : {};
 			const teamValues = projections[selected] && typeof projections[selected] === 'object' ? projections[selected].values : undefined;
@@ -5708,6 +5766,100 @@ window.__ModuleLoader__.load({
 				}, choices.map((choice) => h('option', { key: choice.id, value: choice.id }, (choice.hasTeam ? '★ ' : '') + choice.title))),
 				choices.length === 0 ? h('span', { key: 'empty', 'data-cabinet-page-session-empty': '1', style: { fontSize: 11, color: INK3 } }, tt('page.session.empty')) : null
 			]);
+			// 会话列表的数据：优先用面板折叠后的行（摘要/时间），成员表退化为
+			// team 投影。未读没有宿主来源，这里不编造任何未读点。
+			const snapshotMembers = groupSnapshot !== null && Array.isArray(groupSnapshot.members) ? groupSnapshot.members : null;
+			const conversationMembers = snapshotMembers !== null
+				? snapshotMembers
+				: members.filter((member) => member !== null && member !== undefined && typeof member.id === 'string' && member.id !== '');
+			const snapshotRows = groupSnapshot !== null && Array.isArray(groupSnapshot.rows) ? groupSnapshot.rows : [];
+			const lastRowFor = (id) => {
+				for (let index = snapshotRows.length - 1; index >= 0; index -= 1) {
+					const row = snapshotRows[index];
+					if (row === null || row === undefined) continue;
+					if (id === 'all') return row;
+					if (row.kind === 'user') { if (id === selected) return row; continue; }
+					const rowId = row.member && typeof row.member.id === 'string' ? row.member.id : '';
+					if (rowId === id) return row;
+				}
+				return undefined;
+			};
+			const conversations = [{ id: 'all', name: '', label: tt('conversation.all'), role: 'all' }]
+				.concat(conversationMembers.map((member) => ({
+					id: member.id,
+					name: member.name,
+					label: memberLabel(member.name) || String(member.name || member.id),
+					role: member.role
+				})));
+			const conversationList = h('div', {
+				key: 'conversations',
+				'data-cabinet-conversations': '1',
+				style: { display: 'flex', flexDirection: 'column', gap: 2, padding: '8px 0' }
+			}, conversations.map((entry) => {
+				const last = lastRowFor(entry.id);
+				const summary = last !== undefined && typeof last.text === 'string' ? last.text : '';
+				const stamp = last !== undefined && typeof last.time === 'number' && last.time > 0 ? chatStampText(last.time) : '';
+				const active = focus === entry.id;
+				return h('button', {
+					key: entry.id,
+					type: 'button',
+					'data-cabinet-conversation-item': '1',
+					'data-cabinet-conversation-id': entry.id,
+					'data-cabinet-conversation-name': entry.label,
+					'data-cabinet-conversation-selected': active ? '1' : '0',
+					title: entry.label,
+					onClick: () => { setFocus(entry.id); setLeftMode('list'); },
+					style: { display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left', font: 'inherit', padding: '6px 8px', border: 0, borderRadius: 8, background: active ? 'rgba(79,140,255,.14)' : 'transparent', cursor: 'pointer', color: INK }
+				}, [
+					h('span', { key: 'avatar', style: { flex: 'none', width: 28, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 8, background: 'rgba(127,127,127,.16)', fontSize: 13 } }, entry.id === 'all' ? '#' : h(Avatar, { name: entry.name || 'neutral', size: 28 })),
+					h('span', { key: 'col', style: { display: 'flex', flexDirection: 'column', gap: 1, minWidth: 0, flex: 1 } }, [
+						h('span', { key: 'top', style: { display: 'flex', justifyContent: 'space-between', gap: 6, minWidth: 0 } }, [
+							h('span', { key: 'name', style: { fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, entry.label),
+							stamp === '' ? null : h('span', { key: 'time', 'data-cabinet-conversation-time': '1', style: { fontSize: 10.5, color: INK3, flex: 'none' } }, stamp)
+						]),
+						h('span', { key: 'summary', 'data-cabinet-conversation-summary': '1', style: { fontSize: 11, color: INK3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, summary === '' ? '—' : summary.slice(0, 48))
+					])
+				]);
+			}));
+			const settingsEntry = h('button', {
+				key: 'settings-entry',
+				type: 'button',
+				'data-cabinet-conversation-settings': '1',
+				title: tt('conversation.settings'),
+				onClick: () => setLeftMode('settings'),
+				style: { display: 'flex', alignItems: 'center', gap: 6, width: '100%', font: 'inherit', fontSize: 12, padding: '7px 8px', marginTop: 'auto', border: 0, borderRadius: 8, background: 'transparent', color: INK2, cursor: 'pointer', borderTop: '1px solid rgba(127,127,127,.25)' }
+			}, '⚙ ' + tt('conversation.settings'));
+			// 两个分支常驻、用 display 切换：左列永远是「列表 / 设置」二选一，
+			// 设置不占主区，切换时也不重建成员设置组件（保留其本地草稿状态）。
+			const sideBody = [
+				h('div', {
+					key: 'list',
+					'data-cabinet-page-list': '1',
+					'data-cabinet-page-list-open': leftMode === 'settings' ? '0' : '1',
+					style: { display: leftMode === 'settings' ? 'none' : 'flex', flexDirection: 'column', gap: 2, flex: 1, minHeight: 0 }
+				}, [conversationList, settingsEntry]),
+				h('div', {
+					key: 'settings',
+					'data-cabinet-page-settings': '1',
+					'data-cabinet-page-settings-open': leftMode === 'settings' ? '1' : '0',
+					style: { display: leftMode === 'settings' ? 'flex' : 'none', flexDirection: 'column', gap: 4, flex: 1, minHeight: 0, overflow: 'auto' }
+				}, [
+					h('div', {
+						key: 'head',
+						style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '8px 0', borderBottom: '1px solid rgba(127,127,127,.25)' }
+					}, [
+						h('span', { key: 'title', style: { fontSize: 12, fontWeight: 600 } }, tt('conversation.settings')),
+						h('button', {
+							key: 'close',
+							type: 'button',
+							'data-cabinet-settings-close': '1',
+							onClick: () => setLeftMode('list'),
+							style: { font: 'inherit', fontSize: 11, padding: '2px 8px', borderRadius: 6, border: '1px solid var(--dsw-alias-border-l3, rgba(127,127,127,.4))', background: 'transparent', color: INK2, cursor: 'pointer' }
+						}, tt('conversation.settings.close'))
+					]),
+					h(CabinetMemberSettings, { key: 'settings', t: tt, selectionOf })
+				])
+			];
 			const body = selected === ''
 				? h('div', { key: 'note', 'data-cabinet-page-note': '1', style: { fontSize: 12, color: INK2, padding: 12 } }, tt('page.noSession'))
 				: h(CabinetPanel, {
@@ -5718,7 +5870,9 @@ window.__ModuleLoader__.load({
 					useSessionStatus: readStatus,
 					t: tt,
 					activeTab: 'groupchat',
-					hideTabs: true
+					hideTabs: true,
+					focusSessionId: focus === 'all' ? '' : focus,
+					onGroupSnapshot: (snapshot) => setGroupSnapshot(snapshot)
 				});
 			return h('div', {
 				'data-cabinet-page': '1',
@@ -5727,8 +5881,8 @@ window.__ModuleLoader__.load({
 				h('div', {
 					key: 'side',
 					'data-cabinet-page-side': '1',
-					style: { width: 380, flex: 'none', minHeight: 0, overflow: 'auto', borderRight: '1px solid rgba(127,127,127,.25)', padding: '0 12px 12px' }
-				}, h(CabinetMemberSettings, { t: tt, selectionOf })),
+					style: { width: 300, flex: 'none', minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'auto', borderRight: '1px solid rgba(127,127,127,.25)', padding: '0 10px 10px' }
+				}, sideBody),
 				h('div', {
 					key: 'main',
 					'data-cabinet-page-main': '1',
@@ -6025,6 +6179,11 @@ window.__ModuleLoader__.load({
 			'groupchat.tools.count': '{n} 个工具',
 			'groupchat.tools.hide': '收起工具',
 			'groupchat.you': '你',
+			'conversation.all': '全部/群聊',
+			'conversation.settings': '成员设置',
+			'conversation.settings.close': '返回会话',
+			'groupchat.open': '打开该成员的完整 DSH 会话（工具、diff、审批）',
+			'groupchat.openUnavailable': '该成员会话暂不可打开（未就绪或已失败）',
 			'groupchat.mention.to': '将发给：',
 			'groupchat.mention.fallback': '已降级：无法直接投递到 {name} 的会话，本条改发首辅，正文保留 @ 标记。',
 			'groupchat.fold.expand': '展开',
@@ -6163,6 +6322,11 @@ window.__ModuleLoader__.load({
 			'groupchat.tools.count': '{n} tools',
 			'groupchat.tools.hide': 'Hide tools',
 			'groupchat.you': 'You',
+			'conversation.all': 'All / Group chat',
+			'conversation.settings': 'Member settings',
+			'conversation.settings.close': 'Back to chats',
+			'groupchat.open': 'Open this member\'s full DSH session (tools, diffs, approvals)',
+			'groupchat.openUnavailable': 'This member session cannot be opened yet (not ready or failed)',
 			'groupchat.mention.to': 'To:',
 			'groupchat.mention.fallback': 'Degraded: could not deliver to {name}\'s session; sent to the Lead with the @ marker kept in the text.',
 			'groupchat.fold.expand': 'Show more',
