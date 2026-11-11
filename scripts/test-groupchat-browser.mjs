@@ -74,15 +74,25 @@ if(process.argv.includes('--dom')){
  }finally{server.close();}
 }
 if(process.argv.includes('--headless')){
- let browser;
+ let browser,page,pageLoaded=false,failed=false;
  try{
   if(!process.env.CHROME_PATH) throw Error('Set CHROME_PATH to an existing Chromium');
   browser=await require('playwright-core').chromium.launch({executablePath:process.env.CHROME_PATH,headless:true,args:['--no-sandbox']});
-  const page=await browser.newPage({viewport:{width:1050,height:900}});const errors=[];page.on('pageerror',e=>errors.push(e.message));page.on('console',m=>{if(m.type()==='error')errors.push(m.text())});
-  await page.goto(url);const result=await page.evaluate(()=>window.groupChecks());
+  page=await browser.newPage({viewport:{width:1050,height:900}});const errors=[];page.on('pageerror',e=>errors.push(e.message));page.on('console',m=>{if(m.type()==='error')errors.push(m.text())});
+  await page.goto(url);pageLoaded=true;const result=await page.evaluate(()=>window.groupChecks());
   // Native keyboard behavior (not synthetic click()).
   const button=page.locator('[data-cabinet-groupchat-tools]').first();await button.focus();await page.keyboard.press('Enter');await page.waitForFunction(()=>document.querySelector('[data-cabinet-groupchat-tools]').getAttribute('aria-expanded')==='true');await page.keyboard.press('Space');await page.waitForFunction(()=>document.querySelector('[data-cabinet-groupchat-tools]').getAttribute('aria-expanded')==='false');
   if(process.env.CABINET_SCREENSHOT)await page.screenshot({path:process.env.CABINET_SCREENSHOT,fullPage:true});
   const stats=await page.evaluate(()=>window.groupUnmount());if(errors.length)throw Error(errors.join('\n'));console.log(JSON.stringify({...result,keyboard:true,final:stats}));
- }finally{await browser?.close();server.close();}
+ }catch(error){
+  failed=true;
+  // Failure evidence is best-effort and must not replace the assertion error.
+  if(pageLoaded&&process.env.CABINET_SCREENSHOT){
+   try{await page.screenshot({path:process.env.CABINET_SCREENSHOT,fullPage:true});}catch{}
+  }
+  throw error;
+ }finally{
+  try{await browser?.close();}catch(error){if(!failed)throw error;}
+  finally{server.close();}
+ }
 }
