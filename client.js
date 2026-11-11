@@ -5783,6 +5783,12 @@ window.__ModuleLoader__.load({
 				running: row.running === true,
 				updatedAt: typeof row.updatedAt === 'number' ? row.updatedAt : (typeof row.lastMessageAt === 'number' ? row.lastMessageAt : 0),
 				hasTeam: values !== undefined && values !== null && values.agentTeam !== undefined,
+				// 「有成员」比「有投影」严格：子会话也带 agentTeam 行，但成员的
+				// members 是空数组（核验实测 8 个子会话都是投影存在、成员为空）。
+				// 默认选中只认真正有成员的名册，否则会选到一个右侧空白的会话。
+				hasMembers: values !== undefined && values !== null
+					&& values.agentTeam !== undefined && values.agentTeam !== null
+					&& Array.isArray(values.agentTeam.members) && values.agentTeam.members.length > 0,
 			};
 		}
 		/** 顶层会话行（子 agent 行已剔除）。 */
@@ -5799,16 +5805,24 @@ window.__ModuleLoader__.load({
 			}
 			return choices;
 		}
-		/** 默认选中最近更新的会话（用户已定：不再优先「有 agentTeam」的会话）。 */
+		/**
+		 * 默认选中：最近更新**且有成员**的会话优先（agentTeam.members 非空）。
+		 * 只按「最近更新」会有个真实陷阱：最新顶层若是刚建的空会话，右侧就是
+		 * 一片空白群聊，用户会以为又坏了。全都没有成员时再退回最近更新者，
+		 * 保证总有选中项（列表排序仍按最近更新，不受此规则影响）。
+		 */
 		function defaultCabinetSession(choices) {
 			let best = '';
 			let bestAt = -Infinity;
+			let bestTeam = '';
+			let bestTeamAt = -Infinity;
 			for (const choice of Array.isArray(choices) ? choices : []) {
 				if (choice === null || typeof choice !== 'object') continue;
 				const at = typeof choice.updatedAt === 'number' ? choice.updatedAt : 0;
 				if (at > bestAt) { best = choice.id; bestAt = at; }
+				if (choice.hasMembers === true && at > bestTeamAt) { bestTeam = choice.id; bestTeamAt = at; }
 			}
-			return best;
+			return bestTeam !== '' ? bestTeam : best;
 		}
 		/** Decorative sidebar glyph; the panel row supplies size and selection. */
 		function CabinetPanelIcon(props) {
