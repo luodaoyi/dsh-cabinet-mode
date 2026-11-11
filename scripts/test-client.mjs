@@ -1724,13 +1724,30 @@ console.log('PASS 内阁 Bot section removal: no section box, office rows, 现�
   assert.deepEqual(textsOf(badSettled.tree), ['不可用', '请调研', '请实现', '调研结论A', '实现完成B'], 'one failed member never blanks the others');
   badSettled.stop();
 
-  // 4) Empty state: a group-chat view with no member messages renders one
-  //    bilingual line instead of a blank pane (zh and en dictionaries both).
+  // 4) Empty state: no minister messages must render a CONTENTFUL, centered
+  //    empty state (icon + explanation + actionable hint), never one bare line
+  //    over a blank pane (真机截图里那约 800px 空白就是这条退化出来的)。
   for (const language of [client.zh, client.en]) {
+    const tag = language === client.zh ? 'zh' : 'en';
     const emptyView = groupChatViewOf({ members: [], tasks: [] }, language);
     const emptyNode = emptyView.tree.find((node) => node.props?.['data-cabinet-groupchat-empty'] !== undefined);
-    assert.ok(emptyNode, 'the empty state renders its own row');
-    assert.equal(emptyNode.children.flat().join(''), language['groupchat.empty'], 'the empty line is translated (' + (language === client.zh ? 'zh' : 'en') + ')');
+    assert.ok(emptyNode, 'the empty state renders its own container');
+    // 容器自带居中布局与最小高度：不是一行贴着顶部的空话。
+    assert.equal(emptyNode.props.style.display, 'flex', 'the empty state container is a flex column (' + tag + ')');
+    assert.equal(emptyNode.props.style.alignItems, 'center', 'the empty state is horizontally centered (' + tag + ')');
+    assert.equal(emptyNode.props.style.justifyContent, 'center', 'the empty state is vertically centered (' + tag + ')');
+    assert.equal(emptyNode.props.style.textAlign, 'center', 'the empty state text is centered (' + tag + ')');
+    assert.ok(typeof emptyNode.props.style.minHeight === 'number' && emptyNode.props.style.minHeight >= 160, 'the empty state reserves a real block instead of collapsing (' + tag + ')');
+    // 有图标 + 有说明文案，文案里含可操作提示。
+    const iconNode = findNodes([emptyNode], (node) => node.props?.['data-cabinet-groupchat-empty-icon'] !== undefined)[0];
+    const textNode = findNodes([emptyNode], (node) => node.props?.['data-cabinet-groupchat-empty-text'] !== undefined)[0];
+    assert.ok(iconNode, 'the empty state carries a visual marker (' + tag + ')');
+    assert.ok(textNode, 'the empty state carries a text node (' + tag + ')');
+    assert.equal(textNode.children.flat().join(''), language['groupchat.empty'], 'the empty text is translated (' + tag + ')');
+    const copy = language['groupchat.empty'];
+    assert.ok(copy.includes('\n'), 'the empty copy is two lines: what happened + what to do (' + tag + ')');
+    const actionable = tag === 'zh' ? copy.includes('左侧') : /pick a session/i.test(copy);
+    assert.ok(actionable, 'the empty copy tells the user what to do next (' + tag + ')');
     emptyView.stop();
   }
 
@@ -2346,7 +2363,7 @@ console.log('PASS 群聊 tab: the right pane keeps the roster only (no 群聊 ta
       's-lead': { title: '首辅会话', updatedAt: 50 },
       's-new': { title: '新会话', updatedAt: 300 },
     },
-    projectionsBySession: { 's-lead': { values: { agentTeam: { members: [{ name: 'lead', role: 'lead', id: 's-lead' }], tasks: [] } } } },
+    projectionsBySession: { 's-lead': { values: { agentTeam: { members: [{ name: 'lead', role: 'lead', id: 's-lead' }, { name: 'works', role: 'teammate', id: 's-mate' }], tasks: [] } } } },
   };
   const choices = client.cabinetSessionChoices(sessionList);
   assert.equal(JSON.stringify(choices.map((choice) => choice.id)), JSON.stringify(['s-old', 's-lead', 's-new']), 'the picker lists the sessions snapshot');
@@ -2379,7 +2396,7 @@ console.log('PASS 群聊 tab: the right pane keeps the roster only (no 群聊 ta
       's-blank-new': { title: '刚建的空会话', updatedAt: 9000 },
     },
     projectionsBySession: {
-      's-team-old': { values: { agentTeam: { members: [{ name: 'lead', role: 'lead', id: 's-team-old' }], tasks: [] } } },
+      's-team-old': { values: { agentTeam: { members: [{ name: 'lead', role: 'lead', id: 's-team-old' }, { name: 'works', role: 'teammate', id: 's-mate-old' }, { name: 'censor', role: 'teammate', id: 's-mate-old-2' }], tasks: [] } } },
       's-blank-new': { values: { agentTeam: { members: [], tasks: [] } } },
     },
   };
@@ -2397,6 +2414,41 @@ console.log('PASS 群聊 tab: the right pane keeps the roster only (no 群聊 ta
   let allBlankPick = null;
   assert.doesNotThrow(() => { allBlankPick = client.defaultCabinetSession(client.cabinetSessionChoices(allBlank)); }, 'defaulting with no memberful session never throws');
   assert.equal(allBlankPick, 's-b2', 'when nobody has members the most recently updated session still wins, got ' + String(allBlankPick));
+  // 「只有 lead 自己在 members 里」不算有阁臣 —— 正是这个误判让默认选中退化。
+  const leadOnly = {
+    ids: ['s-lead-only'],
+    byId: { 's-lead-only': { title: '只有首辅', updatedAt: 500 } },
+    projectionsBySession: { 's-lead-only': { values: { agentTeam: { members: [{ name: 'lead', role: 'lead', id: 's-lead-only' }], tasks: [] } } } },
+  };
+  const leadOnlyChoice = client.cabinetSessionChoices(leadOnly)[0];
+  assert.equal(leadOnlyChoice.hasTeam, true, 'a lead-only session still carries an agentTeam projection');
+  assert.equal(leadOnlyChoice.hasMembers, false, 'the lead itself is in members, so a lead-only roster is NOT hasMembers (this exact miss made the default fall back to "newest")');
+  // 首辅要求的实证 fixture：最新会话只有 lead，次新会话含 lead + 两名阁臣 → 默认落次新。
+  const newestLeadOnly = {
+    ids: ['s-mates', 's-lead-newest'],
+    byId: {
+      's-mates': { title: '有阁臣的会话', updatedAt: 100 },
+      's-lead-newest': { title: '最新但只有首辅', updatedAt: 9000 },
+    },
+    projectionsBySession: {
+      's-mates': { values: { agentTeam: { members: [{ name: 'lead', role: 'lead', id: 's-mates' }, { name: 'gongbu', role: 'teammate', id: 's-m1' }, { name: 'dalisi', role: 'teammate', id: 's-m2' }], tasks: [] } } },
+      's-lead-newest': { values: { agentTeam: { members: [{ name: 'lead', role: 'lead', id: 's-lead-newest' }], tasks: [] } } },
+    },
+  };
+  const newestChoices = client.cabinetSessionChoices(newestLeadOnly);
+  assert.equal(client.defaultCabinetSession(newestChoices), 's-mates', 'the newest session with only a lead loses to an older session that has ministers, got ' + client.defaultCabinetSession(newestChoices));
+  // 所有会话都只有 lead：不抛，退回最近更新者。
+  const allLeadOnly = {
+    ids: ['s-lo-1', 's-lo-2'],
+    byId: { 's-lo-1': { title: '只有首辅一', updatedAt: 10 }, 's-lo-2': { title: '只有首辅二', updatedAt: 20 } },
+    projectionsBySession: {
+      's-lo-1': { values: { agentTeam: { members: [{ name: 'lead', role: 'lead', id: 's-lo-1' }], tasks: [] } } },
+      's-lo-2': { values: { agentTeam: { members: [{ name: 'lead', role: 'lead', id: 's-lo-2' }], tasks: [] } } },
+    },
+  };
+  let allLeadPick = null;
+  assert.doesNotThrow(() => { allLeadPick = client.defaultCabinetSession(client.cabinetSessionChoices(allLeadOnly)); }, 'defaulting when every session is lead-only never throws');
+  assert.equal(allLeadPick, 's-lo-2', 'when no session has ministers the newest one still wins, got ' + String(allLeadPick));
   // 列表排序不受默认规则影响：仍按 updatedAt 倒序（空会话排在前面）。
   const blankOrder = client.cabinetSessionChoices(blankNewest).slice().sort((a, b) => (b.updatedAt - a.updatedAt) || (a.id < b.id ? -1 : 1)).map((choice) => choice.id);
   assert.equal(JSON.stringify(blankOrder), JSON.stringify(['s-blank-new', 's-team-old']), 'the list order stays newest-first even though the default is a memberful session, got ' + JSON.stringify(blankOrder));
@@ -2721,7 +2773,7 @@ console.log('PASS 群聊 tab: the right pane keeps the roster only (no 群聊 ta
   assert.ok(!names.includes('settings.section'), 'the old settings members section is gone (no second entry)');
   assert.equal(typeof registrations.find((entry) => entry.name === 'sidebar.panellist').component, 'function', 'the panellist registers an icon component');
 }
-console.log('PASS 第七批：左列只放顶层会话（useSessions 快照过滤 parentSessionId/origin:subagent、按 updatedAt 倒序、标题/时间/内阁群聊标记，点击在本页选中该会话并切换右侧群聊，无 uiWorkspace 通道也照常工作且不弹死链提示）、群聊成员可见性（四成员各一条 durable 消息都进合并流，成员通道 ok/pending/error 状态挂容器，未就绪成员渲染等待中行而非静默消失，scope 过滤按 memberName 兜底）、气泡/打字框样式（light-dark 成对配色、用到的每个 --dsw-* 变量都在装机前端真实存在、无伪造变量、气泡底回退不是单值白、首末 margin 归零（含嵌套层）、段落 margin 0、空段落/空 div 不占高、工具行高度随内容不留占位、折叠区按行高定量）、等待中行跟随会话过滤');
-console.log('PASS 第六批：左列改会话列表（无合成项、顶层 DSH 会话按 updatedAt 倒序，标题/时间/内阁群聊标记，默认选中最近更新且有成员的会话（全无成员时退回最近更新），点击在本页选中并切换右侧群聊、无通道也照常工作）、成员设置收成左列单入口（默认不占位，点开替换左列、关闭回列表）、点消息头/头像经既有 uiWorkspace 通道（openCabinetSession → childSessionId + continuable / 首辅 plain id）进成员完整会话，无 id 或成员失败时退化为不可点并给提示，无服务时返回 false 不抛异常');
+console.log('PASS 第七批：左列只放顶层会话（useSessions 快照过滤 parentSessionId/origin:subagent、按 updatedAt 倒序、标题/时间/内阁群聊标记，点击在本页选中该会话并切换右侧群聊，无 uiWorkspace 通道也照常工作且不弹死链提示）、群聊成员可见性（四成员各一条 durable 消息都进合并流，成员通道 ok/pending/error 状态挂容器，未就绪成员渲染等待中行而非静默消失，scope 过滤按 memberName 兜底，空态是有内容有提示的居中块而非一行空话）、气泡/打字框样式（light-dark 成对配色、用到的每个 --dsw-* 变量都在装机前端真实存在、无伪造变量、气泡底回退不是单值白、首末 margin 归零（含嵌套层）、段落 margin 0、空段落/空 div 不占高、工具行高度随内容不留占位、折叠区按行高定量）、等待中行跟随会话过滤');
+console.log('PASS 第六批：左列改会话列表（无合成项、顶层 DSH 会话按 updatedAt 倒序，标题/时间/内阁群聊标记，默认选中最近更新且**有阁臣**（除 lead 外还有成员）的会话（全无阁臣时退回最近更新），点击在本页选中并切换右侧群聊、无通道也照常工作）、成员设置收成左列单入口（默认不占位，点开替换左列、关闭回列表）、点消息头/头像经既有 uiWorkspace 通道（openCabinetSession → childSessionId + continuable / 首辅 plain id）进成员完整会话，无 id 或成员失败时退化为不可点并给提示，无服务时返回 false 不抛异常');
 console.log('PASS 第五批：微信式气泡（别人左侧浅色/自己右侧 #95EC69 绿、圆角内边距、maxWidth 70%、头像 28px、气泡内 markdown 与工具折叠仍在）、时间戳与连续同人聚合（首行与 ≥5 分钟/跨天显示、同人紧凑省名）、进入即贴底（ref 挂载滚到底、贴底跟随状态 data-cabinet-groupchat-follow 随滚动切换、纯函数无定时器）、@成员派活（输入 @ 弹首辅与阁臣候选、插入可解析 @官职名 标记、目标与正文分离、投递到成员会话、无成员通道时显式降级为发首辅并保留 @标记且 UI 说明）');
-console.log('PASS 第二批：markdown 双路径（宿主 MarkdownText 可解析时用组件、seed 缺失或 require 抛错时降级自绘且不炸插件；子集标题/列表/代码块/行内代码/粗体/链接/裸文本 + 无 innerHTML + javascript:/file: 拒绝）、模型目录真实 groups 与「本机无 adapter」显式提示、当前模型读 modelSelection 投影、模型保存后生效说明与 fail-closed 风险提示（且全源无「未生效」字样）、独立内阁整页自带会话选择器（默认最近更新且有成员、子会话不入列、会话内记忆）、sidebar.panellist + main 注册且设置页旧 members section 已清理');
+console.log('PASS 第二批：markdown 双路径（宿主 MarkdownText 可解析时用组件、seed 缺失或 require 抛错时降级自绘且不炸插件；子集标题/列表/代码块/行内代码/粗体/链接/裸文本 + 无 innerHTML + javascript:/file: 拒绝）、模型目录真实 groups 与「本机无 adapter」显式提示、当前模型读 modelSelection 投影、模型保存后生效说明与 fail-closed 风险提示（且全源无「未生效」字样）、独立内阁整页自带会话选择器（默认最近更新且有阁臣、子会话不入列、会话内记忆）、sidebar.panellist + main 注册且设置页旧 members section 已清理');

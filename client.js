@@ -5232,7 +5232,17 @@ window.__ModuleLoader__.load({
 						}, tt('groupchat.older').replace('{n}', String(hidden)))
 						: null,
 					shown.length === 0
-						? h('div', { key: 'empty', 'data-cabinet-groupchat-empty': '1', style: { fontSize: 12, color: INK2, lineHeight: 1.6 } }, tt('groupchat.empty'))
+						// 空态必须有内容：居中说明「该会话没有阁臣参与」，并给可操作提示
+						// （去左侧换一个有阁臣的会话），而不是一行英文空话下面留 800px 空白。
+						? h('div', {
+							key: 'empty',
+							'data-cabinet-groupchat-empty': '1',
+							role: 'status',
+							style: { display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8, flex: '1 1 auto', minHeight: 200, padding: '32px 20px', textAlign: 'center', fontSize: 12, color: INK2, lineHeight: 1.6 }
+						}, [
+							h('div', { key: 'icon', 'data-cabinet-groupchat-empty-icon': '1', 'aria-hidden': 'true', style: { fontSize: 22, opacity: 0.6 } }, '▤'),
+							h('div', { key: 'text', 'data-cabinet-groupchat-empty-text': '1', style: { maxWidth: 360 } }, tt('groupchat.empty'))
+						])
 						: cabinetChatViewRows(shown).map((entry, index) => h(GroupChatRow, {
 							key: 'row:' + index,
 							row: entry.row,
@@ -5783,12 +5793,19 @@ window.__ModuleLoader__.load({
 				running: row.running === true,
 				updatedAt: typeof row.updatedAt === 'number' ? row.updatedAt : (typeof row.lastMessageAt === 'number' ? row.lastMessageAt : 0),
 				hasTeam: values !== undefined && values !== null && values.agentTeam !== undefined,
-				// 「有成员」比「有投影」严格：子会话也带 agentTeam 行，但成员的
-				// members 是空数组（核验实测 8 个子会话都是投影存在、成员为空）。
-				// 默认选中只认真正有成员的名册，否则会选到一个右侧空白的会话。
-				hasMembers: values !== undefined && values !== null
-					&& values.agentTeam !== undefined && values.agentTeam !== null
-					&& Array.isArray(values.agentTeam.members) && values.agentTeam.members.length > 0,
+				// 「有阁臣」比「有投影」严格，比「members.length > 0」也严格：
+				// **lead 自身就在 members 里**，只判 length 会让任何带 agentTeam 的
+				// 会话都算「有成员」——默认选中于是退化成纯「最近更新」，真机就落在
+				// 一个只有 lead 的会话上（右栏 Members 1 + 一片空白）。
+				// 所以判据是「除 lead 之外还有成员」：既不是 role==='lead'，
+				// 也不是本会话 id 自己（lead 的成员 id 通常等于会话 id）。
+				hasMembers: (function () {
+					const team = values !== undefined && values !== null ? values.agentTeam : undefined;
+					const roster = team !== undefined && team !== null && Array.isArray(team.members) ? team.members : [];
+					return roster.some((member) => member !== null && typeof member === 'object'
+						&& member.role !== 'lead'
+						&& !(typeof member.id === 'string' && member.id === id));
+				})(),
 			};
 		}
 		/** 顶层会话行（子 agent 行已剔除）。 */
@@ -6317,7 +6334,7 @@ window.__ModuleLoader__.load({
 			'panel.tab.groupchat': '群聊',
 			'panel.tab.roster': '名册',
 			'groupchat.unavailable': '不可用',
-			'groupchat.empty': '暂无群聊消息：成员会话打开后，首辅与阁臣的消息会按时间合并显示在这里。',
+			'groupchat.empty': '该会话没有阁臣参与，暂无群聊消息。\n在左侧选择一个有阁臣的会话，就能看到首辅与各成员按时间合并的消息。',
 			'groupchat.unknown': '未知成员',
 			'groupchat.tools.count': '{n} 个工具',
 			'groupchat.tools.hide': '收起工具',
@@ -6463,7 +6480,7 @@ window.__ModuleLoader__.load({
 			'panel.tab.roster': 'Roster',
 			'groupchat.unavailable': '不可用',
 			'groupchat.unavailable': 'unavailable',
-			'groupchat.empty': 'No group chat messages yet: once member sessions open, Lead and minister messages merge here in time order.',
+			'groupchat.empty': 'No ministers in this session, so there is no group chat yet.\nPick a session that has ministers on the left to see Lead and member messages merged in time order.',
 			'groupchat.unavailable': 'Unavailable',
 			'groupchat.unknown': 'Unknown member',
 			'groupchat.tools.count': '{n} tools',
