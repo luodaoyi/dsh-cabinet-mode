@@ -1381,18 +1381,17 @@ console.log('PASS 内阁 Bot section removal: no section box, office rows, 现�
   };
   const leadEntries = [
     durable('tool/call', 1, 1000, { callId: 'c-lead', name: 'bash', arguments: '{"cmd":"ls"}' }),
-    durable('user/message', 2, 2000, { message: { role: 'user', content: [{ type: 'text', text: '请调研' }] } }),
+    durable('user/message', 2, 2000, { role: 'user', content: [{ type: 'text', text: '请调研' }] }),
     durable('assistant/message', 3, 3000, { message: { role: 'assistant', content: [{ type: 'text', text: '调研结论A' }] } }),
   ];
   const worksEntries = [
-    durable('user/message', 1, 2500, { message: { role: 'user', content: [{ type: 'text', text: '请实现' }] } }),
+    durable('user/message', 1, 2500, { role: 'user', content: [{ type: 'text', text: '请实现' }] }),
     durable('tool/call', 2, 2600, { callId: 'c-works', name: 'read', arguments: '{"path":"client.js"}' }),
-    transient(2.5, 2900, { attemptId: 'att-1', chunk: { type: 'text-delta', text: '实现中' } }),
-    transient(2.6, 2950, { attemptId: 'att-1', chunk: { type: 'text-delta', text: '…' } }),
+    transient(2.5, 2900, { attemptId: 'att-1', turn: 1, step: 1, chunk: { type: 'text-delta', text: '实现中' } }),
+    transient(2.6, 2950, { attemptId: 'att-1', turn: 1, step: 1, chunk: { type: 'text-delta', text: '…' } }),
     durable('tool/result', 3, 2970, { message: { role: 'tool', toolCallId: 'c-works', content: [{ type: 'text', text: 'file contents' }] } }),
-    // A settled message carries the attempt id of the live suffix it replaces
-    // (dsh session contract), so the fold drops that transient row.
-    durable('assistant/message', 4, 4000, { attemptId: 'att-1', message: { role: 'assistant', content: [{ type: 'text', text: '实现完成B' }] } }),
+    // Official settlements match the live suffix by turn/step, without attemptId.
+    durable('assistant/message', 4, 4000, { turn: 1, step: 1, message: { role: 'assistant', content: [{ type: 'text', text: '实现完成B' }] } }),
   ];
   const sources = { 'lead-session': makeSource(leadEntries), 'm-works': makeSource(worksEntries) };
   const releases = [];
@@ -1603,7 +1602,8 @@ console.log('PASS 内阁 Bot section removal: no section box, office rows, 现�
   const rowSignature = (node) => {
     const text = findNodes([node], (child) => child.props?.['data-cabinet-groupchat-text'] !== undefined)
       .map((child) => child.children.flat().filter((part) => typeof part === 'string').join('')).join('');
-    return node.props['data-cabinet-groupchat-row'] + '|' + text;
+    const member = findNodes([node], (child) => child.props?.size === 20)[0]?.props?.name;
+    return member + '|' + node.props['data-cabinet-groupchat-row'] + '|' + text;
   };
   const seenRows = new Set();
   const uniqueRows = mergedRows.filter((node) => {
@@ -1674,9 +1674,8 @@ console.log('PASS 内阁 Bot section removal: no section box, office rows, 现�
   const badIndex = badRows.findIndex((row) => row.props['data-cabinet-groupchat-error'] === '1');
   assert.ok(badIndex >= 0, 'a failed member renders its own row, got ' + JSON.stringify(badRows.map((row) => row.props['data-cabinet-groupchat-row'])));
   assert.deepEqual(textsOf([badRows[badIndex]]), ['不可用'], 'the failed member degrades to 不可用, not an exception');
-  // The failed member's row sorts first (time 0) and the other members keep
-  // their own rows, in time order.
-  assert.deepEqual(textsOf(badSettled.tree), ['不可用', '请调研', '请实现', '调研结论A', '实现完成B'], 'one failed member never blanks the others');
+  // Unavailable members follow the other members' messages in time order.
+  assert.deepEqual(textsOf(badSettled.tree), ['请调研', '请实现', '调研结论A', '实现完成B', '不可用'], 'one failed member never blanks the others');
   badSettled.stop();
 
   // 4) Empty state: a group-chat view with no member messages renders one
@@ -1709,7 +1708,7 @@ console.log('PASS 内阁 Bot section removal: no section box, office rows, 现�
 
   // 6) Incremental append: the next window adds one more message without
   //    another retain, and the 5s tick folds it into the merged view.
-  sources['lead-session'].push([...leadEntries, durable('user/message', 4, 5000, { message: { role: 'user', content: [{ type: 'text', text: '追加消息' }] } })]);
+  sources['lead-session'].push([...leadEntries, durable('user/message', 4, 5000, { role: 'user', content: [{ type: 'text', text: '追加消息' }] })]);
   const ticked = groupRender();
   // The unmount above ended the previous mount, so this render mounts again
   // (one retain per member); the very next render with the same roster must

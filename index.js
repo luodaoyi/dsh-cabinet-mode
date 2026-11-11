@@ -248,7 +248,7 @@ function associationLine(config) {
 function leadBlock(config) {
 	const entry = memberEntries(config).get('lead');
 	const mode = entry === undefined ? '' : entry.mode;
-	if (mode === 'off') return '';
+	if (mode === 'off') return associationLine(config);
 	const prompt = mode === 'custom' ? (entry.prompt) : DEFAULT_LEAD_PROMPT;
 	const lines = [];
 	if (entry !== undefined && entry.name !== '') lines.push('你在内阁中的名号：' + entry.name);

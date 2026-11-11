@@ -2688,7 +2688,6 @@ window.__ModuleLoader__.load({
 			const messages = [];
 			const openCalls = new Map();
 			const resultOrder = new Map();
-			const resultSeqs = new Set();
 			const live = { byAttempt: new Map() };
 			const push = (message) => {
 				if (message.time === undefined) return;
@@ -2708,7 +2707,7 @@ window.__ModuleLoader__.load({
 					if (chunk && chunk.type === 'text-delta' && typeof chunk.text === 'string' && typeof data.attemptId === 'string') {
 						const current = live.byAttempt.get(data.attemptId);
 						if (current === undefined) {
-							live.byAttempt.set(data.attemptId, { time: event.time, seq: typeof event.seq === 'number' ? event.seq : Number.MAX_SAFE_INTEGER, text: chunk.text });
+							live.byAttempt.set(data.attemptId, { time: event.time, seq: typeof event.seq === 'number' ? event.seq : Number.MAX_SAFE_INTEGER, text: chunk.text, turn: data.turn, step: data.step });
 						} else {
 							current.text += chunk.text;
 							if (typeof event.seq === 'number' && event.seq > current.seq) current.seq = event.seq;
@@ -2721,13 +2720,17 @@ window.__ModuleLoader__.load({
 					if (!message || typeof message !== 'object') continue;
 					// A settled message supersedes its own live suffix.
 					if (typeof data.attemptId === 'string') live.byAttempt.delete(data.attemptId);
+					// Official settlements identify the stream by turn/step, not attemptId.
+					for (const [id, delta] of live.byAttempt) {
+						if (data.turn !== undefined && data.step !== undefined && delta.turn === data.turn && delta.step === data.step) live.byAttempt.delete(id);
+					}
 					const text = groupChatText(message.content);
 					if (text === '') continue;
 					push({ kind: 'assistant', time: event.time, seq: event.seq, text, tools: [] });
 					continue;
 				}
 				if (type === 'user/message') {
-					const message = data.message;
+					const message = data;
 					if (!message || typeof message !== 'object') continue;
 					const text = groupChatText(message.content);
 					if (text === '') continue;
@@ -2751,7 +2754,6 @@ window.__ModuleLoader__.load({
 				if (type === 'tool/result') {
 					const id = toolResultCallId(data);
 					if (id === null) continue;
-					resultSeqs.add(event.seq);
 					const call = openCalls.get(id);
 					if (call === undefined || call.text === '') {
 						// First settle wins; later retries for one callId keep the
@@ -2771,15 +2773,17 @@ window.__ModuleLoader__.load({
 			for (const [attemptId, delta] of live.byAttempt) {
 				rows.push({ kind: 'live', attemptId, time: delta.time, seq: delta.seq, text: delta.text, tools: [] });
 			}
-			for (const message of messages) {
-				const end = Math.max(message.seq === undefined ? -Infinity : message.seq, ...tools.filter((tool) => tool.time >= message.time && tool.time < message.time + 600000).map((tool) => tool.seq));
-				message.tools = tools.filter((tool) => tool.seq <= end && tool.time >= message.time && tool.time < message.time + 600000);
-				message.endSeq = end;
-				rows.push(message);
+			// Each call belongs to the latest assistant in this user turn, once.
+			const bySeq = messages.slice().sort((a, b) => a.seq - b.seq);
+			let cursor = 0, owner;
+			for (const tool of tools) {
+				while (cursor < bySeq.length && bySeq[cursor].seq <= tool.seq) {
+					const message = bySeq[cursor++];
+					owner = message.kind === 'assistant' ? message : undefined;
+				}
+				if (owner !== undefined) owner.tools.push(tool);
 			}
-			// A tool call that precedes the first message (or falls in a gap the
-			// per-message window never covered) still has to be counted, so the
-			// leftover set is "never attached", not "after the last endSeq".
+			rows.push(...messages);
 			const attached = new Set();
 			for (const row of rows) for (const tool of Array.isArray(row.tools) ? row.tools : []) attached.add(tool.callId);
 			const leftovers = tools.filter((tool) => !attached.has(tool.callId));
@@ -3943,182 +3947,59 @@ window.__ModuleLoader__.load({
 		 * panel unmount. A member that cannot be retained renders its own 不可用
 		 * row; the other members keep working.
 		 */
-		function useCabinetGroupChat(members, activeTab, service, notify) {
+		function useCabinetGroupChat(members, activeTab, service) {
 			const [, setRevision] = React.useState(0);
-
-			// The views/records pair is keyed by the member list so a render that
-			// starts from a fresh hook slot (a tab remount in the panel harness)
-			// still sees the folds that the previous commit produced, instead of
-			// repainting every row from an empty map until the next event.
-			const key = JSON.stringify(members.map((member) => (member && typeof member.id === 'string' ? member.id : '')).filter((id) => id !== ''));
-			const stateRef = React.useRef(null);
-			if (stateRef.current === null || stateRef.current.key !== key) stateRef.current = { views: new Map(), records: new Map(), key };
+			const key = JSON.stringify(members.map((member) => member.id));
+			// Keep one map across roster changes so the timer reads current records.
+			const stateRef = React.useRef({ views: new Map(), records: new Map() });
 			const state = stateRef.current;
-			stateRef.current.key = key;
 			React.useEffect(() => {
 				if (activeTab !== 'groupchat') return undefined;
-				const abort = new AbortController();
 				let disposed = false;
 				const bump = () => { if (!disposed) setRevision((revision) => revision + 1); };
-				const releaseRecord = (record) => {
-					if (record === undefined || record.released) return;
-					record.released = true;
-					if (typeof record.unsubscribe === 'function') { try { record.unsubscribe(); } catch (ignored) { /* source already gone */ } }
-					try { record.reference.release(); } catch (ignored) { /* release is once-only by contract */ }
+				const fail = (id, error) => {
+					state.views.set(id, { fold: null, error: error?.message || String(error), liveText: '' });
+					bump();
 				};
-				const dropMember = (id) => {
-					const record = state.records.get(id);
-					if (record === undefined) return;
-					releaseRecord(record);
-					state.records.delete(id);
-					state.views.delete(id);
-				};
-				// A failed member keeps its 不可用 row until it actually returns:
-				// releasing the old reference must not silently clear the error.
-				const clearError = (id) => {
-					const view = state.views.get(id);
-					if (view !== undefined && view.error !== null) state.views.set(id, { fold: view.fold, error: null, liveText: view.liveText });
-				};
-				const syncMember = (id, record) => {
-					if (record === undefined || record.released) return;
-					const channel = (() => {
-						try {
-							const binding = record.reference.binding;
-							return binding && binding.eventSource ? binding.eventSource : null;
-						} catch (error) { return null; }
-					})();
-					if (!channel || typeof channel.getSnapshot !== 'function') return;
-					let window;
-					try { window = channel.getSnapshot(); } catch (error) { return; }
-					const entries = window && typeof window === 'object' && Array.isArray(window.entries) ? window.entries : [];
-					const fold = groupChatFold(entries);
-					state.views.set(id, { fold, error: null, liveText: fold.liveText });
-				};
-				const addMember = (member) => {
-					const id = member.id;
-					let reference;
-					try {
-						reference = cabinetGroupRetain(id);
-					} catch (error) {
-						// Keep the failure on the row it belongs to.
-						const previous = state.views.get(id);
-						state.views.set(id, { fold: previous ? previous.fold : null, error: String(error && error.message ? error.message : error), liveText: previous ? previous.liveText : '' });
-						bump();
-						return;
-					}
-					clearError(id);
-					const record = { reference, released: false, unsubscribe: null };
-					state.records.set(id, record);
-					const source = () => {
-						try {
-							const binding = reference.binding;
-							return binding && binding.eventSource ? binding.eventSource : null;
-						} catch (error) {
-							return null;
-						}
-					};
-					const sync = () => {
-						if (record.released) return;
-						const channel = source();
-						if (!channel || typeof channel.getSnapshot !== 'function') return;
-						let window;
-						try { window = channel.getSnapshot(); } catch (error) { return; }
-						const entries = window && typeof window === 'object' && Array.isArray(window.entries) ? window.entries : [];
-						const fold = groupChatFold(entries);
-						state.views.set(id, { fold, error: null, liveText: fold.liveText });
-						bump();
-					};
-					try {
-						const channel = source();
-						if (channel && typeof channel.subscribe === 'function') record.unsubscribe = channel.subscribe(sync);
-					} catch (error) { /* degrade to 不可用 below */ }
-					Promise.resolve(reference.ready).then(() => {
-						if (record.released || abort.signal.aborted) return;
-						sync();
-						if (record.unsubscribe === null) {
-							const channel = source();
-							if (channel && typeof channel.subscribe === 'function') { try { record.unsubscribe = channel.subscribe(sync); } catch (ignored) { /* already unavailable */ } }
-						}
-						// After `ready` a session without any event channel can never
-						// produce a row on its own, so it degrades explicitly instead
-						// of leaving the pane silently short one member.
-						const settledChannel = source();
-						if (!settledChannel || typeof settledChannel.getSnapshot !== 'function') {
-							if (state.views.get(id) === undefined) {
-								state.views.set(id, { fold: null, error: GROUP_UNAVAILABLE, liveText: '' });
-								bump();
-							}
-						}
-					}, (error) => {
-						if (record.released || abort.signal.aborted) return;
-						state.views.set(id, { fold: null, error: String(error && error.message ? error.message : error), liveText: '' });
-						bump();
-					});
-					sync();
-				};
-
-				for (const id of Array.from(state.records.keys())) if (!key.includes(JSON.stringify(id))) dropMember(id);
 				for (const member of members) {
-					if (member === undefined || member === null || typeof member.id !== 'string' || member.id === '') continue;
-					if (!state.records.has(member.id)) addMember(member);
-					else syncMember(member.id, state.records.get(member.id));
+					const id = member.id;
+					if (typeof id !== 'string' || id === '' || state.records.has(id)) continue;
+					let reference;
+					try { reference = cabinetGroupRetain(id); }
+					catch (error) { fail(id, error); continue; }
+					const record = { reference, unsubscribe: null, sync: null };
+					state.records.set(id, record);
+					record.sync = () => {
+						if (disposed) return;
+						try {
+							const channel = reference.binding.eventSource;
+							if (!channel || typeof channel.getSnapshot !== 'function' || typeof channel.subscribe !== 'function') throw new Error(GROUP_UNAVAILABLE);
+							if (record.unsubscribe === null) record.unsubscribe = channel.subscribe(record.sync);
+							const fold = groupChatFold(channel.getSnapshot().entries);
+							state.views.set(id, { fold, error: null, liveText: fold.liveText });
+							bump();
+						} catch (error) { fail(id, error); }
+					};
+					record.sync();
+					Promise.resolve(reference.ready).then(() => record.sync(), (error) => {
+						if (!disposed) fail(id, error);
+					});
 				}
+				bump();
 				return () => {
 					disposed = true;
-					try { abort.abort(); } catch (ignored) { /* controller is local */ }
-					for (const record of Array.from(state.records.values())) releaseRecord(record);
+					for (const record of state.records.values()) {
+						try { record.unsubscribe?.(); } catch (ignored) { /* source already gone */ }
+						try { record.reference.release(); } catch (ignored) { /* service already gone */ }
+					}
 					state.records.clear();
+					state.views.clear();
 				};
 			}, [activeTab, service, key]);
-			// A service that appears/disappears behind an already-active tab must
-			// re-run the same effect (its cleanup released the old references).
-			React.useEffect(() => { setRevision((revision) => revision + 1); }, [service]);
-			// A member retained while `ready` was pending folds in the ready
-			// continuation, which may land after the commit that painted the empty
-			// row: the next commit refills it from the service's window instead of
-			// waiting for an event that will never come. The flag makes this dep
-			// change exactly once per mount.
-			const refilledRef = React.useRef(false);
-			const refilled = activeTab === 'groupchat'
-				&& members.some((member) => member && typeof member.id === 'string' && state.records.has(member.id) && state.views.get(member.id) === undefined)
-				&& !refilledRef.current;
-			React.useEffect(() => {
-				if (!refilled) return;
-				refilledRef.current = true;
-				for (const [id, record] of state.records) {
-					if (state.views.get(id) !== undefined) continue;
-					try {
-						const binding = record.reference.binding;
-						const channel = binding && binding.eventSource ? binding.eventSource : null;
-						if (!channel || typeof channel.getSnapshot !== 'function') continue;
-						const snapshot = channel.getSnapshot();
-						const entries = snapshot && typeof snapshot === 'object' && Array.isArray(snapshot.entries) ? snapshot.entries : [];
-						const fold = groupChatFold(entries);
-						state.views.set(id, { fold, error: null, liveText: fold.liveText });
-					} catch (ignored) { /* the row keeps its last good fold */ }
-				}
-				setRevision((revision) => revision + 1);
-			}, [refilled]);
 			return {
-				views: (id) => {
-					const view = state.views.get(id);
-					return view === undefined ? groupChatEmptyView() : view;
-				},
+				views: (id) => state.views.get(id) || groupChatEmptyView(),
 				members: () => Array.from(state.views.keys()),
-				forceSync: () => {
-					for (const [id, record] of state.records) {
-						try {
-							const binding = record.reference.binding;
-							const channel = binding && binding.eventSource ? binding.eventSource : null;
-							if (!channel || typeof channel.getSnapshot !== 'function') continue;
-							const snapshot = channel.getSnapshot();
-							const entries = snapshot && typeof snapshot === 'object' && Array.isArray(snapshot.entries) ? snapshot.entries : [];
-							const fold = groupChatFold(entries);
-							state.views.set(id, { fold, error: null, liveText: fold.liveText });
-						} catch (ignored) { /* the row keeps its last good fold */ }
-					}
-					setRevision((revision) => revision + 1);
-				}
+				forceSync: () => { for (const record of state.records.values()) record.sync(); }
 			};
 		}
 		/**
@@ -4175,6 +4056,8 @@ window.__ModuleLoader__.load({
 			}, [header, bodyNode, toolNode]);
 		}
 		function CabinetPanel({ sessionId, useSession, useSessions, useSessionStatus, t, activeTab: activeTabProp }) {
+			const [localTab, setActiveTab] = React.useState('roster');
+			const activeTab = typeof activeTabProp === 'string' ? activeTabProp : localTab;
 			// Re-render when the mirrored member settings change (names/avatars).
 			const [, setMemberRevision] = React.useState(0);
 			React.useEffect(() => subscribeMemberConfig(() => setMemberRevision((revision) => revision + 1)), []);
@@ -4294,7 +4177,7 @@ window.__ModuleLoader__.load({
 						panel.removeEventListener('scroll', schedule);
 					}
 				};
-			}, [measureLinks, hasTeam]);
+			}, [measureLinks, hasTeam, activeTab]);
 
 			// Styles live in one shared <style id="dsh-cabinet-ui-styles"> mounted by
 			// apply(); the panel itself renders no <style> element.
@@ -4320,9 +4203,6 @@ window.__ModuleLoader__.load({
 			// this pane. 群聊 is a sibling tab, added without displacing anything.
 			// `activeTab` is an optional override the tab button supplies when it
 			// switches (so one render carries the click); omitted means local state.
-			const [localTab, setLocalTab] = React.useState('roster');
-			const activeTab = typeof activeTabProp === 'string' ? activeTabProp : localTab;
-			const setActiveTab = setLocalTab;
 			// The sessions service arrives through the existing cabinetSessions
 			// listeners (same channel as the usage cards) so a late injection or a
 			// disposal re-runs the retain/release pairing below.
@@ -4482,7 +4362,7 @@ window.__ModuleLoader__.load({
 			}
 			// Stable time merge: a member's rows keep their window order, equal
 			// timestamps keep roster order, and the 不可用 rows join last.
-			groupRows.sort((a, b) => (a.time - b.time) || (a.seq - b.seq) || 0);
+			groupRows.sort((a, b) => Number(a.kind === 'error') - Number(b.kind === 'error') || (a.time - b.time) || (a.seq - b.seq));
 			body.push(h('div', {
 				key: 'tabs',
 				role: 'tablist',
@@ -4508,8 +4388,8 @@ window.__ModuleLoader__.load({
 				}, [
 					rows.length === 0
 						? h('div', { key: 'empty', 'data-cabinet-groupchat-empty': '1', style: { fontSize: 12, color: INK2, lineHeight: 1.6 } }, tt('groupchat.empty'))
-						: rows.map((row, index) => h(GroupChatRow, {
-							key: 'row:' + index,
+						: rows.map((row) => h(GroupChatRow, {
+							key: JSON.stringify([row.member?.id || row.memberName, row.kind, row.attemptId || row.seq]),
 							row,
 							member: row.member || memberByName.get(row.memberName),
 							t: tt
@@ -4750,6 +4630,7 @@ window.__ModuleLoader__.load({
       if (!editable()) return;
       epoch++; uploads = {};
       const keys = key ? [key] : AVATAR_KEYS;
+      if (!key || key === 'tongzheng') state.associationMode = false;
       for (const k of keys) { state.draft[k] = { name: '', prompt: '', mode: '', model: '' }; state.avatars[k] = ''; }
       state.draft = { ...state.draft }; state.avatars = { ...state.avatars }; state.errors = {}; changed();
     },
@@ -5097,7 +4978,7 @@ window.__ModuleLoader__.load({
 						h('span', { key: 'l', style: { fontSize: 11, color: INK3 } }, t('member.builtin')),
 						...(function () {
 							const out = [];
-							for (const other of AVATAR_KEYS) {
+							for (const other of MEMBER_EDITOR_KEYS) {
 								out.push(h('button', {
 									key: 'b-' + other,
 									type: 'button',
@@ -5379,8 +5260,6 @@ window.__ModuleLoader__.load({
 			'empty.hint': 'No cabinet data yet: open this tab from the Lead session that owns the team board.',
 			'panel.tab.groupchat': 'Group chat',
 			'panel.tab.roster': 'Roster',
-			'groupchat.unavailable': '不可用',
-			'groupchat.unavailable': 'unavailable',
 			'groupchat.empty': 'No group chat messages yet: once member sessions open, Lead and minister messages merge here in time order.',
 			'groupchat.unavailable': 'Unavailable',
 			'groupchat.unknown': 'Unknown member',
