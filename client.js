@@ -5900,6 +5900,9 @@ window.__ModuleLoader__.load({
 					members.push(choice);
 				}
 				if (members.length === 0) continue;
+				// 注意：此处有意与宿主原生「按 workspace.sessionIds 手动顺序」不同，
+				// 按 updatedAt 倒序排列（用户未要求改回）。要改成原生顺序请连同
+				// workspace 的手动排序 UI 一起做，否则会出现顺序不可解释。
 				members.sort(byRecency);
 				const key = typeof workspace.workspaceId === 'string' && workspace.workspaceId !== '' ? workspace.workspaceId : '';
 				const title = typeof workspace.title === 'string' && workspace.title !== ''
@@ -5974,8 +5977,22 @@ window.__ModuleLoader__.load({
 				sync();
 				return () => { cabinetWorkspacesListeners.delete(sync); };
 			}, []);
-			// 折叠的组（key 集合）；原生侧栏的 workspace 组可折叠，这里同样可折叠。
-			const [collapsedGroups, setCollapsedGroups] = React.useState({});
+			// 折叠的组（key -> 是否折叠）。原生侧栏的 workspace 组可折叠，这里同样可折叠。
+			// 默认折叠规则：兜底组 Ungrouped 默认折叠——真机实测它有 122 项，
+			// 默认展开会把有归属的 workspace 组全挤到下面看不见。
+			// 兜底组的 key 固定为空串；空串只在兜底组出现，不会误伤 workspace 组。
+			// 用户点过之后以 state 里的记录为准（不因重渲染回到默认值）。
+			const [collapsedGroups, setCollapsedGroups] = React.useState(() => ({}));
+			// 有效折叠态：state 里有记录用记录，否则按默认规则。
+			// 默认规则：workspace 组展开；兜底组折叠**但仅当另有 workspace 组**——
+			// 否则（宿主没注入 workspaces，或所有会话都无归属）兜底组是唯一一组，
+			// 折叠会让左列整片变空，比「122 项挤占」更糟。
+			const collapsedOf = (group) => {
+				const recorded = collapsedGroups[group.key];
+				if (recorded !== undefined) return recorded === true;
+				if (group.ungrouped !== true) return false;
+				return sessionGroups.some((other) => other.ungrouped !== true);
+			};
 			// 显式传入的快照优先（宿主可直接喂，测试也可）：不改变注入通道。
 			const workspaceSnapshot = props !== null && typeof props === 'object' && props.workspaceSnapshot !== undefined
 				? props.workspaceSnapshot
@@ -6091,7 +6108,7 @@ window.__ModuleLoader__.load({
 				'data-cabinet-conversations': '1',
 				style: { display: 'flex', flexDirection: 'column', gap: 2, padding: '8px 0' }
 			}, sessionGroups.map((group) => {
-				const collapsed = collapsedGroups[group.key] === true;
+				const collapsed = collapsedOf(group);
 				const items = conversations.filter((entry) => entry.groupKey === group.key && (group.key !== '' || entry.ungrouped === true));
 				return h('div', {
 					key: 'group:' + (group.key === '' ? 'ungrouped' : group.key),
@@ -6106,7 +6123,13 @@ window.__ModuleLoader__.load({
 						'data-cabinet-conversation-group-title': group.key === '' ? 'ungrouped' : group.key,
 						'aria-expanded': collapsed ? 'false' : 'true',
 						title: group.title,
-						onClick: () => setCollapsedGroups((previous) => ({ ...previous, [group.key]: previous[group.key] !== true })),
+						// 取反「有效折叠态」而不是 state 里的原始值：兜底组默认折叠时，
+						// 首次点击必须展开（若按 state 原始值取反会仍是折叠）。
+						onClick: () => setCollapsedGroups((previous) => {
+							const recorded = previous[group.key];
+							const current = recorded !== undefined ? recorded === true : collapsed;
+							return { ...previous, [group.key]: !current };
+						}),
 						style: { display: 'flex', alignItems: 'center', gap: 6, width: '100%', textAlign: 'left', font: 'inherit', fontSize: 11, fontWeight: 600, color: INK3, padding: '4px 8px', border: 0, borderRadius: 6, background: 'transparent', cursor: 'pointer' }
 					}, [
 						h('span', { key: 'caret', 'aria-hidden': 'true', style: { flex: 'none', width: 10, display: 'inline-block' } }, collapsed ? '▸' : '▾'),
