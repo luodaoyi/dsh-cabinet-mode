@@ -1511,9 +1511,9 @@ console.log('PASS 内阁 Bot section removal: no section box, office rows, 现�
 
     sessionId: 'lead-session',
     useSession: (select) => select({}),
-    useSessions: (select) => select({ projectionsBySession: { 'lead-session': { values: { agentTeam: groupTeam } } } }),
+    useSessions: (select) => select({ projectionsBySession: { 'lead-session': { values: { agentTeam: (overrides && overrides.team) || groupTeam } } } }),
     useSessionStatus: (select) => select(new Map()),
-    t: (key) => client.zh[key] || key,
+    t: (key) => ((overrides && overrides.dictionary) || client.zh)[key] || key,
       activeTab: overrides && typeof overrides.activeTab === 'string' ? overrides.activeTab : groupTab,
     });
     const tree = elements(raw);
@@ -1724,32 +1724,6 @@ console.log('PASS 内阁 Bot section removal: no section box, office rows, 现�
   assert.deepEqual(textsOf(badSettled.tree), ['不可用', '请调研', '请实现', '调研结论A', '实现完成B'], 'one failed member never blanks the others');
   badSettled.stop();
 
-  // 4) Empty state: no minister messages must render a CONTENTFUL, centered
-  //    empty state (icon + explanation + actionable hint), never one bare line
-  //    over a blank pane (真机截图里那约 800px 空白就是这条退化出来的)。
-  for (const language of [client.zh, client.en]) {
-    const tag = language === client.zh ? 'zh' : 'en';
-    const emptyView = groupChatViewOf({ members: [], tasks: [] }, language);
-    const emptyNode = emptyView.tree.find((node) => node.props?.['data-cabinet-groupchat-empty'] !== undefined);
-    assert.ok(emptyNode, 'the empty state renders its own container');
-    // 容器自带居中布局与最小高度：不是一行贴着顶部的空话。
-    assert.equal(emptyNode.props.style.display, 'flex', 'the empty state container is a flex column (' + tag + ')');
-    assert.equal(emptyNode.props.style.alignItems, 'center', 'the empty state is horizontally centered (' + tag + ')');
-    assert.equal(emptyNode.props.style.justifyContent, 'center', 'the empty state is vertically centered (' + tag + ')');
-    assert.equal(emptyNode.props.style.textAlign, 'center', 'the empty state text is centered (' + tag + ')');
-    assert.ok(typeof emptyNode.props.style.minHeight === 'number' && emptyNode.props.style.minHeight >= 160, 'the empty state reserves a real block instead of collapsing (' + tag + ')');
-    // 有图标 + 有说明文案，文案里含可操作提示。
-    const iconNode = findNodes([emptyNode], (node) => node.props?.['data-cabinet-groupchat-empty-icon'] !== undefined)[0];
-    const textNode = findNodes([emptyNode], (node) => node.props?.['data-cabinet-groupchat-empty-text'] !== undefined)[0];
-    assert.ok(iconNode, 'the empty state carries a visual marker (' + tag + ')');
-    assert.ok(textNode, 'the empty state carries a text node (' + tag + ')');
-    assert.equal(textNode.children.flat().join(''), language['groupchat.empty'], 'the empty text is translated (' + tag + ')');
-    const copy = language['groupchat.empty'];
-    assert.ok(copy.includes('\n'), 'the empty copy is two lines: what happened + what to do (' + tag + ')');
-    const actionable = tag === 'zh' ? copy.includes('左侧') : /pick a session/i.test(copy);
-    assert.ok(actionable, 'the empty copy tells the user what to do next (' + tag + ')');
-    emptyView.stop();
-  }
 
   // 5) Unmount releases every reference exactly once. (The tab switch above
   //    already proved the pairing; this pass proves the panel unmount does too.)
@@ -1850,6 +1824,44 @@ console.log('PASS 内阁 Bot section removal: no section box, office rows, 现�
   //    external re-render; a send disables the composer; duplicates are refused.
   sources['lead-session'] = makeSource([...leadEntries]);
   sources['m-works'] = makeSource(worksEntries);
+  // 4) Empty state: no minister messages must render a CONTENTFUL, centered
+  //    empty state (icon + explanation + actionable hint), never one bare line
+  //    over a blank pane (真机截图里那约 800px 空白就是这条退化出来的)。
+  // 空白会话的真实形状：没有成员、自身窗口也是空的（真机 respire 那种会话）。
+  // 现在 lead 自身也会被 retain，所以必须显式给一个空窗口才会进入空态。
+  const savedLeadSource = sources['lead-session'];
+  sources['lead-session'] = makeSource([]);
+  for (const language of [client.zh, client.en]) {
+    const tag = language === client.zh ? 'zh' : 'en';
+    groupTab = 'groupchat';
+    const emptyTeam = { members: [], tasks: [] };
+    const emptyMount = remountGroup({ team: emptyTeam, dictionary: language });
+    settleReady();
+    const emptyView = groupRender({ team: emptyTeam, dictionary: language });
+    const emptyNode = emptyView.tree.find((node) => node.props?.['data-cabinet-groupchat-empty'] !== undefined);
+    assert.ok(emptyNode, 'the empty state renders its own container');
+    // 容器自带居中布局与最小高度：不是一行贴着顶部的空话。
+    assert.equal(emptyNode.props.style.display, 'flex', 'the empty state container is a flex column (' + tag + ')');
+    assert.equal(emptyNode.props.style.alignItems, 'center', 'the empty state is horizontally centered (' + tag + ')');
+    assert.equal(emptyNode.props.style.justifyContent, 'center', 'the empty state is vertically centered (' + tag + ')');
+    assert.equal(emptyNode.props.style.textAlign, 'center', 'the empty state text is centered (' + tag + ')');
+    // 4) 空态要撑满可用高度并双向居中（不是固定 200px 小高度贴在顶上）。
+    assert.equal(emptyNode.props.style.minHeight, '100%', 'the empty state fills the available height instead of a fixed small box (' + tag + ')');
+    assert.equal(emptyNode.props.style.flex, '1 1 auto', 'the empty state grows into the remaining flex space (' + tag + ')');
+    assert.equal(typeof emptyNode.props.style.minHeight, 'string', 'the empty state height is a fill declaration, not a fixed pixel number (' + tag + ')');
+    // 有图标 + 有说明文案，文案里含可操作提示。
+    const iconNode = findNodes([emptyNode], (node) => node.props?.['data-cabinet-groupchat-empty-icon'] !== undefined)[0];
+    const textNode = findNodes([emptyNode], (node) => node.props?.['data-cabinet-groupchat-empty-text'] !== undefined)[0];
+    assert.ok(iconNode, 'the empty state carries a visual marker (' + tag + ')');
+    assert.ok(textNode, 'the empty state carries a text node (' + tag + ')');
+    assert.equal(textNode.children.flat().join(''), language['groupchat.empty'], 'the empty text is translated (' + tag + ')');
+    const copy = language['groupchat.empty'];
+    assert.ok(copy.includes('\n'), 'the empty copy is two lines: what happened + what to do (' + tag + ')');
+    const actionable = tag === 'zh' ? copy.includes('左侧') : /pick a session/i.test(copy);
+    assert.ok(actionable, 'the empty copy tells the user what to do next (' + tag + ')');
+    emptyView.stop();
+  }
+  sources['lead-session'] = savedLeadSource;
   promptCalls.length = 0;
   const composerMount = remountGroup();
   settleReady();
@@ -1906,10 +1918,49 @@ console.log('PASS 内阁 Bot section removal: no section box, office rows, 现�
   assert.equal(unavailableInput.props['data-cabinet-groupchat-composer-disabled'], '1');
   assert.deepEqual(findNodes(unavailableView.tree, (node) => node.props?.['data-cabinet-groupchat-composer-hint'] !== undefined)
     .map((node) => node.children.flat().join('')), [client.zh['groupchat.composer.unavailable']], 'the disabled composer explains the missing channel');
+  // 同一句「发送通道不可用」只出现一次：placeholder 不再重复提示行文案。
+  assert.equal(unavailableInput.props.placeholder, '', 'the disabled composer placeholder stays neutral instead of repeating the hint, got ' + JSON.stringify(unavailableInput.props.placeholder));
+  // 精确判据（JSON 序列化会重复计数，不作数）：placeholder 不再携带该文案，
+  // 且提示行只有一个节点、文案恰好一次。
+  assert.notEqual(unavailableInput.props.placeholder, client.zh['groupchat.composer.unavailable'], 'the placeholder never repeats the unavailable copy');
+  assert.equal(unavailableInput.props.placeholder, '', 'the placeholder is empty while unavailable');
+  assert.equal(findNodes(unavailableView.tree, (node) => node.props?.['data-cabinet-groupchat-composer-hint'] !== undefined).length, 1, 'exactly one hint node states the reason');
   sendButtonOf(unavailableView.tree)[0].props.onClick();
   assert.equal(promptCalls.length, 1, 'a disabled composer never sends');
   unavailableView.stop();
   applyWithSessions(groupService);
+
+  // 9c) 空白会话（没有 agentTeam 成员）：retain 目标必须包含当前会话的 lead 自身，
+  //     否则 sessionOf 拿不到 reference ⇒ 输入框禁用（真机 respire 空白会话实证）。
+  //     并且同一 session 不得被重复 retain。
+  sources['lead-session'] = makeSource([]);
+  const blankTeamView = (() => {
+    const blankTeam = { members: [], tasks: [] };
+    retainCalls.length = 0;
+    groupTab = 'groupchat';
+    const mount = remountGroup({ team: blankTeam });
+    settleReady();
+    return { ...groupRender({ team: blankTeam }), mount };
+  })();
+  const blankTargets = retainCalls.map((call) => call.target);
+  assert.ok(blankTargets.includes('lead-session'), 'a blank session (no agentTeam members) still retains its own Lead session, got ' + JSON.stringify(blankTargets));
+  assert.equal(blankTargets.length, new Set(blankTargets).size, 'retain targets are de-duplicated (no session retained twice), got ' + JSON.stringify(blankTargets));
+  assert.equal(blankTargets.filter((target) => target === 'lead-session').length, 1, 'the Lead session is retained exactly once for a blank session');
+  const blankComposer = composerInputOf(blankTeamView.tree);
+  assert.equal(blankComposer.length, 1, 'a blank session still renders its composer');
+  assert.equal(blankComposer[0].props.disabled, false, 'a blank session can still send to its own Lead session (no more disabled composer)');
+  blankTeamView.stop();
+  // 名册成员与 lead 重叠时也不重复（lead 已在 members 内 = 会话 id）。
+  const overlapTeam = { members: [{ id: 'lead-session', name: 'lead', role: 'lead', phase: 'active' }, { id: 'm-overlap', name: 'works', role: 'teammate', phase: 'active' }], tasks: [] };
+  retainCalls.length = 0;
+  const overlapMount = remountGroup({ team: overlapTeam });
+  settleReady();
+  const overlapView = groupRender({ team: overlapTeam });
+  const overlapTargets = retainCalls.map((call) => call.target);
+  assert.equal(overlapTargets.length, new Set(overlapTargets).size, 'lead-in-roster overlap does not double-retain, got ' + JSON.stringify(overlapTargets));
+  assert.equal(overlapTargets.filter((target) => target === 'lead-session').length, 1, 'the Lead session appears once even when it is also a roster member');
+  overlapView.stop();
+  sources['lead-session'] = makeSource([...leadEntries]);
 
   // 10) Long replies fold: >12 lines or >600 chars collapse to a preview with
   //     「展开/收起」 and stable data hooks; short messages never fold.
@@ -2670,6 +2721,30 @@ console.log('PASS 群聊 tab: the right pane keeps the roster only (no 群聊 ta
     const mixedIds = items(mixedTree).map((node) => node.props['data-cabinet-conversation-id']);
     assert.equal(JSON.stringify(mixedIds), JSON.stringify(['s-lead']), 'a subagent session never appears in the left column, got ' + JSON.stringify(mixedIds));
     assert.equal(items(mixedTree)[0].props['data-cabinet-conversation-selected'], '1', 'with children filtered out the lead is the only and therefore selected row');
+    // 下拉与左列必须共用一个选中状态（真机里左列已选中而下拉仍显示旧会话）。
+    const syncList = {
+      ids: ['s-a', 's-b'],
+      byId: { 's-a': { title: '会话甲', updatedAt: 100 }, 's-b': { title: '会话乙', updatedAt: 300 } },
+      projectionsBySession: {},
+    };
+    const syncProps = { ...teamProps, useSessions: (select) => select(syncList) };
+    resetHookCursor();
+    const syncTree0 = elements(pageClient.CabinetPage(syncProps));
+    const syncSelect = (tree) => tree.find((node) => node.props?.['data-cabinet-page-session'] !== undefined);
+    assert.equal(syncSelect(syncTree0).props.value, 's-b', 'the dropdown starts on the default (newest) session');
+    // 点左列 → 下拉跟随
+    items(syncTree0).find((node) => node.props['data-cabinet-conversation-id'] === 's-a').props.onClick();
+    resetHookCursor();
+    const syncTree1 = elements(pageClient.CabinetPage(syncProps));
+    assert.equal(syncSelect(syncTree1).props.value, 's-a', 'clicking a left-column session moves the dropdown to it, got ' + String(syncSelect(syncTree1).props.value));
+    assert.equal(items(syncTree1).find((node) => node.props['data-cabinet-conversation-id'] === 's-a').props['data-cabinet-conversation-selected'], '1', 'the clicked row stays selected');
+    // 切下拉 → 左列跟随
+    syncSelect(syncTree1).props.onChange({ target: { value: 's-b' } });
+    resetHookCursor();
+    const syncTree2 = elements(pageClient.CabinetPage(syncProps));
+    assert.equal(syncSelect(syncTree2).props.value, 's-b', 'the dropdown keeps its own choice');
+    assert.equal(items(syncTree2).find((node) => node.props['data-cabinet-conversation-id'] === 's-b').props['data-cabinet-conversation-selected'], '1', 'changing the dropdown moves the left-column selection to the same session');
+    assert.equal(items(syncTree2).find((node) => node.props['data-cabinet-conversation-id'] === 's-a').props['data-cabinet-conversation-selected'], '0', 'the previously selected row is deselected');
     // 排序：多会话按 updatedAt 倒序。
     const sortedList = {
       ids: ['s-a', 's-b', 's-c'],

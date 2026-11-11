@@ -4808,7 +4808,30 @@ window.__ModuleLoader__.load({
 				cabinetSessionsListeners.add(notify); notify();
 				return () => cabinetSessionsListeners.delete(notify);
 			}, []);
-			const group = useCabinetGroupChat(orderedMembers, activeTab, groupService);
+			// retain 目标集合 = 名册成员 ∪ {当前会话的 lead}。
+			// 空白会话（没有 agentTeam 投影）时 members 为空，旧实现连 lead 自己都不
+			// retain ⇒ sessionOf 拿不到 reference ⇒ canPrompt=false ⇒ 输入框禁用
+			// （真机：respire 空白会话「Send channel unavailable」）。当前会话的
+			// lead 必须在名单里，即便成员列表是空的；重复 id 只保留一条。
+			const chatMembers = (() => {
+				const leadId = typeof leadSessionId === 'string' && leadSessionId !== '' ? leadSessionId : '';
+				const list = [];
+				const seen = new Set();
+				const push = (member) => {
+					if (member === null || member === undefined || typeof member !== 'object') return;
+					const id = typeof member.id === 'string' ? member.id : '';
+					if (id === '' || seen.has(id)) return;
+					seen.add(id);
+					list.push(member);
+				};
+				// lead 先入列：群聊里首辅的话永远在最上面，且空白会话也保有发送通道。
+				const leadMember = orderedMembers.find((member) => member && typeof member.id === 'string' && member.id === leadId);
+				if (leadMember !== undefined) push(leadMember);
+				else if (leadId !== '') push({ id: leadId, name: 'lead', role: 'lead', phase: 'active' });
+				for (const member of orderedMembers) push(member);
+				return list;
+			})();
+			const group = useCabinetGroupChat(chatMembers, activeTab, groupService);
 			// The 5s usage tick also folds the newest event window while the tab is
 			// open, so a settled message lands without waiting for the next frame.
 			React.useEffect(() => {
@@ -4931,12 +4954,12 @@ window.__ModuleLoader__.load({
 			}, [usageService, runningUsageKey]);
 			// The first paint has no fold yet; a live delta is shown from the
 			// service's current window instead (settle rows replace it at commit).
-			const liveText = orderedMembers.map((member) => group.views(member.id).liveText)
+			const liveText = chatMembers.map((member) => group.views(member.id).liveText)
 				.filter((text) => text !== '').join('\n');
 			// Each folded row keeps the member it came from: the row itself only
 			// carries {kind,time,seq,text,tools}, so the portrait and the office
 			// name would otherwise have nothing to resolve against.
-			const groupRows = mergeGroupChat(orderedMembers.flatMap((member) => {
+			const groupRows = mergeGroupChat(chatMembers.flatMap((member) => {
 				const view = group.views(member.id);
 				return view.fold === null ? [] : view.fold.rows.map((row) => ({ ...row, member }));
 			}));
@@ -4946,11 +4969,11 @@ window.__ModuleLoader__.load({
 			// settled yet) still needs its row: 不可用 when the channel failed,
 			// an empty state otherwise.
 			for (const id of group.members()) {
-				if (orderedMembers.some((member) => member && member.id === id)) continue;
+				if (chatMembers.some((member) => member && member.id === id)) continue;
 				const view = group.views(id);
 				if (view.fold === null && view.error !== null) groupRows.push({ kind: 'error', time: 0, seq: 0, text: view.error, tools: [], memberName: id });
 			}
-			for (const member of orderedMembers) {
+			for (const member of chatMembers) {
 				if (member === undefined || member === null || typeof member.id !== 'string' || member.id === '') continue;
 				const view = group.views(member.id);
 				if (view.fold !== null || view.error === null) continue;
@@ -4983,7 +5006,7 @@ window.__ModuleLoader__.load({
 				onGroupSnapshot({
 					leadSessionId,
 					rows: groupRows,
-					members: orderedMembers.map((member) => ({ id: member.id, name: member.name, role: member.role, phase: member.phase }))
+					members: chatMembers.map((member) => ({ id: member.id, name: member.name, role: member.role, phase: member.phase }))
 				});
 			}, [snapshotSignature]);
 			// The standalone 内阁 page pins 群聊 and hides this bar: a pinned tab
@@ -5032,8 +5055,8 @@ window.__ModuleLoader__.load({
 					: orderedMembers.filter((member) => member && member.id === focusId).map((member) => group.views(member.id).liveText).filter((text) => text !== '').join('\n');
 				// 每个在册成员的通道状态；没拿到窗口（fold null）的成员给「等待中」行，
 				// 拿不到通道的给「不可用」行——任何成员都不许从合并流里静默消失。
-				const memberStates = cabinetGroupMemberStates(orderedMembers, (id) => group.views(id));
-				const pendingRows = orderedMembers
+				const memberStates = cabinetGroupMemberStates(chatMembers, (id) => group.views(id));
+				const pendingRows = chatMembers
 					.filter((member) => member !== null && member !== undefined && typeof member.id === 'string' && member.id !== '')
 					.filter((member) => {
 						const view = group.views(member.id);
@@ -5055,7 +5078,7 @@ window.__ModuleLoader__.load({
 				// channel is the retained reference's own SessionFace.prompt
 				// (contract/session.d.ts ISession.prompt); anything missing is a
 				// disabled composer, never an exception.
-				const leadCandidates = [leadSessionId, ...orderedMembers
+				const leadCandidates = [leadSessionId, ...chatMembers
 					.filter((member) => member && member.role === 'lead' && typeof member.id === 'string' && member.id !== '')
 					.map((member) => member.id)];
 				const target = leadCandidates.find((id) => typeof id === 'string' && id !== '' && group.canPrompt(id))
@@ -5128,7 +5151,9 @@ window.__ModuleLoader__.load({
 							key: 'input',
 							type: 'text',
 							value: draft,
-							placeholder: sendable ? tt('groupchat.composer.placeholder') : tt('groupchat.composer.unavailable'),
+							// 不可用时输入框留中性占位（空串），原因只在下方提示行说一次，
+							// 不再与 groupchat.composer.unavailable 同一句话出现两遍。
+							placeholder: sendable ? tt('groupchat.composer.placeholder') : '',
 							disabled: !sendable || sending,
 							'data-cabinet-groupchat-input': '1',
 							'data-cabinet-groupchat-composer-disabled': !sendable || sending ? '1' : '0',
@@ -5238,7 +5263,9 @@ window.__ModuleLoader__.load({
 							key: 'empty',
 							'data-cabinet-groupchat-empty': '1',
 							role: 'status',
-							style: { display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8, flex: '1 1 auto', minHeight: 200, padding: '32px 20px', textAlign: 'center', fontSize: 12, color: INK2, lineHeight: 1.6 }
+							// 撑满消息区剩余高度后在可用高度内垂直居中：只做 minHeight:200
+							// 会在 800px 高的栏里贴顶、下方继续空白（左都御史实测余 766px）。
+							style: { display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8, flex: '1 1 auto', minHeight: '100%', boxSizing: 'border-box', padding: '32px 20px', textAlign: 'center', fontSize: 12, color: INK2, lineHeight: 1.6 }
 						}, [
 							h('div', { key: 'icon', 'data-cabinet-groupchat-empty-icon': '1', 'aria-hidden': 'true', style: { fontSize: 22, opacity: 0.6 } }, '▤'),
 							h('div', { key: 'text', 'data-cabinet-groupchat-empty-text': '1', style: { maxWidth: 360 } }, tt('groupchat.empty'))
@@ -5868,10 +5895,10 @@ window.__ModuleLoader__.load({
 			const [leftMode, setLeftMode] = React.useState('list');
 			// 原生会话打开通道不可用时的提示（不静默失败）。
 			const [openNotice, setOpenNotice] = React.useState('');
-			// 主区查看对象：'all' = 合并群聊流；某成员 id = 只看该会话。
-			// 左列没有合成的「全部」项：focus 空串表示「跟随默认选中」，
-			// 选中态由 boundSession 决定（见下）。
-			const [focus, setFocus] = React.useState('');
+			// 左列与顶部 Lead session 下拉共用同一个选中状态 source of truth：
+			// 只有 `chosen`（用户显式选择，空串=跟随默认）。早先左列用独立的
+			// `focus` 状态，点左列只改 focus、下拉仍显示旧 chosen —— 真机里
+			// 左列已选中「内阁模式问题修复」而下拉还是「群聊每日总结定时任务」。
 			const [groupSnapshot, setGroupSnapshot] = React.useState(null);
 			const selected = chosen !== '' && choices.some((choice) => choice.id === chosen) ? chosen : preferred;
 			const projections = list !== null && typeof list === 'object' && list.projectionsBySession !== null && typeof list.projectionsBySession === 'object' ? list.projectionsBySession : {};
@@ -5920,10 +5947,9 @@ window.__ModuleLoader__.load({
 				return undefined;
 			};
 			// 左列就是工作区会话列表本身：顶层会话按最近更新倒序，无合成项。
-			// 点一项 = 选中该会话，右侧显示它的群聊（首辅 + 该会话各阁臣）。
-			// 右侧主区绑定的会话 = 左列当前选中项（focus 为空时跟默认选中）。
-			// 它的 agentTeam（首辅 + 各阁臣子会话）由 CabinetPanel 读取并合并。
-			const boundSession = focus !== '' && choices.some((choice) => choice.id === focus) ? focus : selected;
+			// 点一项 = 选中该会话，右侧显示它的群聊（首辅 + 该会话各阁臣）；
+			// 顶部下拉读写的是同一个 selected，两边永远同步。
+			const boundSession = selected;
 			const byIdRows = list !== null && typeof list === 'object' && list.byId !== null && typeof list.byId === 'object' ? list.byId : {};
 			const boundRow = byIdRows[boundSession];
 			const boundParentId = boundRow !== null && boundRow !== undefined && typeof boundRow.parentSessionId === 'string' ? boundRow.parentSessionId : '';
@@ -5950,7 +5976,7 @@ window.__ModuleLoader__.load({
 					? (typeof entry.updatedAt === 'number' && entry.updatedAt > 0 ? chatStampText(entry.updatedAt) : '')
 					: (last !== undefined && typeof last.time === 'number' && last.time > 0 ? chatStampText(last.time) : '');
 				// 选中态：显式点过就是该 id；没点过（focus 空）就是默认绑定的会话。
-				const active = focus === entry.id || (focus === '' && entry.id === boundSession);
+				const active = entry.id === boundSession;
 				return h('button', {
 					key: entry.id,
 					type: 'button',
@@ -5960,8 +5986,8 @@ window.__ModuleLoader__.load({
 					'data-cabinet-conversation-selected': active ? '1' : '0',
 					title: entry.label,
 					onClick: () => {
-						// 选中该会话：右侧主区切到它的群聊，不离开本页。
-						setFocus(entry.id);
+						// 选中该会话：右侧主区切到它的群聊，不离开本页；下拉随之同步。
+						setChosen(entry.id);
 						setLeftMode('list');
 						setOpenNotice('');
 					},
