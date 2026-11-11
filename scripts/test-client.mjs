@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
 
 let client;
@@ -2391,6 +2391,14 @@ console.log('PASS 群聊 tab: the right pane keeps the roster only (no 群聊 ta
     assert.equal(JSON.stringify(client.cabinetScopeRows(scopeFixture, 's-lead', 's-lead').map((row) => row.text)), JSON.stringify(['b', 'mine']), 'the Lead conversation owns the user line too');
     assert.equal(JSON.stringify(client.cabinetScopeRows(scopeFixture, 'gongbu-id', 's-lead', 'gongbu').map((row) => row.text)), JSON.stringify(['c']), 'a row without a member object falls back to its member name instead of being dropped');
     assert.equal(client.cabinetScopeRows(scopeFixture, '', 's-lead').length, 4, '全部/群聊 keeps the merged stream intact');
+    // D2：等待中行也受同一套 focus 过滤（选中单成员时不冒出别人的等待行）。
+    const pendingFixture = [
+      { kind: 'pending', text: '等待 works', memberName: 'works', member: { id: 'm-works' } },
+      { kind: 'pending', text: '等待 gongbu', memberName: 'gongbu', member: { id: 'm-gongbu' } }
+    ];
+    assert.equal(JSON.stringify(client.cabinetScopeRows(pendingFixture, 'm-works', 's-lead', 'works').map((row) => row.member.id)), JSON.stringify(['m-works']), 'a pending row follows the same focus filter as ordinary rows');
+    assert.equal(client.cabinetScopeRows(pendingFixture, '', 's-lead', '').length, 2, '全部/群聊 still shows every pending row');
+
     // 成员通道状态：ok / pending / error 一个都不许缺，缺通道的不静默消失。
     const states = client.cabinetGroupMemberStates(
       [{ id: 'a', name: 'lead' }, { id: 'b', name: 'hanlin' }, { id: 'c', name: 'gongbu' }, { id: 'd', name: 'dalisi' }],
@@ -2406,6 +2414,35 @@ console.log('PASS 群聊 tab: the right pane keeps the roster only (no 群聊 ta
     assert.ok(/\.cabinet-bubble-body p\{margin:0 !important\}/.test(css), 'markdown paragraphs carry no vertical margin inside a bubble');
     assert.ok(/\.cabinet-chat-bubble\.cabinet-chat-other\{[^}]*color:var\(--dsw-alias-label-primary/.test(css), 'the light bubble uses the theme label colour');
     assert.ok(/\.cabinet-chat-bubble\.cabinet-chat-self\{[^}]*light-dark\(#95EC69, #2c5a2f\)[^}]*light-dark\(#0f1115, #eaf6e8\)/.test(css), 'the self bubble pairs its background and text colours in both schemes');
+    // D1 增强：插件用到的每个 --dsw-* 变量都必须在宿主产物里真实存在（读装机前端）。
+    const hostDirs = [
+      '/var/opt/node24/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-web-frontend/dist/assets',
+      process.env.HOME + '/.dsh/profiles/web/node_modules/@deepseek-ai/dsh-web-frontend/dist/assets',
+    ];
+    let hostText = '';
+    for (const dir of hostDirs) {
+      if (!existsSync(dir)) continue;
+      for (const file of readdirSync(dir)) {
+        if (/^index-.*\.(css|js)$/.test(file)) hostText += readFileSync(dir + '/' + file, 'utf8');
+      }
+    }
+    assert.ok(hostText.length > 1000, 'the installed frontend assets are readable for the variable check');
+    const pluginVars = Array.from(new Set((source.match(/--dsw-[a-z0-9-]+/g) || [])));
+    assert.ok(pluginVars.length >= 4, 'the plugin names its theme variables');
+    const missingVars = pluginVars.filter((name) => !hostText.includes(name + ':') && !hostText.includes(name + ',') && !hostText.includes(name + ')'));
+    assert.equal(missingVars.length, 0, 'every --dsw-* variable the plugin uses exists in the installed frontend, missing: ' + JSON.stringify(missingVars));
+    for (const ghost of ['--dsw-alias-bg-l2', '--dsw-alias-bubble-self', '--dsw-alias-bubble-self-ink', '--dsw-alias-label-link']) {
+      assert.ok(!source.includes(ghost), ghost + ' (invented in an earlier batch) must not come back');
+    }
+    assert.ok(/var\(--dsw-alias-bg-layer-1, light-dark\(#ffffff, #26292d\)\)/.test(css), 'the other bubble uses the real bg-layer-1 token with a paired fallback');
+    assert.ok(!/background:[^;,}]*\b#fff\b/i.test(css) && !/background:[^;,}]*#ffffff\b(?!\s*,)/i.test(css), 'no bubble/panel background falls back to a bare white');
+    for (const rule of ['.cabinet-chat-bubble.cabinet-chat-self{', '.cabinet-chat-bubble.cabinet-chat-other{', '.cabinet-tool-line{']) {
+      const at = css.indexOf(rule);
+      assert.ok(at >= 0, rule + ' exists');
+      const body = css.slice(at, css.indexOf('}', at) + 1);
+      assert.ok(/background:[^;}]*light-dark\(/i.test(body), rule + ' pairs its background in both schemes');
+      if (rule !== '.cabinet-tool-line{') assert.ok(/color:[^;}]*light-dark\(|color:var\(--dsw-alias-label-primary/i.test(body), rule + ' pairs its text colour');
+    }
     const styledRow = elements(client.GroupChatRow({ row: { kind: 'assistant', text: '带工具', time: 1, seq: 1, tools: [{ name: 'read', args: 'a.js' }] }, member: { name: 'works', id: 'm-works' }, t: tt }));
     const toolButton = styledRow.find((node) => node.props?.['data-cabinet-groupchat-tools'] !== undefined);
     assert.equal(toolButton.props['data-cabinet-tool-compact'], '1', 'the tool fold is a compact single-line control');
@@ -2568,7 +2605,7 @@ console.log('PASS 群聊 tab: the right pane keeps the roster only (no 群聊 ta
   assert.ok(!names.includes('settings.section'), 'the old settings members section is gone (no second entry)');
   assert.equal(typeof registrations.find((entry) => entry.name === 'sidebar.panellist').component, 'function', 'the panellist registers an icon component');
 }
-console.log('PASS 第七批：左列改为全部 DSH 会话（useSessions 快照、按 updatedAt 倒序、标题/时间/内阁群聊标记，点击经 uiWorkspace.openSession 进原生会话视图，无通道时显式提示）、群聊成员可见性（四成员各一条 durable 消息都进合并流，成员通道 ok/pending/error 状态挂容器，未就绪成员渲染等待中行而非静默消失，scope 过滤按 memberName 兜底）、气泡样式（light-dark 成对配色、首末 margin 归零、段落 margin 0、工具行 18px 单行紧凑）');
+console.log('PASS 第七批：左列改为全部 DSH 会话（useSessions 快照、按 updatedAt 倒序、标题/时间/内阁群聊标记，点击经 uiWorkspace.openSession 进原生会话视图，无通道时显式提示）、群聊成员可见性（四成员各一条 durable 消息都进合并流，成员通道 ok/pending/error 状态挂容器，未就绪成员渲染等待中行而非静默消失，scope 过滤按 memberName 兜底）、气泡/打字框样式（light-dark 成对配色、用到的每个 --dsw-* 变量都在装机前端真实存在、无伪造变量、气泡底回退不是单值白、首末 margin 归零、段落 margin 0、工具行 18px 单行紧凑）、等待中行跟随会话过滤');
 console.log('PASS 第六批：左列改会话列表（全部/群聊 + 全部 DSH 会话按 updatedAt 倒序，标题/时间/内阁群聊标记，默认选中全部，点击经 uiWorkspace.openSession 进原生会话视图、无通道显式提示）、成员设置收成左列单入口（默认不占位，点开替换左列、关闭回列表）、点消息头/头像经既有 uiWorkspace 通道（openCabinetSession → childSessionId + continuable / 首辅 plain id）进成员完整会话，无 id 或成员失败时退化为不可点并给提示，无服务时返回 false 不抛异常');
 console.log('PASS 第五批：微信式气泡（别人左侧浅色/自己右侧 #95EC69 绿、圆角内边距、maxWidth 70%、头像 28px、气泡内 markdown 与工具折叠仍在）、时间戳与连续同人聚合（首行与 ≥5 分钟/跨天显示、同人紧凑省名）、进入即贴底（ref 挂载滚到底、贴底跟随状态 data-cabinet-groupchat-follow 随滚动切换、纯函数无定时器）、@成员派活（输入 @ 弹首辅与阁臣候选、插入可解析 @官职名 标记、目标与正文分离、投递到成员会话、无成员通道时显式降级为发首辅并保留 @标记且 UI 说明）');
 console.log('PASS 第二批：markdown 双路径（宿主 MarkdownText 可解析时用组件、seed 缺失或 require 抛错时降级自绘且不炸插件；子集标题/列表/代码块/行内代码/粗体/链接/裸文本 + 无 innerHTML + javascript:/file: 拒绝）、模型目录真实 groups 与「本机无 adapter」显式提示、当前模型读 modelSelection 投影、模型保存后生效说明与 fail-closed 风险提示（且全源无「未生效」字样）、独立内阁整页自带会话选择器（agentTeam 优先、会话内记忆）、sidebar.panellist + main 注册且设置页旧 members section 已清理');

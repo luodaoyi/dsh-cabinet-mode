@@ -2400,8 +2400,8 @@ window.__ModuleLoader__.load({
 			'.cabinet-live-breathe{animation:cabinetBreathe 1.8s ease-in-out infinite}',
 			// 群聊气泡：主题成对配色 + 清掉 markdown 首尾 margin + 工具行压成单行。
 			'.cabinet-chat-bubble{max-width:70%;box-sizing:border-box;min-width:0;padding:6px 10px;display:flex;flex-direction:column;gap:2px;box-shadow:0 1px 2px rgba(0,0,0,.06)}',
-			'.cabinet-chat-bubble.cabinet-chat-self{background:var(--dsw-alias-bubble-self, light-dark(#95EC69, #2c5a2f));color:var(--dsw-alias-bubble-self-ink, light-dark(#0f1115, #eaf6e8));border:1px solid light-dark(rgba(46,125,50,.18), rgba(149,236,105,.18));border-radius:10px 2px 10px 10px}',
-			'.cabinet-chat-bubble.cabinet-chat-other{background:var(--dsw-alias-bg-l2, light-dark(#f5f6f7, #26292d));color:var(--dsw-alias-label-primary, light-dark(#0f1115, #f9fafb));border:1px solid light-dark(rgba(0,0,0,.06), rgba(255,255,255,.08));border-radius:2px 10px 10px 10px}',
+			'.cabinet-chat-bubble.cabinet-chat-self{background:light-dark(#95EC69, #2c5a2f);color:light-dark(#0f1115, #eaf6e8);border:1px solid light-dark(rgba(46,125,50,.18), rgba(149,236,105,.18));border-radius:10px 2px 10px 10px}',
+			'.cabinet-chat-bubble.cabinet-chat-other{background:var(--dsw-alias-bg-layer-1, light-dark(#ffffff, #26292d));color:var(--dsw-alias-label-primary, light-dark(#0f1115, #f9fafb));border:1px solid light-dark(rgba(0,0,0,.06), rgba(255,255,255,.08));border-radius:2px 10px 10px 10px}',
 			'.cabinet-bubble-body{min-width:0;overflow-wrap:anywhere}',
 			'.cabinet-bubble-body > :first-child{margin-top:0 !important}',
 			'.cabinet-bubble-body > :last-child{margin-bottom:0 !important}',
@@ -4340,7 +4340,7 @@ window.__ModuleLoader__.load({
 						target: '_blank',
 						rel: 'noopener noreferrer nofollow',
 						'data-cabinet-markdown-link': '1',
-						style: { color: 'var(--dsw-alias-label-link, #4f8cff)', textDecoration: 'underline' }
+						style: { color: 'var(--dsw-alias-link, light-dark(#2563eb, #8ab4ff))', textDecoration: 'underline' }
 					}, token.text);
 				}
 				return token.text;
@@ -5019,7 +5019,9 @@ window.__ModuleLoader__.load({
 					})
 					.map((member) => ({ kind: 'pending', time: 0, seq: 0, text: tt('groupchat.pending'), tools: [], memberName: member.name, member }));
 				const rows = scopedGroupRows.length > 0 ? scopedGroupRows : (scopedLiveText === '' ? [] : [{ kind: 'live', time: 0, seq: 0, text: scopedLiveText, tools: [] }]);
-				const displayRows = pendingRows.length === 0 ? rows : rows.concat(pendingRows);
+				// 等待中行与普通行同一套过滤：选中单会话时只留该成员自己的等待行。
+				const scopedPendingRows = cabinetScopeRows(pendingRows, focusId, leadSessionId, focusMember ? focusMember.name : '');
+				const displayRows = scopedPendingRows.length === 0 ? rows : rows.concat(scopedPendingRows);
 				// Only the newest page is mounted by default: a long team history
 				// must not cost a full row mount on every frame. 「显示更早」 adds one
 				// page at a time from the already-folded rows (no refold, no re-read).
@@ -5097,7 +5099,7 @@ window.__ModuleLoader__.load({
 				const composer = h('div', {
 					key: 'composer',
 					'data-cabinet-groupchat-composer': '1',
-					style: { display: 'flex', flexDirection: 'column', gap: 4, marginTop: 8, paddingTop: 8, borderTop: '1px solid var(--dsw-alias-border-l3, rgba(127,127,127,.3))' }
+					style: { display: 'flex', flexDirection: 'column', gap: 4, marginTop: 8, paddingTop: 8, borderTop: '1px solid var(--dsw-alias-border-l3, light-dark(rgba(0,0,0,.14), rgba(255,255,255,.18)))' }
 				}, [
 					h('div', { key: 'line', style: { display: 'flex', gap: 6, alignItems: 'center' } }, [
 						h('input', {
@@ -5109,7 +5111,7 @@ window.__ModuleLoader__.load({
 							'data-cabinet-groupchat-input': '1',
 							'data-cabinet-groupchat-composer-disabled': !sendable || sending ? '1' : '0',
 							'aria-label': tt('groupchat.composer.placeholder'),
-							style: { flex: 1, minWidth: 0, font: 'inherit', fontSize: 12, padding: '5px 8px', borderRadius: 6, border: '1px solid var(--dsw-alias-border-l3, rgba(127,127,127,.4))', background: 'transparent', color: INK },
+							style: { flex: 1, minWidth: 0, font: 'inherit', fontSize: 12, padding: '5px 8px', borderRadius: 6, border: '1px solid var(--dsw-alias-border-l3, light-dark(rgba(0,0,0,.18), rgba(255,255,255,.22)))', background: 'var(--dsw-alias-bg-layer-1, light-dark(#ffffff, #26292d))', color: INK },
 							onChange: (event) => {
 								// The draft is component state: a feed frame or an external
 								// re-render repaints the same text instead of clearing it.
@@ -5150,7 +5152,7 @@ window.__ModuleLoader__.load({
 							key: 'mentions',
 							role: 'listbox',
 							'data-cabinet-mention-panel': '1',
-							style: { display: 'flex', flexDirection: 'column', gap: 2, padding: 4, border: '1px solid var(--dsw-alias-border-l3, rgba(127,127,127,.3))', borderRadius: 6, background: 'var(--dsw-alias-bg-l2, #fff)', maxHeight: 180, overflow: 'auto' }
+							style: { display: 'flex', flexDirection: 'column', gap: 2, padding: 4, border: '1px solid var(--dsw-alias-border-l3, light-dark(rgba(0,0,0,.14), rgba(255,255,255,.18)))', borderRadius: 6, background: 'var(--dsw-alias-bg-layer-1, light-dark(#ffffff, #26292d))', maxHeight: 180, overflow: 'auto' }
 						}, mentionMatches.map((candidate) => h('button', {
 							key: candidate.id,
 							type: 'button',
