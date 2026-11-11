@@ -2854,6 +2854,26 @@ console.log('PASS 群聊 tab: the right pane keeps the roster only (no 群聊 ta
     };
     const teamProps = { useSessions: (select) => select(teamList), useSessionStatus: (select) => select(new Map()), t: (key) => pageClient.zh[key] || key };
     const items = (tree) => tree.filter((node) => node.props?.['data-cabinet-conversation-item'] !== undefined);
+    // 左列默认全折叠（用户要求「不要默认把会话展开」）：这些用例先点开所有组标题，
+    // 再按既有语义断言会话项。onClick 用函数式 state 更新，旧树上的节点可连续点。
+    const groupsOf = (tree) => tree.filter((node) => node.props?.['data-cabinet-conversation-group'] !== undefined);
+    const titlesOf = (tree) => tree.filter((node) => node.props?.['data-cabinet-conversation-group-title'] !== undefined);
+    const openAllGroups = (props) => {
+      // 每次点开一个仍折叠的组，然后重渲染再取下一个（旧树上的节点只对当次渲染有效）。
+      let tree = null;
+      for (let round = 0; round < 12; round += 1) {
+        resetHookCursor();
+        tree = elements(pageClient.CabinetPage(props));
+        const collapsedTitle = titlesOf(tree).find((title) => {
+          const group = groupsOf(tree).find((node) => node.props['data-cabinet-conversation-group'] === title.props['data-cabinet-conversation-group-title']);
+          return group !== undefined && group.props['data-cabinet-conversation-group-collapsed'] === '1';
+        });
+        if (collapsedTitle === undefined) break;
+        collapsedTitle.props.onClick();
+      }
+      resetHookCursor();
+      return elements(pageClient.CabinetPage(props));
+    };
     // 原生会话打开通道（uiWorkspace.openSession）由 apply 注入；这里记录调用。
     const openedSessions = [];
     try {
@@ -2865,6 +2885,15 @@ console.log('PASS 群聊 tab: the right pane keeps the roster only (no 群聊 ta
         },
       });
     } catch (error) { /* optional services may be missing in this stub */ }
+    resetHookCursor();
+    const collapsedTree0 = elements(pageClient.CabinetPage(teamProps));
+    // 默认全折叠：首屏只有组标题与计数，没有任何会话行。
+    assert.equal(items(collapsedTree0).length, 0, 'every group starts collapsed, so the left column renders no session row at first, got ' + JSON.stringify(items(collapsedTree0).map((node) => node.props['data-cabinet-conversation-id'])));
+    const collapsedBucketTitle = collapsedTree0.find((node) => node.props?.['data-cabinet-conversation-group-title'] === 'ungrouped');
+    assert.ok(collapsedBucketTitle, 'the ungrouped bucket still shows its title while collapsed');
+    assert.equal(collapsedTree0.find((node) => node.props?.['data-cabinet-conversation-group'] === 'ungrouped').props['data-cabinet-conversation-group-collapsed'], '1', 'the bucket reports the collapsed state');
+    // 展开唯一的一组（此处没有 workspace 快照，全部会话都在兜底组）再继续原有断言。
+    collapsedBucketTitle.props.onClick();
     resetHookCursor();
     const tree0 = elements(pageClient.CabinetPage(teamProps));
     const itemIds = items(tree0).map((node) => node.props['data-cabinet-conversation-id']);
@@ -2920,6 +2949,11 @@ console.log('PASS 群聊 tab: the right pane keeps the roster only (no 群聊 ta
     assert.equal(items(syncTree2).find((node) => node.props['data-cabinet-conversation-id'] === 's-a').props['data-cabinet-conversation-selected'], '0', 'the previously selected row is deselected');
     // 左列分组渲染：每组一个标题节点 + 组内会话项；组顺序 = 宿主 items 顺序。
     const groupProps = { ...teamProps, useSessions: (select) => select(wsList), workspaceSnapshot: wsSnapshot };
+    // 前面的归档用例已通过 openAllGroups 改动过折叠 state；这里重置到干净挂载，
+    // 才能断言「默认全折叠」。
+    persistentRefs = { cursor: 0, slots: [] };
+    hookStates.slots.length = 0;
+    hookStates.cursor = 0;
     resetHookCursor();
     const groupTree = elements(pageClient.CabinetPage(groupProps));
     const groupNodes = groupTree.filter((node) => node.props?.['data-cabinet-conversation-group'] !== undefined);
@@ -2946,58 +2980,45 @@ console.log('PASS 群聊 tab: the right pane keeps the roster only (no 群聊 ta
       },
     };
     const archivedNewestSnapshot = { items: [{ workspaceId: 'ws-a', path: '/tmp/a', title: '归档样例', sessionIds: ['s-live-team', 's-archived-newest', 's-noteam'], createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-02T00:00:00Z' }], archivedSessionIds: ['s-archived-newest'], pinnedSessionIds: [], state: 'idle', phase: 'ready', error: null };
-    resetHookCursor();
-    const archivedPickTree = elements(pageClient.CabinetPage({ ...teamProps, useSessions: (select) => select(archivedNewestList), workspaceSnapshot: archivedNewestSnapshot }));
+    const archivedPickTree = openAllGroups({ ...teamProps, useSessions: (select) => select(archivedNewestList), workspaceSnapshot: archivedNewestSnapshot });
     const archivedPickSelect = archivedPickTree.find((node) => node.props?.['data-cabinet-page-session'] !== undefined);
     assert.equal(archivedPickSelect.props.value, 's-live-team', 'the default selection skips an archived newest session and lands on the newest visible one with ministers, got ' + String(archivedPickSelect.props.value));
     const archivedPickIds = archivedPickTree.filter((node) => node.props?.['data-cabinet-conversation-item'] !== undefined).map((node) => node.props['data-cabinet-conversation-id']);
     assert.ok(!archivedPickIds.includes('s-archived-newest'), 'the archived session renders no row in the left column');
     assert.ok(archivedPickIds.includes('s-live-team'), 'the surviving session renders its row');
     // 服务缺席（无快照）：不过滤、不抛，全部会话照常出现。
+    const noSnapshotTree = openAllGroups({ ...teamProps, useSessions: (select) => select(archivedNewestList), workspaceSnapshot: null });
+    // ① 默认全折叠（用户要求「不要默认把会话展开」）：所有组 collapsed=1，
+    //    首屏只有组标题与计数，没有任何会话项、也没有 items 容器。
+    assert.equal(JSON.stringify(groupNodes.map((node) => node.props['data-cabinet-conversation-group-collapsed'])), JSON.stringify(['1', '1', '1']), 'every group — workspace groups included — starts collapsed');
+    assert.equal(groupTree.filter((node) => node.props?.['data-cabinet-conversation-item'] !== undefined).length, 0, 'no session row renders while every group is collapsed');
+    assert.equal(groupTree.filter((node) => node.props?.['data-cabinet-conversation-group-items'] !== undefined).length, 0, 'a collapsed group mounts no items container');
+    assert.equal(titles.length, 3, 'all group titles stay visible while collapsed');
+    assert.equal(groupNodes[0].props['data-cabinet-conversation-group-count'], '2', 'a collapsed group still shows its item count');
+    assert.equal(groupNodes[2].props['data-cabinet-conversation-group-count'], '1', 'the collapsed bucket shows its count too');
+    assert.equal(titles[0].props['aria-expanded'], 'false', 'a collapsed group reports aria-expanded=false');
+    // ② 展开其中一个组：只有它的会话项出现，其他组仍折叠。
+    // ② 之前的归档用例改过折叠 state，先恢复干净挂载再验证「手动展开只影响自己」。
+    persistentRefs = { cursor: 0, slots: [] };
+    hookStates.slots.length = 0;
+    hookStates.cursor = 0;
     resetHookCursor();
-    const noSnapshotTree = elements(pageClient.CabinetPage({ ...teamProps, useSessions: (select) => select(archivedNewestList), workspaceSnapshot: null }));
-    assert.equal(noSnapshotTree.filter((node) => node.props?.['data-cabinet-conversation-item'] !== undefined).length, 3, 'without a workspace snapshot nothing is archived away');
-    // ① 默认折叠规则：兜底组 Ungrouped 初始折叠，有归属的 workspace 组初始展开。
-    assert.equal(JSON.stringify(groupNodes.map((node) => node.props['data-cabinet-conversation-group-collapsed'])), JSON.stringify(['0', '0', '1']), 'workspace groups start expanded while the ungrouped bucket starts collapsed');
-    const initialIds = groupTree.filter((node) => node.props?.['data-cabinet-conversation-item'] !== undefined).map((node) => node.props['data-cabinet-conversation-id']);
-    assert.equal(new Set(initialIds).size, initialIds.length, 'no session renders under two groups, got ' + JSON.stringify(initialIds));
-    assert.deepEqual(initialIds.slice().sort(), ['s-w1-new', 's-w1-old', 's-w2'], 'only sessions of expanded groups render initially');
-    assert.ok(!initialIds.includes('s-loose'), 'the collapsed ungrouped bucket renders none of its sessions at first');
-    assert.equal(groupTree.filter((node) => node.props?.['data-cabinet-conversation-group-items'] !== undefined).length, 2, 'a collapsed group exposes no items container');
-    // 折叠信号与项数仍可辨。
-    assert.equal(titles[2].props['aria-expanded'], 'false', 'the collapsed bucket reports aria-expanded=false');
-    assert.equal(groupNodes[2].props['data-cabinet-conversation-group-count'], '1', 'the collapsed bucket still shows its item count');
-    // ② 点开兜底组：items 出现。（默认折叠时首次点击必须展开，不能原地打转）
-    titles[2].props.onClick();
+    titles[0].props.onClick();
     resetHookCursor();
-    const looseOpen = elements(pageClient.CabinetPage(groupProps));
-    const looseGroups = looseOpen.filter((node) => node.props?.['data-cabinet-conversation-group'] !== undefined);
-    assert.equal(looseGroups[2].props['data-cabinet-conversation-group-collapsed'], '0', 'clicking the ungrouped title expands it');
-    assert.equal(looseOpen.filter((node) => node.props?.['data-cabinet-conversation-group-items'] !== undefined).length, 3, 'expanding the bucket mounts its items container');
-    const looseIds = looseOpen.filter((node) => node.props?.['data-cabinet-conversation-item'] !== undefined).map((node) => node.props['data-cabinet-conversation-id']);
-    assert.ok(looseIds.includes('s-loose'), 'the expanded bucket renders its session');
-    assert.equal(JSON.stringify(looseIds.slice().sort()), JSON.stringify(wsChoices.map((choice) => choice.id).sort()), 'every top-level session renders exactly once across the three groups');
-    // ③ 用户的选择要记住：再次重渲染不得回落到默认折叠。
+    const oneOpen = elements(pageClient.CabinetPage(groupProps));
+    const oneOpenGroups = groupsOf(oneOpen);
+    assert.equal(JSON.stringify(oneOpenGroups.map((node) => node.props['data-cabinet-conversation-group-collapsed'])), JSON.stringify(['0', '1', '1']), 'expanding one group leaves the others collapsed');
+    const oneOpenIds = items(oneOpen).map((node) => node.props['data-cabinet-conversation-id']);
+    assert.deepEqual(oneOpenIds.slice().sort(), ['s-w1-new', 's-w1-old'], 'only the expanded group renders its sessions, got ' + JSON.stringify(oneOpenIds));
+    // ③ 手动态记住：再次重渲染不得回落到默认折叠。
     resetHookCursor();
-    const looseStillOpen = elements(pageClient.CabinetPage(groupProps));
-    const stillGroups = looseStillOpen.filter((node) => node.props?.['data-cabinet-conversation-group'] !== undefined);
-    assert.equal(stillGroups[2].props['data-cabinet-conversation-group-collapsed'], '0', 'the expanded bucket stays expanded across re-renders (state, not default)');
-    assert.ok(looseStillOpen.some((node) => node.props?.['data-cabinet-conversation-id'] === 's-loose'), 'its session is still rendered after a re-render');
-    // 折叠 workspace 组：只影响自己，兜底组保持展开。
-    looseOpen.filter((node) => node.props?.['data-cabinet-conversation-group-title'] === 'ws-1')[0].props.onClick();
-    resetHookCursor();
-    const wsCollapsed = elements(pageClient.CabinetPage(groupProps));
-    const wsCollapsedGroups = wsCollapsed.filter((node) => node.props?.['data-cabinet-conversation-group'] !== undefined);
-    assert.equal(wsCollapsedGroups[0].props['data-cabinet-conversation-group-collapsed'], '1', 'clicking a workspace title collapses that group');
-    assert.equal(wsCollapsedGroups[1].props['data-cabinet-conversation-group-collapsed'], '0', 'collapsing one group leaves the others expanded');
-    assert.equal(wsCollapsedGroups[2].props['data-cabinet-conversation-group-collapsed'], '0', 'the manually expanded bucket stays expanded');
-    const wsCollapsedIds = wsCollapsed.filter((node) => node.props?.['data-cabinet-conversation-item'] !== undefined).map((node) => node.props['data-cabinet-conversation-id']);
-    assert.ok(!wsCollapsedIds.includes('s-w1-new'), 'sessions of a collapsed group are not rendered');
-    // 再点一次展开该 workspace 组。
-    wsCollapsed.filter((node) => node.props?.['data-cabinet-conversation-group-title'] === 'ws-1')[0].props.onClick();
-    resetHookCursor();
-    const expandedTree = elements(pageClient.CabinetPage(groupProps));
-    assert.equal(expandedTree.filter((node) => node.props?.['data-cabinet-conversation-item'] !== undefined).length, wsChoices.length, 'expanding every group restores all sessions');
+    const stillOpen = elements(pageClient.CabinetPage(groupProps));
+    assert.equal(JSON.stringify(groupsOf(stillOpen).map((node) => node.props['data-cabinet-conversation-group-collapsed'])), JSON.stringify(['0', '1', '1']), 'the manual expansion survives a re-render');
+    assert.ok(items(stillOpen).some((node) => node.props['data-cabinet-conversation-id'] === 's-w1-new'), 'its session is still rendered after a re-render');
+    // ④ 点开全部组后，会话项齐了（也是后面用例的展开入口）。
+    const expandedTree = openAllGroups(groupProps);
+    assert.equal(items(expandedTree).length, wsChoices.length, 'expanding every group restores all sessions');
+    assert.equal(groupsOf(expandedTree).every((node) => node.props['data-cabinet-conversation-group-collapsed'] === '0'), true, 'every group is expanded after clicking all titles');
     // ④ 兜底组为 0 项时整组不渲染。
     const noLooseList = {
       ids: ['s-w1-new', 's-w2'],
@@ -3029,6 +3050,10 @@ console.log('PASS 群聊 tab: the right pane keeps the roster only (no 群聊 ta
     persistentRefs = { cursor: 0, slots: [] };
     hookStates.slots.length = 0;
     const noChannelProps = { useSessions: (select) => select(teamList), useSessionStatus: (select) => select(new Map()), t: (key) => noChannelClient.zh[key] || key };
+    resetHookCursor();
+    const noChannelCollapsed = elements(noChannelClient.CabinetPage(noChannelProps));
+    // 默认全折叠：先展开唯一的一组，才能取到会话行。
+    noChannelCollapsed.filter((node) => node.props?.['data-cabinet-conversation-group-title'] !== undefined).forEach((node) => node.props.onClick());
     resetHookCursor();
     const noChannelTree = elements(noChannelClient.CabinetPage(noChannelProps));
     noChannelTree.filter((node) => node.props?.['data-cabinet-conversation-item'] !== undefined).find((node) => node.props['data-cabinet-conversation-id'] === 's-lead').props.onClick();

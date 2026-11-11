@@ -6073,15 +6073,14 @@ window.__ModuleLoader__.load({
 			// 兜底组的 key 固定为空串；空串只在兜底组出现，不会误伤 workspace 组。
 			// 用户点过之后以 state 里的记录为准（不因重渲染回到默认值）。
 			const [collapsedGroups, setCollapsedGroups] = React.useState(() => ({}));
-			// 有效折叠态：state 里有记录用记录，否则按默认规则。
-			// 默认规则：workspace 组展开；兜底组折叠**但仅当另有 workspace 组**——
-			// 否则（宿主没注入 workspaces，或所有会话都无归属）兜底组是唯一一组，
-			// 折叠会让左列整片变空，比「122 项挤占」更糟。
+			// 有效折叠态：用户点过就以 state 记录为准，否则一律默认折叠。
+			// 默认全折叠（含 workspace 组与 Ungrouped 兜底组）：真机 12 个组全展开
+			// 时一进页面就是一大片列表，用户明确要求「不要默认把会话展开」。
+			// 首屏只显示各组标题 + 计数，点标题再展开；手动态在同一挂载周期内记住。
 			const collapsedOf = (group) => {
-				const recorded = collapsedGroups[group.key];
+				const recorded = collapsedGroups !== null && typeof collapsedGroups === 'object' ? collapsedGroups[group.key] : undefined;
 				if (recorded !== undefined) return recorded === true;
-				if (group.ungrouped !== true) return false;
-				return sessionGroups.some((other) => other.ungrouped !== true);
+				return true;
 			};
 			// 显式传入的快照优先（宿主可直接喂，测试也可）：不改变注入通道。
 			const workspaceSnapshot = props !== null && typeof props === 'object' && props.workspaceSnapshot !== undefined
@@ -6220,9 +6219,10 @@ window.__ModuleLoader__.load({
 						// 取反「有效折叠态」而不是 state 里的原始值：兜底组默认折叠时，
 						// 首次点击必须展开（若按 state 原始值取反会仍是折叠）。
 						onClick: () => setCollapsedGroups((previous) => {
-							const recorded = previous[group.key];
+							const safe = previous !== null && typeof previous === 'object' ? previous : {};
+							const recorded = safe[group.key];
 							const current = recorded !== undefined ? recorded === true : collapsed;
-							return { ...previous, [group.key]: !current };
+							return { ...safe, [group.key]: !current };
 						}),
 						style: { display: 'flex', alignItems: 'center', gap: 6, width: '100%', textAlign: 'left', font: 'inherit', fontSize: 11, fontWeight: 600, color: INK3, padding: '4px 8px', border: 0, borderRadius: 6, background: 'transparent', cursor: 'pointer' }
 					}, [
