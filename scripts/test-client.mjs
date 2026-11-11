@@ -65,7 +65,7 @@ React.useRef = (initial) => {
 };
 
 
-const exportList = 'return { inject, apply, avatarFor, displayName, CabinetPanel, MemberCard, TaskLine, TaskEdgeLayer, buildTaskEdges, taskEdgesEqual, zh, en, BUREAUX, AVATARS, setMemberConfig, memberLabel, configuredAvatar, configuredPrompt, factoryPromptFor, DEFAULT_MEMBER_PROMPTS, DEFAULT_LEAD_PROMPT, CabinetMemberSettings, MemoryPluginCard, memoryPluginInstalledOf, SETTINGS_TABS, formatTokenCount, formatElapsed, tokenTotalOf, usageFor, planProjectionRequests, teamUsageOf, groupChatFold, markdownBlocksOf, inlineMarkdownTokens, markdownLinkHref, modelOptionsOf, modelCatalogNotice, modelSelectionOf, cabinetSessionChoices, cabinetSessionGroups, defaultCabinetSession, CabinetMarkdown, CabinetPage, CabinetPanelIcon, GroupChatRow, STYLE_CSS, cabinetGroupMemberStates, mergeGroupChat, cabinetChatViewRows, chatStampNeeded, nearChatBottom, scrollChatToBottom, scrollFollowingTail, cabinetScopeRows, openCabinetSession };';
+const exportList = 'return { inject, apply, avatarFor, displayName, chatBubbleName, bureauOf, CabinetPanel, MemberCard, TaskLine, TaskEdgeLayer, buildTaskEdges, taskEdgesEqual, zh, en, BUREAUX, AVATARS, setMemberConfig, memberLabel, configuredAvatar, configuredPrompt, factoryPromptFor, DEFAULT_MEMBER_PROMPTS, DEFAULT_LEAD_PROMPT, CabinetMemberSettings, MemoryPluginCard, memoryPluginInstalledOf, SETTINGS_TABS, formatTokenCount, formatElapsed, tokenTotalOf, usageFor, planProjectionRequests, teamUsageOf, groupChatFold, markdownBlocksOf, inlineMarkdownTokens, markdownLinkHref, modelOptionsOf, modelCatalogNotice, modelSelectionOf, cabinetSessionChoices, cabinetSessionGroups, defaultCabinetSession, CabinetMarkdown, CabinetPage, CabinetPanelIcon, GroupChatRow, STYLE_CSS, cabinetGroupMemberStates, mergeGroupChat, cabinetChatViewRows, chatStampNeeded, nearChatBottom, scrollChatToBottom, scrollFollowingTail, cabinetScopeRows, openCabinetSession };';
 runInNewContext(source.replace(exportPoint, exportList), {
   setTimeout: (fn, ms) => setTimeout(fn, ms === 120000 ? 20 : ms), clearTimeout,
   Date: RealmDate,
@@ -1155,6 +1155,8 @@ pluginSpecStore.delete('cabinet.memoryPluginSpec');
 const zhSettingsKeys = Object.keys(client.zh).filter((key) => key.startsWith('settings.'));
 const enSettingsKeys = Object.keys(client.en).filter((key) => key.startsWith('settings.'));
 assert.ok(zhSettingsKeys.length >= 17, 'settings copy exists in zh, got ' + zhSettingsKeys.length);
+
+
 assert.deepEqual(zhSettingsKeys.slice().sort(), enSettingsKeys.slice().sort(), 'zh and en settings keys must match exactly');
 for (const id of ['members', 'avatars', 'models', 'prompts', 'plugin']) {
   assert.ok(zhSettingsKeys.includes('settings.tab.' + id), 'tab label present in zh: ' + id);
@@ -1642,7 +1644,50 @@ console.log('PASS 内阁 Bot section removal: no section box, office rows, 现�
   const firstOfficerRow = mergedRows.find((node) => node.props['data-cabinet-groupchat-row'] === 'assistant');
   assert.ok(firstOfficerRow, 'the merged view carries an officer row');
   assert.ok(findNodes([firstOfficerRow], (node) => node.props?.size === 28 && node.props?.name === 'lead').length > 0, 'the first officer row carries the officer portrait');
-  assert.ok(findNodes(merged.tree, (node) => node.props?.key === 'name' && node.children.flat().includes(client.displayName('lead'))).length > 0, 'the officer name renders on the merged row');
+  // A/B/C 回归：三个不同成员各一条消息，行上解析出的中文昵称与头像必须各不相同，
+  // 且都不是 lead；用户自己的行不显示名字节点。
+  const trioNames = ['hanlin-bianxiu', 'gongbu-shangshu-2', 'dalisi-qing'];
+  const trioRows = trioNames.map((name, index) => {
+    const row = elements(client.GroupChatRow({
+      row: { kind: 'assistant', text: name + ' 汇报', time: 1000 + index, seq: index + 1, tools: [] },
+      member: { id: 'm-' + index, name, phase: 'active' },
+      t: (key) => client.zh[key] || key,
+    }));
+    const nameNode = findNodes(row, (node) => node.props?.key === 'name')[0];
+    // Avatar 是函数组件，elements() 已展开成 img：直接按 src 比对；
+    // 同时记录 bureauOf 解析出的头像键（头像就是按它取的）。
+    const avatarNode = findNodes(row, (node) => node.type === 'img')[0];
+    const avatarName = client.bureauOf(name).key;
+    return { name, nickname: nameNode ? deepText(nameNode) : null, fullTitle: nameNode ? nameNode.props.title : null, avatarName, avatarSrc: avatarNode ? avatarNode.props.src : client.avatarFor(name) };
+  });
+  const nicknames = trioRows.map((row) => row.nickname);
+  assert.equal(new Set(nicknames).size, 3, 'each officer row shows a distinct Chinese nickname, got ' + JSON.stringify(nicknames));
+  assert.ok(nicknames.every((value) => typeof value === 'string' && value !== '' && value !== client.chatBubbleName('lead')), 'no officer row falls back to the Lead nickname, got ' + JSON.stringify(nicknames));
+  assert.equal(JSON.stringify(nicknames), JSON.stringify(['翰林院编修', '工部尚书（2）', '大理寺卿']), 'the nicknames are the Chinese office labels, got ' + JSON.stringify(nicknames));
+  assert.equal(new Set(trioRows.map((row) => row.avatarName)).size, 3, 'each row keys its avatar to its own member, got ' + JSON.stringify(trioRows.map((row) => row.avatarName)));
+  assert.equal(new Set(trioRows.map((row) => row.avatarSrc)).size, 3, 'the three officers resolve to three different portraits');
+  assert.ok(trioRows.every((row) => typeof row.fullTitle === 'string' && row.fullTitle.includes(' · ')), 'the full identity stays reachable through the name title');
+  const userRowForName = elements(client.GroupChatRow({ row: { kind: 'user', text: '我的话', time: 1000, seq: 1, tools: [] }, t: (key) => client.zh[key] || key }));
+  assert.equal(findNodes([userRowForName], (node) => node.props?.key === 'name' && deepText(node) !== client.zh['groupchat.you']).length, 0, 'the user line never shows an officer name');
+  // D) 联想模式开关：全局、可见、默认关、切换生效、带 token 用量提示。
+  const associationNodes = mountSettings({ t: (key) => client.zh[key] || key })();
+  const associationRow = findNodes(associationNodes, (node) => node.props?.['data-cabinet-association-row'] !== undefined)[0];
+  assert.ok(associationRow, 'the member settings expose the association-mode row outside the prompts tab');
+  const associationSwitch = findNodes(associationNodes, (node) => node.props?.['data-cabinet-association-switch'] !== undefined)[0];
+  assert.ok(associationSwitch, 'the association-mode switch renders');
+  assert.equal(associationSwitch.props.type, 'checkbox', 'the association mode is a checkbox');
+  assert.equal(associationSwitch.props.checked, false, 'association mode defaults to off');
+  const associationCopy = findNodes(associationNodes, (node) => node.props?.['data-cabinet-association-row'] !== undefined).map((node) => deepText(node)).join('');
+  assert.ok(associationCopy.includes(client.zh['member.association']), 'the row is labelled 联想模式');
+  assert.ok(/token/i.test(client.zh['member.association.hint']), 'the hint mentions token usage, got ' + client.zh['member.association.hint']);
+  assert.ok(/token/i.test(client.en['member.association.hint']), 'the English hint mentions token usage too');
+
+  // 气泡上方显示中文昵称（微信式），完整身份（含原始 id）留在 title 上：
+  // 名字取 displayName 的中文部分，title 仍是 displayName 全量。
+  const leadNameNode = findNodes(merged.tree, (node) => node.props?.key === 'name' && node.children.flat().includes(client.chatBubbleName('lead')))[0];
+  assert.ok(leadNameNode, 'the officer row carries the Chinese nickname');
+  assert.equal(leadNameNode.props.title, client.displayName('lead'), 'the full identity (with raw id) stays reachable via title');
+  assert.equal(client.chatBubbleName('lead'), '内阁首辅', 'the bubble nickname is the Chinese office name only');
   // This harness renders the panel several times into one tree, so rows repeat
   // as distinct objects; deduplicate by (kind,text) before counting.
   const rowSignature = (node) => {

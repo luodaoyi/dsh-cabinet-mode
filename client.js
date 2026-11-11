@@ -2541,6 +2541,16 @@ window.__ModuleLoader__.load({
 			// Different aliases can name different teammates; keep the exact identity visible.
 			return label === name ? label : label + ' · ' + name;
 		}
+		/**
+		 * 气泡上方显示的「中文昵称」：取 memberLabel（= displayName / 自定义名）的
+		 * 中文部分，去掉尾巴「 · 原始身份」。群聊要像微信那样只显示称呼；
+		 * 完整身份留在 title 与设置页里，便于区分同名衙门的多人（工部尚书/工部尚书2）。
+		 */
+		function chatBubbleName(name) {
+			const label = memberLabel(name);
+			const separator = label.lastIndexOf(' · ');
+			return separator > 0 ? label.slice(0, separator) : label;
+		}
 		function neutralAvatar() {
 			// Unidentified members get an unranked portrait, never a guessed office.
 			return AVATARS.neutral;
@@ -4480,8 +4490,17 @@ window.__ModuleLoader__.load({
 			const list = Array.isArray(rows) ? rows : [];
 			return list.map((row, index) => {
 				const previous = index > 0 ? list[index - 1] : undefined;
+				// 同一作者判定必须认「成员身份」，不能只看 memberName：
+				// groupRows 的行以前只带 member 对象（没有 memberName），旧比较退化成
+				// `'' === ''` 恒真，于是连续 assistant 行全被压成 compact，从第二行起
+				// 名字与成员归属都看不出来（真机「每个对话都是首辅」的观感）。
+				const authorOf = (item) => {
+					const member = item !== null && item !== undefined ? item.member : undefined;
+					if (member !== null && member !== undefined && typeof member.id === 'string' && member.id !== '') return member.id;
+					return typeof item.memberName === 'string' ? item.memberName : '';
+				};
 				const sameAuthor = previous !== undefined && previous.kind === row.kind
-					&& (previous.memberName || '') === (row.memberName || '')
+					&& authorOf(previous) === authorOf(row)
 					&& row.kind !== 'error';
 				return { row, compact: sameAuthor, showTime: chatStampNeeded(previous, row) };
 			});
@@ -4519,7 +4538,9 @@ window.__ModuleLoader__.load({
 			// Avatar keys off the raw member id key ('lead', 'works', …); the
 			// visible line shows the office label instead.
 			const key = self ? '' : (member && member.name ? member.name : (row.memberName || ''));
-			const name = self ? tt('groupchat.you') : (key === '' ? '' : memberLabel(key));
+			// 气泡上方显示中文昵称（微信式）；完整身份（含原始 id）留在 title。
+			const name = self ? tt('groupchat.you') : (key === '' ? '' : chatBubbleName(key));
+			const nameTitle = self || key === '' ? undefined : memberLabel(key);
 			const live = row.kind === 'live';
 			const text = typeof row.text === 'string' ? row.text : '';
 			const long = row.kind !== 'error' && (text.split('\n').length > 12 || text.length > 600);
@@ -4528,7 +4549,7 @@ window.__ModuleLoader__.load({
 			const header = compact === true ? null : h('div', {
 				key: 'head',
 				style: { display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, flexWrap: 'wrap', justifyContent: self ? 'flex-end' : 'flex-start' }
-			}, h('span', { key: 'name', ...openProps, style: { fontSize: 11.5, fontWeight: 600, color: self ? INK2 : INK, ...(openProps.style || {}) } }, name || tt('groupchat.unknown')));
+			}, h('span', { key: 'name', ...openProps, title: nameTitle, style: { fontSize: 11.5, fontWeight: 600, color: self ? INK2 : INK, ...(openProps.style || {}) } }, name || tt('groupchat.unknown')));
 			// A failed member reads 「不可用」 on the line (the spec's wording) while
 			// the channel's own message stays reachable as the hover title.
 			const failed = row.kind === 'error';
@@ -4964,7 +4985,8 @@ window.__ModuleLoader__.load({
 			// name would otherwise have nothing to resolve against.
 			const groupRows = mergeGroupChat(chatMembers.flatMap((member) => {
 				const view = group.views(member.id);
-				return view.fold === null ? [] : view.fold.rows.map((row) => ({ ...row, member }));
+				// 行上同时保留 member（头像/中文名）与 memberName（不认 member 的旧路径：同人判定、气泡兜底）。
+				return view.fold === null ? [] : view.fold.rows.map((row) => ({ ...row, member, memberName: member.name }));
 			}));
 
 
@@ -6419,21 +6441,7 @@ window.__ModuleLoader__.load({
 								update(key, { prompt: value, mode }, false);
 							}
 						}),
-						key === 'lead' ? h('div', { key: 'hint', style: { fontSize: 11, color: INK3, marginTop: 4 } }, t('member.lead.hint')) : null,
-						key === 'tongzheng' ? h('label', {
-							key: 'association',
-							style: { display: 'flex', alignItems: 'center', gap: 6, marginTop: 8, fontSize: 12, color: INK }
-						}, [
-							h('input', {
-								key: 'switch',
-								type: 'checkbox',
-								checked: editor.state.associationMode === true,
-								'data-cabinet-association-switch': '1',
-								onChange: (event) => editor.association(event?.target?.checked === true)
-							}),
-							h('span', { key: 'label' }, t('member.association')),
-							h('span', { key: 'help', style: { fontSize: 11, color: INK3 } }, t('member.association.hint'))
-						]) : null
+						key === 'lead' ? h('div', { key: 'hint', style: { fontSize: 11, color: INK3, marginTop: 4 } }, t('member.lead.hint')) : null
 					] : null
 				]);
 			});
@@ -6444,6 +6452,24 @@ window.__ModuleLoader__.load({
 					h('button', { key: 'reset', type: 'button', style: { fontSize: 11, cursor: 'pointer' }, disabled: !ready || busy, onClick: resetAll }, t('member.resetAll'))
 				]),
 				h('div', { key: 'desc', style: { fontSize: 11, color: INK3, marginBottom: 8 } }, t('member.desc')),
+				// 联想模式是全局开关（config.associationMode），不属于某个成员：
+				// 原先只在「提示词」tab 的通政使行里出现，用户在设置里根本找不到。
+				// 提到面板顶部后任何 tab 都可见；语义不变（默认关、开启增 token）。
+				h('label', {
+					key: 'association',
+					'data-cabinet-association-row': '1',
+					style: { display: 'flex', alignItems: 'center', gap: 6, margin: '0 0 8px', fontSize: 12, color: INK }
+				}, [
+					h('input', {
+						key: 'switch',
+						type: 'checkbox',
+						checked: editor.state.associationMode === true,
+						'data-cabinet-association-switch': '1',
+						onChange: (event) => editor.association(event?.target?.checked === true)
+					}),
+					h('span', { key: 'label' }, t('member.association')),
+					h('span', { key: 'help', style: { fontSize: 11, color: INK3 } }, t('member.association.hint'))
+				]),
 				!ready ? h('div', { key: 'unavailable', role: 'status' }, t('member.status.unavailable')) : null,
                 status ? h('div', { key: 'status', style: { fontSize: 11, color: INK2, marginBottom: 8 } }, t(status)) : null,
                 conflict ? h('div', { key: 'conflict', role: 'alert' }, t('member.status.conflict')) : null,
