@@ -2737,10 +2737,21 @@ window.__ModuleLoader__.load({
 					const nested = data.message;
 					const message = nested !== null && typeof nested === 'object' ? nested : data;
 					// Injected user-role rows (respire, runtime-context, time-context,
-					// model-selection, subagent-settled) are not the user speaking;
-					// only `source.kind === 'user'` belongs in the merged view.
+					// model-selection, subagent-settled) are not the user speaking.
+					// Deliberate deviation from the host "fall through unknown kind"
+					// contract (source.kind is merge-extensible; dsh-llm
+					// types/message.d.ts:94-99): the group chat shows only the
+					// conversation between the person and the officers, so an unknown
+					// producer stays out instead of being guessed into the view.
 					const source = data.source;
 					if (source !== null && typeof source === 'object' && typeof source.kind === 'string' && source.kind !== 'user') continue;
+					// `kind === 'user'` is wider than "a person": the Lead's spawn
+					// prompts and relayed text also carry kind:'user'. The Host marks
+					// a real submission with `'rpcId' in source`
+					// (dsh-api-session-controller/lib/client.js:2809,2822;
+					// types/commands.js:544,553), so a user-kind row without rpcId is
+					// machine text and never renders as 「你」.
+					if (source !== null && typeof source === 'object' && !('rpcId' in source)) continue;
 					const text = groupChatText(message.content);
 					if (text === '') continue;
 					push({ kind: 'user', time: event.time, seq: event.seq, text, tools: [] });
@@ -2857,6 +2868,11 @@ window.__ModuleLoader__.load({
 		 * Flatten one runtime model catalog (the official session.modelCatalog
 		 * response value) into [{value,label}] picker options. Nothing here is
 		 * a hard-coded model id: every entry comes from the host response.
+		 * Real shape: { default, routableProviders, groups:[{id,name,models:
+		 * [{id,name}]}], failures } — a model has no flat provider/id field, the
+		 * provider is the owning group id. `groups` is empty when
+		 * `listProviders()` has no registered adapter, which is why an empty
+		 * catalog must never be rendered as a fake default option.
 		 */
 		function modelOptionsOf(catalog) {
 			const options = [];
@@ -2873,6 +2889,44 @@ window.__ModuleLoader__.load({
 				}
 			}
 			return options;
+		}
+		/**
+		 * What the catalog state means for the picker. `undefined` = still
+		 * loading, `null` = the remote failed. Groups empty + failures empty is
+		 * the real "no registered provider / no adapter" case and says so
+		 * explicitly instead of inventing a selectable default.
+		 */
+		function modelCatalogNotice(catalog, t) {
+			const tt = typeof t === 'function' ? t : (key) => key;
+			if (catalog === undefined) return { kind: 'loading', text: tt('member.model.loading') };
+			if (catalog === null) return { kind: 'error', text: tt('member.model.remote') };
+			const groups = Array.isArray(catalog.groups) ? catalog.groups : [];
+			const failures = Array.isArray(catalog.failures) ? catalog.failures : [];
+			const failureText = failures
+				.map((failure) => (failure && (failure.message || failure.id)) || (typeof failure === 'string' ? failure : ''))
+				.filter((text) => typeof text === 'string' && text !== '').join('; ');
+			if (groups.length === 0) {
+				return {
+					kind: failures.length === 0 ? 'empty' : 'failures',
+					text: failures.length === 0
+						? tt('member.model.noProvider')
+						: tt('member.model.noProviderWithFailure').replace('{error}', failureText),
+				};
+			}
+			return failures.length === 0 ? null : { kind: 'partial', text: tt('member.model.partial') + ' ' + failureText };
+		}
+		/**
+		 * Current model of one session from the modelSelection projection
+		 * ({lastUsed, next}); `value.default` is the host default, not the
+		 * current pick, so it is never used here.
+		 */
+		function modelSelectionOf(projections, sessionId) {
+			const values = projections && projections[sessionId] && projections[sessionId].values ? projections[sessionId].values : undefined;
+			const selection = values && values.modelSelection ? values.modelSelection : undefined;
+			const read = (entry) => (entry && typeof entry === 'object' && typeof entry.model === 'string' && entry.model !== ''
+				? ((typeof entry.provider === 'string' && entry.provider !== '' ? entry.provider + '/' : '') + entry.model)
+				: '');
+			return { next: read(selection && selection.next), last: read(selection && selection.lastUsed) };
 		}
 		/** Runtime member name -> bureau key, mirroring the host half's matching. */
 		function bureauOfName(name) { return bureauOf(name).key; }
@@ -4150,6 +4204,134 @@ window.__ModuleLoader__.load({
 				}
 			};
 		}
+		// ---------- markdown: self-drawn minimal subset --------------------
+		// The host's MarkdownText lives in @deepseek-ai/dsh-client-ui-primitives,
+		// which has no package directory on disk: a probe
+		// (`require('@deepseek-ai/dsh-client-ui-primitives')`) throws
+		// MODULE_NOT_FOUND from both this worktree and the DSH install, so a
+		// third-party plugin cannot resolve it. The group chat therefore renders
+		// its own subset: line-oriented blocks become React elements, text stays
+		// a text node (never innerHTML), and links are limited to an http/https
+		// whitelist with a safe target/rel pair.
+		const MARKDOWN_LINK_MAX = 400;
+		/** Only an absolute http(s) URL may become a link; everything else is text. */
+		function markdownLinkHref(value) {
+			if (typeof value !== 'string') return null;
+			const trimmed = value.trim();
+			if (trimmed === '' || trimmed.length > MARKDOWN_LINK_MAX) return null;
+			if (!/^https?:\/\//i.test(trimmed)) return null;
+			return trimmed;
+		}
+		const MARKDOWN_INLINE = /`([^`]+)`|\*\*([^*]+)\*\*|\[([^\]]*)\]\(([^)\s]+)\)/g;
+		/** Split one inline run into text / code / strong / link tokens. */
+		function inlineMarkdownTokens(text) {
+			const source = typeof text === 'string' ? text : '';
+			const tokens = [];
+			let last = 0;
+			for (const match of source.matchAll(MARKDOWN_INLINE)) {
+				const index = typeof match.index === 'number' ? match.index : 0;
+				if (index > last) tokens.push({ kind: 'text', text: source.slice(last, index) });
+				if (match[1] !== undefined) tokens.push({ kind: 'code', text: match[1] });
+				else if (match[2] !== undefined) tokens.push({ kind: 'strong', text: match[2] });
+				else {
+					const href = markdownLinkHref(match[4]);
+					// A refused URL keeps the original markdown as plain text.
+					if (href === null) tokens.push({ kind: 'text', text: match[0] });
+					else tokens.push({ kind: 'link', text: match[3] === '' ? href : match[3], href });
+				}
+				last = index + match[0].length;
+			}
+			if (last < source.length) tokens.push({ kind: 'text', text: source.slice(last) });
+			return tokens;
+		}
+		/** Split a message into headings, lists, fenced code and paragraphs. */
+		function markdownBlocksOf(text) {
+			const source = typeof text === 'string' ? text : '';
+			const blocks = [];
+			let paragraph = [];
+			let list = null;
+			let code = null;
+			const flushParagraph = () => {
+				if (paragraph.length > 0) { blocks.push({ kind: 'paragraph', lines: paragraph }); paragraph = []; }
+			};
+			const flushList = () => {
+				if (list !== null) { blocks.push(list); list = null; }
+			};
+			for (const line of source.split('\n')) {
+				if (code !== null) {
+					if (/^\s*```/.test(line)) { blocks.push({ kind: 'code', text: code.lines.join('\n'), lang: code.lang }); code = null; }
+					else code.lines.push(line);
+					continue;
+				}
+				const fence = line.match(/^\s*```\s*([\w+-]*)\s*$/);
+				if (fence !== null) { flushParagraph(); flushList(); code = { lines: [], lang: fence[1] || '' }; continue; }
+				const heading = line.match(/^\s{0,3}(#{1,6})\s+(.*)$/);
+				if (heading !== null) { flushParagraph(); flushList(); blocks.push({ kind: 'heading', level: heading[1].length, text: heading[2] }); continue; }
+				const bullet = line.match(/^\s*[-*]\s+(.*)$/);
+				if (bullet !== null) {
+					flushParagraph();
+					if (list === null || list.kind !== 'ul') { flushList(); list = { kind: 'ul', items: [] }; }
+					list.items.push(bullet[1]);
+					continue;
+				}
+				const ordered = line.match(/^\s*\d+[.)]\s+(.*)$/);
+				if (ordered !== null) {
+					flushParagraph();
+					if (list === null || list.kind !== 'ol') { flushList(); list = { kind: 'ol', items: [] }; }
+					list.items.push(ordered[1]);
+					continue;
+				}
+				if (line.trim() === '') { flushParagraph(); flushList(); continue; }
+				flushList();
+				paragraph.push(line);
+			}
+			if (code !== null) blocks.push({ kind: 'code', text: code.lines.join('\n'), lang: code.lang });
+			flushParagraph();
+			flushList();
+			return blocks;
+		}
+		const MARKDOWN_TEXT_STYLE = { margin: 0 };
+		/**
+		 * Render the subset. `data-cabinet-markdown` marks a rendered body and
+		 * each block carries its own test hook; the fallback path (no markdown
+		 * syntax) is a single paragraph of text nodes.
+		 */
+		function CabinetMarkdown({ text, t }) {
+			const tt = typeof t === 'function' ? t : (key) => key;
+			const inline = (value, keyPrefix) => inlineMarkdownTokens(value).map((token, index) => {
+				const key = keyPrefix + ':' + index;
+				if (token.kind === 'code') {
+					return h('code', { key, 'data-cabinet-markdown-inline-code': '1', style: { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace', fontSize: 11.5, padding: '0 3px', borderRadius: 3, background: 'rgba(127,127,127,.14)' } }, token.text);
+				}
+				if (token.kind === 'strong') return h('strong', { key, 'data-cabinet-markdown-strong': '1' }, token.text);
+				if (token.kind === 'link') {
+					return h('a', {
+						key,
+						href: token.href,
+						target: '_blank',
+						rel: 'noopener noreferrer nofollow',
+						'data-cabinet-markdown-link': '1',
+						style: { color: 'var(--dsw-alias-label-link, #4f8cff)', textDecoration: 'underline' }
+					}, token.text);
+				}
+				return token.text;
+			});
+			const blocks = markdownBlocksOf(text);
+			const nodes = blocks.map((block, index) => {
+				const key = 'b' + index;
+				if (block.kind === 'code') {
+					return h('pre', { key, 'data-cabinet-markdown-code': '1', style: { margin: '4px 0', padding: '6px 8px', borderRadius: 6, background: 'rgba(127,127,127,.12)', overflowX: 'auto', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace', fontSize: 11.5 } }, h('code', null, block.text));
+				}
+				if (block.kind === 'heading') {
+					return h('div', { key, role: 'heading', 'aria-level': String(block.level), 'data-cabinet-markdown-heading': String(block.level), style: { margin: '4px 0 2px', fontWeight: 700, fontSize: Math.max(12, 18 - block.level) } }, inline(block.text, key));
+				}
+				if (block.kind === 'ul' || block.kind === 'ol') {
+					return h(block.kind, { key, 'data-cabinet-markdown-list': block.kind, style: { margin: '2px 0', paddingLeft: 18 } }, block.items.map((item, itemIndex) => h('li', { key: key + ':i' + itemIndex }, inline(item, key + ':i' + itemIndex))));
+				}
+				return h('p', { key, 'data-cabinet-markdown-paragraph': '1', style: MARKDOWN_TEXT_STYLE }, block.lines.flatMap((line, lineIndex) => (lineIndex === 0 ? inline(line, key + ':l' + lineIndex) : [h('br', { key: key + ':br' + lineIndex }), ...inline(line, key + ':l' + lineIndex)])));
+			});
+			return h('div', { 'data-cabinet-markdown': '1', 'data-cabinet-markdown-blocks': String(blocks.length), style: { display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 } }, nodes);
+		}
 		/**
 		 * One chat line: officer portrait + officer name + body. Tools fold into
 		 * a single 「N 个工具」 row that expands in place — never one line per call.
@@ -4191,8 +4373,12 @@ window.__ModuleLoader__.load({
 				'data-cabinet-groupchat-long': long ? '1' : '0',
 				'data-cabinet-groupchat-collapsed': folded ? '1' : '0',
 				title: failed ? row.text : undefined,
-				style: { fontSize: 12, color: live ? INK2 : INK, whiteSpace: 'pre-wrap', wordBreak: 'break-word', lineHeight: 1.55, ...(folded ? { maxHeight: '10.5em', overflow: 'hidden' } : null) }
-			}, failed ? tt('groupchat.unavailable') : row.text);
+				style: { fontSize: 12, color: live ? INK2 : INK, whiteSpace: failed ? 'pre-wrap' : 'normal', wordBreak: 'break-word', lineHeight: 1.55, ...(folded ? { maxHeight: '10.5em', overflow: 'hidden' } : null) }
+			}, failed
+				? tt('groupchat.unavailable')
+				// Assistant and user bodies render the markdown subset; the
+				// failed-row wording above stays literal plain text.
+				: h(CabinetMarkdown, { text: row.text, t: tt }));
 			const foldNode = long ? h('button', {
 				key: 'fold',
 				type: 'button',
@@ -4228,7 +4414,7 @@ window.__ModuleLoader__.load({
 				style: { display: 'flex', flexDirection: 'column', gap: 3, padding: '4px 0', minWidth: 0 }
 			}, [header, bodyNode, foldNode, toolNode]);
 		}
-		function CabinetPanel({ sessionId, useSession, useSessions, useSessionStatus, t, activeTab: activeTabProp }) {
+		function CabinetPanel({ sessionId, useSession, useSessions, useSessionStatus, t, activeTab: activeTabProp, hideTabs }) {
 			// Re-render when the mirrored member settings change (names/avatars).
 			const [, setMemberRevision] = React.useState(0);
 			React.useEffect(() => subscribeMemberConfig(() => setMemberRevision((revision) => revision + 1)), []);
@@ -4546,7 +4732,9 @@ window.__ModuleLoader__.load({
 			// Stable time merge: a member's rows keep their window order, equal
 			// timestamps keep roster order, and the 不可用 rows join last.
 			groupRows.sort((a, b) => (a.time - b.time) || (a.seq - b.seq) || 0);
-			body.push(h('div', {
+			// The standalone 内阁 page pins 群聊 and hides this bar: a pinned tab
+			// bar whose clicks cannot switch would be a dead control.
+			if (hideTabs !== true) body.push(h('div', {
 				key: 'tabs',
 				role: 'tablist',
 				'data-cabinet-panel-tabs': '1',
@@ -5188,6 +5376,128 @@ window.__ModuleLoader__.load({
 			]);
 		}
 
+		// ---------- standalone 内阁 page (sidebar entry + main panel) -------
+		// The `main` keyed slot gives no Session binding and no sessionId, so the
+		// page carries its own session picker: choices come from the global
+		// sessions snapshot, the default prefers a session that already has an
+		// agentTeam projection (the 首辅 session), and the page keeps the last
+		// choice in session-local state.
+		const CABINET_PANEL_ID = 'cabinet';
+		/** Session rows a cabinet page can bind to, newest metadata included. */
+		function cabinetSessionChoices(list) {
+			if (list === null || typeof list !== 'object') return [];
+			const byId = list.byId !== null && typeof list.byId === 'object' ? list.byId : undefined;
+			if (byId === undefined) return [];
+			const ids = Array.isArray(list.ids) ? list.ids : Object.keys(byId);
+			const projections = list.projectionsBySession !== null && typeof list.projectionsBySession === 'object' ? list.projectionsBySession : {};
+			const choices = [];
+			for (const id of ids) {
+				if (typeof id !== 'string' || id === '') continue;
+				const row = byId[id];
+				if (row === null || typeof row !== 'object') continue;
+				const values = projections[id] && typeof projections[id] === 'object' ? projections[id].values : undefined;
+				const title = typeof row.title === 'string' && row.title !== '' ? row.title
+					: (typeof row.displayTitle === 'string' && row.displayTitle !== '' ? row.displayTitle : id);
+				choices.push({
+					id,
+					title,
+					running: row.running === true,
+					updatedAt: typeof row.updatedAt === 'number' ? row.updatedAt : (typeof row.lastMessageAt === 'number' ? row.lastMessageAt : 0),
+					hasTeam: values !== undefined && values !== null && values.agentTeam !== undefined,
+				});
+			}
+			return choices;
+		}
+		/** 首辅会话优先（有 agentTeam 投影者），其次最近更新的会话。 */
+		function defaultCabinetSession(choices) {
+			const pool = choices.filter((choice) => choice.hasTeam);
+			const candidates = pool.length > 0 ? pool : choices;
+			let best = '';
+			let bestAt = -Infinity;
+			for (const choice of candidates) {
+				if (choice.updatedAt > bestAt) { best = choice.id; bestAt = choice.updatedAt; }
+			}
+			return best;
+		}
+		/** Decorative sidebar glyph; the panel row supplies size and selection. */
+		function CabinetPanelIcon(props) {
+			const size = props !== null && typeof props === 'object' && typeof props.size === 'number' ? props.size : 20;
+			const active = props !== null && typeof props === 'object' && props.active === true;
+			return h('svg', {
+				width: size,
+				height: size,
+				viewBox: '0 0 24 24',
+				fill: 'none',
+				'aria-hidden': 'true',
+				'data-cabinet-panel-icon': active ? '1' : '0',
+				style: { display: 'block' }
+			}, h('path', { d: 'M4 5h16v4H4zM4 11h7v8H4zM13 11h7v8h-7z', fill: 'currentColor', fillOpacity: active ? 0.95 : 0.7 }));
+		}
+		function CabinetPage(props) {
+			const tt = typeof props?.t === 'function' ? props.t : memberT;
+			const readSessions = safeHook(props?.useSessions, identityHook);
+			const readStatus = safeHook(props?.useSessionStatus, identityHook);
+			const list = readSessions((state) => state);
+			readStatus((state) => state);
+			const choices = cabinetSessionChoices(list);
+			const preferred = defaultCabinetSession(choices);
+			const [chosen, setChosen] = React.useState('');
+			const selected = chosen !== '' && choices.some((choice) => choice.id === chosen) ? chosen : preferred;
+			const projections = list !== null && typeof list === 'object' && list.projectionsBySession !== null && typeof list.projectionsBySession === 'object' ? list.projectionsBySession : {};
+			const teamValues = projections[selected] && typeof projections[selected] === 'object' ? projections[selected].values : undefined;
+			const team = teamValues !== undefined && teamValues !== null ? teamValues.agentTeam : undefined;
+			const members = team !== undefined && team !== null && Array.isArray(team.members) ? team.members : [];
+			const memberFor = (key) => members.find((member) => member !== null && typeof member === 'object' && (member.key === key || member.name === key || (key === 'lead' && member.role === 'lead')));
+			// Current pick per member card, read from the modelSelection projection of
+			// that member's own session — never from the catalog default.
+			const selectionOf = (key) => {
+				const member = memberFor(key);
+				const id = member !== undefined && typeof member.id === 'string' ? member.id : '';
+				return id === '' ? { next: '', last: '' } : modelSelectionOf(projections, id);
+			};
+			const picker = h('div', {
+				key: 'picker',
+				'data-cabinet-page-picker': '1',
+				style: { display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderBottom: '1px solid rgba(127,127,127,.25)' }
+			}, [
+				h('span', { key: 'label', style: { fontSize: 11, color: INK3 } }, tt('page.session')),
+				h('select', {
+					key: 'select',
+					'data-cabinet-page-session': '1',
+					value: selected,
+					style: { maxWidth: 320, fontSize: 12, padding: '3px 6px', borderRadius: 6, background: 'transparent', color: INK, border: '1px solid var(--dsw-alias-border-l3, rgba(127,127,127,.4))' },
+					onChange: (event) => setChosen(event !== null && event !== undefined && event.target !== null && event.target !== undefined ? String(event.target.value ?? '') : '')
+				}, choices.map((choice) => h('option', { key: choice.id, value: choice.id }, (choice.hasTeam ? '★ ' : '') + choice.title))),
+				choices.length === 0 ? h('span', { key: 'empty', 'data-cabinet-page-session-empty': '1', style: { fontSize: 11, color: INK3 } }, tt('page.session.empty')) : null
+			]);
+			const body = selected === ''
+				? h('div', { key: 'note', 'data-cabinet-page-note': '1', style: { fontSize: 12, color: INK2, padding: 12 } }, tt('page.noSession'))
+				: h(CabinetPanel, {
+					key: 'panel',
+					sessionId: selected,
+					useSession: (select) => select({}),
+					useSessions: readSessions,
+					useSessionStatus: readStatus,
+					t: tt,
+					activeTab: 'groupchat',
+					hideTabs: true
+				});
+			return h('div', {
+				'data-cabinet-page': '1',
+				style: { display: 'flex', alignItems: 'stretch', height: '100%', minHeight: 0, boxSizing: 'border-box' }
+			}, [
+				h('div', {
+					key: 'side',
+					'data-cabinet-page-side': '1',
+					style: { width: 380, flex: 'none', minHeight: 0, overflow: 'auto', borderRight: '1px solid rgba(127,127,127,.25)', padding: '0 12px 12px' }
+				}, h(CabinetMemberSettings, { t: tt, selectionOf })),
+				h('div', {
+					key: 'main',
+					'data-cabinet-page-main': '1',
+					style: { flex: 1, minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'auto' }
+				}, [picker, body])
+			]);
+		}
 		function CabinetMemberSettings(props) {
 			const t = typeof props?.t === 'function' ? props.t : memberT;
             const [, redraw] = React.useState(0);
@@ -5288,22 +5598,38 @@ window.__ModuleLoader__.load({
 							onChange: (event) => update(key, { name: event?.target?.value ?? '' })
 						})
 					] : null,
-					activeTab === 'models' ? [
-						h('label', { key: 'ml', style: { display: 'block', fontSize: 11, color: INK2, margin: '8px 0 2px' } }, t('member.model')),
-						modelOptions.length > 0
-							? (function () {
-								const value = draft[key].model || '';
+					activeTab === 'models' ? (function () {
+						const notice = modelCatalogNotice(modelCatalog, t);
+						const current = typeof props?.selectionOf === 'function' ? (props.selectionOf(key) || { next: '', last: '' }) : { next: '', last: '' };
+						const currentText = current.next !== '' ? current.next : (current.last !== '' ? current.last : t('member.model.currentUnknown'));
+						const value = draft[key].model || '';
+						// The empty-catalog case keeps the manual provider/id field
+						// (honest text entry, never a fake selectable default) and
+						// reports the state on the `mh` hint row; loading/error/partial
+						// states use the notice row instead.
+						const manual = modelCatalog !== undefined && modelOptions.length === 0;
+						return [
+							h('label', { key: 'ml', style: { display: 'block', fontSize: 11, color: INK2, margin: '8px 0 2px' } }, t('member.model')),
+							notice !== null && !manual ? h('div', {
+								key: 'notice',
+								role: notice.kind === 'error' || notice.kind === 'failures' ? 'alert' : 'status',
+								'data-cabinet-model-notice': notice.kind,
+								style: { fontSize: 11, color: INK2, margin: '4px 0', lineHeight: 1.5 }
+							}, notice.text) : null,
+							// Real groups only: an empty catalog never degrades to a
+							// selectable fake 「使用 DSH 默认模型」 row.
+							modelOptions.length > 0 ? (function () {
 								const opts = [h('option', { key: '', value: '' }, t(key === 'lead' ? 'member.model.defaultLead' : 'member.model.default'))];
 								if (value !== '' && !modelOptions.some((option) => option.value === value)) opts.push(h('option', { key: 'current', value }, value));
 								for (const option of modelOptions) opts.push(h('option', { key: option.value, value: option.value }, option.label));
 								return h('select', {
 									key: 'mi',
+									'data-cabinet-model-select': key,
 									value,
 									style: inputStyle,
 									onChange: (event) => update(key, { model: event?.target?.value ?? '' })
 								}, opts);
-							}())
-							: h('input', {
+							}()) : h('input', {
 								key: 'mi',
 								type: 'text',
 								disabled: modelCatalog === undefined,
@@ -5313,9 +5639,28 @@ window.__ModuleLoader__.load({
 								style: inputStyle,
 								onChange: (event) => update(key, { model: event?.target?.value ?? '' })
 							}),
-						modelCatalog !== undefined && modelOptions.length === 0 ? h('div', { key: 'mh', style: { fontSize: 11, color: INK3, marginTop: 4 } }, t('member.model.unavailable')) : null,
-						h('div', { key: 'mhint', style: { fontSize: 11, color: INK3, marginTop: 4 } }, t('member.model.hint'))
-					] : null,
+							manual ? h('div', {
+								key: 'mh',
+								role: 'status',
+								'data-cabinet-model-notice': notice !== null ? notice.kind : 'empty',
+								style: { fontSize: 11, color: INK3, marginTop: 4, lineHeight: 1.5 }
+							}, notice !== null ? notice.text : t('member.model.noProvider')) : null,
+							h('div', {
+								key: 'current',
+								'data-cabinet-model-current': key,
+								style: { fontSize: 11, color: INK3, marginTop: 4 }
+							}, t('member.model.current') + ' ' + currentText),
+							// The honest effect line: DSH has no per-member consumer and
+							// selectModel refuses subagent-origin sessions, so this picker
+							// is display-only until the host grows such a consumer.
+							h('div', {
+								key: 'effect',
+								'data-cabinet-model-effect': 'none',
+								style: { fontSize: 11, color: INK3, marginTop: 2, lineHeight: 1.5 }
+							}, t('member.model.effectNone')),
+							h('div', { key: 'mhint', style: { fontSize: 11, color: INK3, marginTop: 4 } }, t('member.model.hint'))
+						];
+					}()) : null,
 					activeTab === 'prompts' ? [
 						h('label', { key: 'prompt', style: { display: 'block', fontSize: 11, color: INK2, margin: '8px 0 2px' } }, t('member.prompt')),
 						h('textarea', {
@@ -5373,8 +5718,9 @@ window.__ModuleLoader__.load({
 					onClick: () => setActiveTab(id)
 				}, t('settings.tab.' + id)))),
 				activeTab === 'models' ? h('div', { key: 'catalog-row', style: { marginBottom: 8 } }, [
-					h('button', { key: 'catalog', type: 'button', 'data-cabinet-settings-refresh': '1', onClick: () => refreshCatalog(value => value + 1) }, t('member.model.refresh')),
-					modelCatalog?.failures?.length ? h('div', { key: 'catalog-errors', role: 'status' }, t('member.model.partial')) : null
+					// The per-card notice carries this state (including failures), so the
+					// settings chrome only offers the refresh action.
+					h('button', { key: 'catalog', type: 'button', 'data-cabinet-settings-refresh': '1', onClick: () => refreshCatalog(value => value + 1) }, t('member.model.refresh'))
 				]) : null,
                   activeTab === 'plugin' ? null : h('fieldset', { key: 'fields', disabled: !ready || busy, style: { border: 0, padding: 0, margin: 0 } }, cards),
 				// Memory plugin card: the plugin tab's own content — hidden on every
@@ -5469,7 +5815,18 @@ window.__ModuleLoader__.load({
 			'member.model': '模型（每成员独立）',
 			'member.model.default': '使用首辅配置；未配置时使用 DSH 默认模型',
 			'member.model.defaultLead': '使用 DSH 默认模型',
+			'panel.nav': '内阁',
+			'page.session': '首辅会话：',
+			'page.session.empty': '暂无会话',
+			'page.noSession': '还没有可绑定的会话：请先在 DSH 里打开或新建一个会话（有 agentTeam 投影的首辅会话优先）。',
 			'member.model.refresh': '刷新模型目录',
+			'member.model.loading': '正在读取模型目录…',
+			'member.model.remote': '模型目录读取失败：宿主未提供 session.modelCatalog remote。',
+			'member.model.noProvider': '未检测到已注册的模型 provider（本机无 adapter）：groups 与 failures 均为空，无法列出可选模型。',
+			'member.model.noProviderWithFailure': '未检测到已注册的模型 provider（本机无 adapter）；加载失败：{error}',
+			'member.model.current': '当前模型：',
+			'member.model.currentUnknown': '未知（modelSelection 投影未提供）',
+			'member.model.effectNone': '仅展示、未生效：DSH 没有 per-member 模型消费点，selectModel 也拒绝 subagent 会话；要换模型请在成员会话内使用 /model。',
 			'settings.tab.members': '成员',
 			'settings.tab.avatars': '头像',
 			'settings.tab.models': '模型',
@@ -5496,7 +5853,7 @@ window.__ModuleLoader__.load({
 			'member.model.partial': '部分提供方加载失败；现有选择保留。可刷新重试。',
 			'member.error.model': '模型必须为 provider/id，最长 200 字符，不能含控制字符。',
 			'member.model.unavailable': '模型列表暂不可用：请手动输入 provider/id。',
-			'member.model.hint': '保存后在下一次提示词装配生效；正在进行的请求不变。仅内阁模式应用，清空后主动恢复默认模型。',
+			'member.model.hint': '选择会写入内阁设置；DSH 当前没有 per-member 消费点，因此保存后不会改变该成员后续请求所用模型。',
 			'member.error.type': '格式不支持：只接受 PNG / JPEG / WebP',
 			'member.error.size': '文件过大：源文件不超过 2MB',
 			'member.error.decode': '图片读取失败，请换一张',
@@ -5587,7 +5944,18 @@ window.__ModuleLoader__.load({
 			'member.model': 'Model (per member)',
 			'member.model.default': 'Use Lead configuration, otherwise DSH default',
 			'member.model.defaultLead': 'Use DSH default model',
+			'panel.nav': 'Cabinet',
+			'page.session': 'Lead session: ',
+			'page.session.empty': 'No sessions yet',
+			'page.noSession': 'No session to bind yet: open or start one in DSH first (a lead session with an agentTeam projection is preferred).',
 			'member.model.refresh': 'Refresh model catalog',
+			'member.model.loading': 'Reading the model catalog…',
+			'member.model.remote': 'Model catalog failed: the host exposes no session.modelCatalog remote.',
+			'member.model.noProvider': 'No registered model provider detected (no adapter on this host): groups and failures are both empty, so there is nothing to pick.',
+			'member.model.noProviderWithFailure': 'No registered model provider detected (no adapter on this host); load failures: {error}',
+			'member.model.current': 'Current model: ',
+			'member.model.currentUnknown': 'unknown (modelSelection projection absent)',
+			'member.model.effectNone': 'Display only, not applied: DSH has no per-member model consumer and selectModel rejects subagent sessions; switch models inside the member session with /model.',
 			'settings.tab.members': 'Members',
 			'settings.tab.avatars': 'Avatars',
 			'settings.tab.models': 'Models',
@@ -5614,7 +5982,7 @@ window.__ModuleLoader__.load({
 			'member.model.partial': 'Some providers failed to load; saved choices are retained. Refresh to retry.',
 			'member.error.model': 'Use provider/id, at most 200 characters, without control characters.',
 			'member.model.unavailable': 'Model list unavailable: type provider/id manually.',
-			'member.model.hint': 'Applies at the next prompt assembly after Save; in-flight requests stay unchanged. Cabinet mode only. Clearing actively restores the default model.',
+			'member.model.hint': 'The choice is stored in the cabinet settings; DSH has no per-member consumer today, so saving does not change which model the member\'s later requests use.',
 			'member.error.type': 'Unsupported format: PNG / JPEG / WebP only',
 			'member.error.size': 'File too large: source must be at most 2MB',
 			'member.error.decode': 'Could not read the image, try another file',
@@ -5722,6 +6090,21 @@ window.__ModuleLoader__.load({
 				key: TAB_ID,
 				locale: NS
 			}, CabinetPanel)), 'cabinet-ui: sidebar body');
+			// Standalone entry: one sidebar icon plus the `main` panel it selects.
+			// The main slot receives no session binding, so CabinetPage builds its
+			// own picker from the global sessions snapshot.
+			ctx.effect(() => ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({
+				name: 'sidebar.panellist',
+				id: CABINET_PANEL_ID,
+				order: 60,
+				locale: NS,
+				label: () => t('panel.nav')
+			}, CabinetPanelIcon)), 'cabinet-ui: sidebar panel entry');
+			ctx.effect(() => ctx.slots.inject('main', () => ctx.slots.register({
+				name: 'main',
+				key: CABINET_PANEL_ID,
+				locale: NS
+			}, CabinetPage)), 'cabinet-ui: cabinet page');
 			// Member settings: mirror the `cabinet-ui` namespace and mount the
 			// 「内阁成员」 settings section while the Host serves it. The channel is
 			// optional, so a deployment without the settings base plugin still loads
@@ -5742,14 +6125,9 @@ window.__ModuleLoader__.load({
 					return () => { unsubscribe(); if (memberWriter === form) { memberWriter = null; setMemberConfig(undefined); } };
 				}, 'cabinet-member: settings mirror');
 				memberWriter = form;
-				scope.effect(() => scope.slots.inject('settings.section', () => scope.slots.register({
-					name: 'settings.section',
-					id: 'cabinet',
-					order: 40,
-					label: () => memberT('member.nav'),
-					locale: NS,
-					inject: () => ({ t: memberT })
-				}, CabinetMemberSettings)), 'cabinet-member: settings section');
+				// The member editor moved to the standalone 内阁 page (left column);
+				// the settings shell keeps no second entry for it. The configForms
+				// mirror above stays, because the page reads the same namespace.
 			}, 'cabinet-member: settings channel');
 
 			// Native agent-team roster: inject avatars without touching its bundle.

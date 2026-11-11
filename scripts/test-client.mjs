@@ -65,7 +65,7 @@ React.useRef = (initial) => {
 };
 
 
-const exportList = 'return { inject, apply, avatarFor, displayName, CabinetPanel, MemberCard, TaskLine, TaskEdgeLayer, buildTaskEdges, taskEdgesEqual, zh, en, BUREAUX, AVATARS, setMemberConfig, memberLabel, configuredAvatar, configuredPrompt, factoryPromptFor, DEFAULT_MEMBER_PROMPTS, DEFAULT_LEAD_PROMPT, CabinetMemberSettings, MemoryPluginCard, memoryPluginInstalledOf, SETTINGS_TABS, formatTokenCount, formatElapsed, tokenTotalOf, usageFor, planProjectionRequests, teamUsageOf, groupChatFold };';
+const exportList = 'return { inject, apply, avatarFor, displayName, CabinetPanel, MemberCard, TaskLine, TaskEdgeLayer, buildTaskEdges, taskEdgesEqual, zh, en, BUREAUX, AVATARS, setMemberConfig, memberLabel, configuredAvatar, configuredPrompt, factoryPromptFor, DEFAULT_MEMBER_PROMPTS, DEFAULT_LEAD_PROMPT, CabinetMemberSettings, MemoryPluginCard, memoryPluginInstalledOf, SETTINGS_TABS, formatTokenCount, formatElapsed, tokenTotalOf, usageFor, planProjectionRequests, teamUsageOf, groupChatFold, markdownBlocksOf, inlineMarkdownTokens, markdownLinkHref, modelOptionsOf, modelCatalogNotice, modelSelectionOf, cabinetSessionChoices, defaultCabinetSession, CabinetMarkdown, CabinetPage, CabinetPanelIcon, GroupChatRow };';
 runInNewContext(source.replace(exportPoint, exportList), {
   setTimeout: (fn, ms) => setTimeout(fn, ms === 120000 ? 20 : ms), clearTimeout,
   Date: RealmDate,
@@ -1540,9 +1540,25 @@ console.log('PASS 内阁 Bot section removal: no section box, office rows, 现�
     });
     return walk(nodes);
   };
+  // A markdown body nests text inside block elements, so collect strings at
+  // any depth (plain-text rows still yield the same concatenation as before).
+  const deepText = (node) => {
+    if (typeof node === 'string') return node;
+    if (Array.isArray(node)) return node.map(deepText).join('');
+    if (!node || typeof node !== 'object') return '';
+    // elements() leaves function children unexpanded in the original node, so
+    // resolve the (hook-free) markdown renderer here as well.
+    if (typeof node.type === 'function') {
+      const props = { ...node.props };
+      if (node.children.length) props.children = node.children.flat();
+      return deepText(node.type(props));
+    }
+    const kids = Array.isArray(node.children) ? node.children : [];
+    return kids.map(deepText).join('');
+  };
   const textsOf = (nodes) => {
     const all = findNodes(nodes, (node) => node.props?.['data-cabinet-groupchat-text'] !== undefined)
-      .map((node) => node.children.flat().filter((child) => typeof child === 'string').join(''));
+      .map((node) => deepText(node));
     // This harness renders the panel more than once into a single tree, so the
     // same row object set can appear several times. Deduplicate while keeping
     // first-seen order: the assertion is about which messages appear and in
@@ -1619,7 +1635,7 @@ console.log('PASS 内阁 Bot section removal: no section box, office rows, 现�
   // as distinct objects; deduplicate by (kind,text) before counting.
   const rowSignature = (node) => {
     const text = findNodes([node], (child) => child.props?.['data-cabinet-groupchat-text'] !== undefined)
-      .map((child) => child.children.flat().filter((part) => typeof part === 'string').join('')).join('');
+      .map((child) => deepText(child)).join('');
     return node.props['data-cabinet-groupchat-row'] + '|' + text;
   };
   const seenRows = new Set();
@@ -1760,7 +1776,7 @@ console.log('PASS 内阁 Bot section removal: no section box, office rows, 现�
     return groupRender(overrides);
   };
   const rowTextOf = (node) => findNodes([node], (child) => child.props?.['data-cabinet-groupchat-text'] !== undefined)
-    .map((child) => child.children.flat().filter((part) => typeof part === 'string').join('')).join('');
+    .map((child) => deepText(child)).join('');
   const settleReady = () => {
     for (const resolve of pendingReady.values()) resolve({});
     pendingReady.clear();
@@ -1774,13 +1790,17 @@ console.log('PASS 内阁 Bot section removal: no section box, office rows, 现�
   //    cabinet portrait.
   sources['lead-session'] = makeSource([
     ...leadEntries,
-    durable('user/message', 5, 7000, { role: 'user', content: [{ type: 'text', text: '真实用户发言' }], source: { kind: 'user' } }),
-    durable('user/message', 6, 8000, { role: 'user', content: [{ type: 'text', text: '系统注入不该出现' }], source: { kind: 'respire' } }),
+    // kind:'user' + rpcId: a real submission from the person (Host marks it).
+    durable('user/message', 5, 7000, { role: 'user', content: [{ type: 'text', text: '真实用户发言' }], source: { kind: 'user', rpcId: 'rpc-1' } }),
+    // kind:'user' without rpcId: the Lead's spawn prompt / relayed machine text.
+    durable('user/message', 6, 7500, { role: 'user', content: [{ type: 'text', text: '派活机器文本' }], source: { kind: 'user' } }),
+    durable('user/message', 7, 8000, { role: 'user', content: [{ type: 'text', text: '系统注入不该出现' }], source: { kind: 'respire' } }),
   ]);
   sources['m-works'] = makeSource(worksEntries);
   const userFoldRows = client.groupChatFold(sources['lead-session'].getSnapshot().entries).rows
     .filter((row) => row.kind === 'user').map((row) => row.text);
   assert.ok(userFoldRows.includes('真实用户发言'), 'a durable user/message (role/content on data) folds into a user row, got ' + JSON.stringify(userFoldRows));
+  assert.ok(!userFoldRows.includes('派活机器文本'), 'kind:user WITHOUT rpcId is machine dispatch, never the person speaking');
   assert.ok(!userFoldRows.includes('系统注入不该出现'), 'a non-user source.kind is not the user speaking');
   const userMount = remountGroup();
   settleReady();
@@ -1976,3 +1996,108 @@ console.log('PASS 内阁 Bot section removal: no section box, office rows, 现�
   persistentRefs = null;
 }
 console.log('PASS 群聊 tab: two tabs render beside the roster (settings tabs untouched), retain first argument is a SessionId string with source cabinetGroupChat, messages merge in time order with officer portrait/name and body, the user\'s own durable prompt renders as 「你」 with no bureau name or portrait while injected user-role rows are filtered, the composer queues prompt(parts,\'queue\') to the Lead session and keeps its draft across re-renders, refuses duplicates while sending and degrades to a disabled hint without a SessionFace, long replies (>12 lines or 600+ chars) fold with 展开/收起 and short ones do not, only the newest 30 rows mount until 显示更早, the fold cache reuses an unchanged window revision instead of re-reading entries, two tool calls collapse to 「2 个工具」, a failed member degrades to 不可用, the bilingual empty state renders, a tab switch and unmount each release every reference exactly once, the 5s tick folds an appended window, and two text-delta frames concatenate inside one message');
+
+// ── task-47: markdown subset, model catalog states, standalone 内阁 page ──
+{
+  // Markdown: block split + inline tokens; refused URLs never become links.
+  const md = '# 标题\n\n- 甲\n- 乙\n\n```js\nconst a = 1;\n```\n\n行内 `code` 与 **粗体** 与 [站](https://example.com) 与 [坏](javascript:alert(1))';
+  assert.equal(JSON.stringify(client.markdownBlocksOf(md).map((block) => block.kind)), JSON.stringify(['heading', 'ul', 'code', 'paragraph']), 'markdown blocks split into heading/list/code/paragraph');
+  const inline = client.inlineMarkdownTokens('`c` **b** [ok](https://e.co) [bad](javascript:1)');
+  const inlineLinks = inline.filter((token) => token.kind === 'link');
+  assert.equal(inlineLinks.length, 1, 'only the http link becomes a link token');
+  assert.equal(inlineLinks[0].href, 'https://e.co');
+  assert.ok(inline.some((token) => token.kind === 'code' && token.text === 'c'), 'inline code is a code token');
+  assert.ok(inline.some((token) => token.kind === 'strong' && token.text === 'b'), 'bold is a strong token');
+  assert.ok(inline.map((token) => token.text).join(' ').includes('[bad](javascript:1)'), 'the refused URL stays plain text');
+  assert.equal(client.markdownLinkHref('javascript:alert(1)'), null, 'javascript: is refused by the whitelist');
+  assert.equal(client.markdownLinkHref('file:///etc/passwd'), null, 'only http/https passes the whitelist');
+  const mdTree = elements(client.CabinetMarkdown({ text: md, t: (key) => client.zh[key] || key }));
+  assert.ok(mdTree.some((node) => node.props?.['data-cabinet-markdown'] === '1'), 'a markdown body renders its own root');
+  assert.ok(mdTree.some((node) => node.props?.['data-cabinet-markdown-heading'] === '1'), 'a heading renders a heading block');
+  assert.ok(mdTree.some((node) => node.type === 'pre' && node.props?.['data-cabinet-markdown-code'] === '1'), 'a fenced block renders <pre>');
+  assert.ok(mdTree.some((node) => node.type === 'li'), 'list items render as <li>');
+  assert.ok(mdTree.some((node) => node.type === 'code' && node.props?.['data-cabinet-markdown-inline-code'] === '1'), 'inline code renders <code>');
+  assert.ok(mdTree.some((node) => node.type === 'strong'), 'bold renders <strong>');
+  const link = mdTree.find((node) => node.type === 'a');
+  assert.equal(link.props.href, 'https://example.com', 'the http link keeps its href');
+  assert.equal(link.props.rel, 'noopener noreferrer nofollow');
+  assert.equal(link.props.target, '_blank');
+  assert.ok(!mdTree.some((node) => node.type === 'a' && String(node.props.href).startsWith('javascript')), 'no javascript: link is ever produced');
+  const plainTree = elements(client.CabinetMarkdown({ text: '纯文本一行', t: (key) => key }));
+  assert.deepEqual(plainTree.filter((node) => node.props?.['data-cabinet-markdown-paragraph'] === '1').map((node) => node.children.flat().join('')), ['纯文本一行'], 'plain text degrades to a single paragraph of text');
+
+  // A group-chat line renders through the subset (the failed row keeps its wording).
+  const mdRow = elements(client.GroupChatRow({ row: { kind: 'assistant', text: '# 小标题\n- 项', time: 7000, seq: 9, tools: [] }, member: { name: 'lead' }, t: (key) => client.zh[key] || key, expanded: true }));
+  assert.ok(mdRow.some((node) => node.props?.['data-cabinet-markdown'] === '1'), 'a chat body goes through the markdown renderer');
+  assert.ok(mdRow.some((node) => node.props?.['data-cabinet-markdown-heading'] === '1'), 'a chat heading is a heading, not literal text');
+
+  // Model catalog: the real shape flattens, and every empty/failed state says why.
+  const realCatalog = { default: { provider: 'magpie', model: 'flash' }, routableProviders: ['magpie'], groups: [{ id: 'magpie', name: 'Magpie', models: [{ id: 'flash', name: 'Flash' }] }], failures: [] };
+  assert.equal(JSON.stringify(client.modelOptionsOf(realCatalog).map((option) => option.value)), JSON.stringify(['magpie/flash']), 'real groups flatten to provider/model options');
+  assert.equal(client.modelCatalogNotice(realCatalog, (key) => client.zh[key] || key), null, 'a healthy catalog has no notice');
+  const noAdapter = client.modelCatalogNotice({ groups: [], failures: [] }, (key) => client.zh[key] || key);
+  assert.equal(noAdapter.kind, 'empty', 'empty groups + no failures is the no-adapter state');
+  assert.ok(noAdapter.text.includes('未检测到已注册的模型 provider'), 'the no-adapter state names the missing provider explicitly');
+  const failed = client.modelCatalogNotice({ groups: [], failures: [{ id: 'x', message: 'boom' }] }, (key) => client.zh[key] || key);
+  assert.equal(failed.kind, 'failures');
+  assert.ok(failed.text.includes('boom'), 'a catalog failure echoes its message');
+  assert.equal(client.modelCatalogNotice(null, (key) => key).kind, 'error', 'a missing remote is an explicit error');
+  assert.equal(JSON.stringify(client.modelSelectionOf({ s1: { values: { modelSelection: { lastUsed: { provider: 'p', model: 'a' }, next: { provider: 'p', model: 'b' } } } } }, 's1')), JSON.stringify({ next: 'p/b', last: 'p/a' }), 'current model reads the modelSelection projection, not the catalog default');
+
+  // Standalone 内阁 page: own session picker, agentTeam session preferred.
+  const sessionList = {
+    ids: ['s-old', 's-lead', 's-new'],
+    byId: {
+      's-old': { title: '旧会话', updatedAt: 100 },
+      's-lead': { title: '首辅会话', updatedAt: 50 },
+      's-new': { title: '新会话', updatedAt: 300 },
+    },
+    projectionsBySession: { 's-lead': { values: { agentTeam: { members: [{ name: 'lead', role: 'lead', id: 's-lead' }], tasks: [] } } } },
+  };
+  const choices = client.cabinetSessionChoices(sessionList);
+  assert.equal(JSON.stringify(choices.map((choice) => choice.id)), JSON.stringify(['s-old', 's-lead', 's-new']), 'the picker lists the sessions snapshot');
+  assert.equal(client.defaultCabinetSession(choices), 's-lead', 'a session with an agentTeam projection wins over newer sessions');
+  assert.equal(client.defaultCabinetSession(client.cabinetSessionChoices({ ids: [], byId: {} })), '', 'no sessions yields no default');
+  persistentRefs = { cursor: 0, slots: [] };
+  resetHookCursor();
+  const pageProps = { useSessions: (select) => select(sessionList), useSessionStatus: (select) => select(new Map()), t: (key) => client.zh[key] || key };
+  const page = elements(client.CabinetPage(pageProps));
+  const selectNode = page.find((node) => node.props?.['data-cabinet-page-session'] !== undefined);
+  assert.ok(selectNode, 'the page carries its own session picker');
+  assert.equal(selectNode.props.value, 's-lead', 'the picker defaults to the lead session');
+  const leadOption = page.find((node) => node.type === 'option' && node.props?.value === 's-lead');
+  assert.ok(leadOption && JSON.stringify(leadOption).includes('首辅会话'), 'the lead session option is labelled');
+  assert.ok(page.some((node) => node.props?.['data-cabinet-page-side'] !== undefined), 'the page renders its settings column');
+  assert.ok(page.some((node) => node.props?.['data-cabinet-page-main'] !== undefined), 'the page renders its main column');
+  assert.ok(page.some((node) => node.props?.['data-cabinet-settings-tab'] === 'members'), 'the member settings live inside the page');
+  selectNode.props.onChange({ target: { value: 's-new' } });
+  resetHookCursor();
+  const picked = elements(client.CabinetPage(pageProps));
+  assert.equal(picked.find((node) => node.props?.['data-cabinet-page-session'] !== undefined).props.value, 's-new', 'a manual pick is remembered in session-local state');
+  persistentRefs = null;
+
+  // Registrations: sidebar entry + main page exist, the settings duplicate is gone.
+  const registrations = [];
+  client.apply({
+    locale: { register: () => {}, bind: () => (key) => key },
+    effect: (fn) => { try { const cleanup = fn(); return typeof cleanup === 'function' ? cleanup : () => {}; } catch (error) { return () => {}; } },
+    inject: (names, callback) => {
+      if (Array.isArray(names) && names.includes('sessions')) callback({ sessions: { refreshProjections: () => Promise.resolve() }, effect: () => () => {} });
+      return () => {};
+    },
+    get: () => undefined,
+    slots: {
+      inject: (name, callback) => { callback(); return () => {}; },
+      register: (options, component) => { registrations.push({ name: options.name, key: options.key, id: options.id, order: options.order, label: options.label, component }); return () => {}; },
+    },
+    sidebarRightTabs: { register: () => () => {} },
+  });
+  const names = registrations.map((entry) => entry.name);
+  assert.ok(names.includes('sidebar.panellist'), 'the sidebar panel list gets the 内阁 entry');
+  assert.ok(names.includes('main'), 'the root main slot gets the 内阁 page');
+  assert.ok(registrations.some((entry) => entry.name === 'sidebar.panellist' && entry.id === 'cabinet' && typeof entry.label === 'function'), 'the panellist entry carries id and a label thunk');
+  assert.ok(registrations.some((entry) => entry.name === 'main' && entry.key === 'cabinet'), 'the main page is keyed to the same id');
+  assert.ok(!names.includes('settings.section'), 'the old settings members section is gone (no second entry)');
+  assert.equal(typeof registrations.find((entry) => entry.name === 'sidebar.panellist').component, 'function', 'the panellist registers an icon component');
+}
+console.log('PASS 第二批：markdown 子集（标题/列表/代码块/行内代码/粗体/链接/裸文本 + javascript: 拒绝）、模型目录真实 groups 与「本机无 adapter」显式提示、当前模型读 modelSelection 投影、独立内阁整页自带会话选择器（agentTeam 优先、会话内记忆）、sidebar.panellist + main 注册且设置页旧 members section 已清理');
