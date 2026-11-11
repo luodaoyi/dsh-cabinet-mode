@@ -9,9 +9,17 @@ All notable changes to this project are documented in this file.
 - Task rows show the description and write scopes already stored on the team task. A missing description or write scope is shown as unrecorded, not inferred.
 - The default Lead prompt tells the Lead that every new team task description states the objective, deliverable, acceptance check, and write scope.
 - Add the sixth standing office 通政使 (`tongzheng`, the Ming 通政使司) with the existing neutral portrait; it looks for links to earlier matters, side evidence and adjacent experience after the Lead dispatches it, and never re-ranks or overrides a confirmed hit. Association mode defaults to off and, when off, renders nothing at all.
-- The right sidebar opens with a 内阁 Bot section: one row per standing office with its duty, a projection-driven state word (现役 / 未上朝 / 工作中), the 通政使 association switch state, and a 派活 button that reuses the existing session opener.
 - The static cabinet persona names the sixth office and keeps one turn, the existing tool-step budget, and recall-then-show memory order.
-- Running members now show a live working block in the right sidebar: step, elapsed time from the client clock, the current tool with a one-line argument summary, the assistant text tail, the last five tool calls with status, token totals from projections, a 120-second 可能卡住 warning, and 打断 / 插话 controls. Only running members and the Lead session are retained; sessions are released when they stop running or the panel unmounts, and a missing channel degrades to 实时通道不可用.
+- The right sidebar gains a 群聊 tab that merges the Lead's and each member's messages in time order with portraits and office names; tool calls collapse into one counted 「N 个工具」 row instead of separate entries; a member whose session cannot be retained degrades to its own 不可用 row instead of disappearing.
+
+## [0.7.1] - 2026-11-09
+
+### Fixed
+
+- Count elapsed time for stopped members through the recorded active window end instead of letting an unclosed window grow.
+- Keep blocker chips informational by stopping click propagation before task-row navigation.
+- Include the lead in the team usage total and label the aggregation clearly.
+- Verify that a ready projection load short-circuits on retry and that host-pushed frames update usage without another read.
 
 ## [0.7.0] - 2026-11-09
 
