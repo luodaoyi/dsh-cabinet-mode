@@ -4324,7 +4324,9 @@ window.__ModuleLoader__.load({
 		// `**bold**` 允许内部带单个 `*`（如 `**a *b* c**`）：旧的 `[^*]+` 一遇
 		// 内层星号就整段不匹配，`**` 原样漏进气泡（截图残留的第二种形态）。
 		// 非贪婪、不跨行、不吞成对的 `**`；不成对时按原文保留，绝不吞字。
-		const MARKDOWN_INLINE = /`([^`\n]+)`|\*\*((?:(?!\*\*)[^\n])+?)\*\*|\[([^\]]*)\]\(([^)\s]+)\)/g;
+		// `![alt](url)` 必须排在 `[alt](url)` 之前匹配：否则图片语法会被链接规则
+		// 抢先吃掉，剩下的 `!` 留在文本里，真机就显示成原文（用户截图的现象）。
+		const MARKDOWN_INLINE = /`([^`\n]+)`|\*\*((?:(?!\*\*)[^\n])+?)\*\*|!\[([^\]]*)\]\(([^)\s]+)\)|\[([^\]]*)\]\(([^)\s]+)\)/g;
 		/** Split one inline run into text / code / strong / link tokens. */
 		function inlineMarkdownTokens(text) {
 			const source = typeof text === 'string' ? text : '';
@@ -4335,11 +4337,20 @@ window.__ModuleLoader__.load({
 				if (index > last) tokens.push({ kind: 'text', text: source.slice(last, index) });
 				if (match[1] !== undefined) tokens.push({ kind: 'code', text: match[1] });
 				else if (match[2] !== undefined) tokens.push({ kind: 'strong', text: match[2] });
+				else if (match[3] !== undefined) {
+					// 图片：URL 规则与链接一致（只放行 http(s)）。被拒绝的图片**不退化成
+					// 原始 markdown**，而是回退成「[图片] alt」这样的普通文字，
+					// 既安全又不会把 `![alt](url)` 原样糊在用户脸上。
+					const src = markdownLinkHref(match[4]);
+					const alt = match[3];
+					if (src === null) tokens.push({ kind: 'text', text: alt === '' ? '[图片]' : '[图片] ' + alt });
+					else tokens.push({ kind: 'image', src, alt });
+				}
 				else {
-					const href = markdownLinkHref(match[4]);
+					const href = markdownLinkHref(match[6]);
 					// A refused URL keeps the original markdown as plain text.
 					if (href === null) tokens.push({ kind: 'text', text: match[0] });
-					else tokens.push({ kind: 'link', text: match[3] === '' ? href : match[3], href });
+					else tokens.push({ kind: 'link', text: match[5] === '' ? href : match[5], href });
 				}
 				last = index + match[0].length;
 			}
@@ -4408,6 +4419,17 @@ window.__ModuleLoader__.load({
 					return h('code', { key, 'data-cabinet-markdown-inline-code': '1', style: { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace', fontSize: 11.5, padding: '0 3px', borderRadius: 3, background: 'rgba(127,127,127,.14)' } }, token.text);
 				}
 				if (token.kind === 'strong') return h('strong', { key, 'data-cabinet-markdown-strong': '1' }, token.text);
+				if (token.kind === 'image') {
+					return h('img', {
+						key,
+						src: token.src,
+						alt: token.alt,
+						title: token.alt,
+						loading: 'lazy',
+						'data-cabinet-markdown-image': '1',
+						style: { maxWidth: '100%', borderRadius: 6, display: 'block', margin: '2px 0' }
+					});
+				}
 				if (token.kind === 'link') {
 					return h('a', {
 						key,
@@ -4458,7 +4480,10 @@ window.__ModuleLoader__.load({
 		 */
 		function MarkdownBody({ text, t, streaming }) {
 			const tt = typeof t === 'function' ? t : (key) => key;
-			if (HostMarkdownText !== null) {
+			// 宿主 MarkdownText 是否支持图片语法未知：正文里出现 `![alt](url)` 时
+			// 一律走本地子集，保证图片不会原样显示成文本（其余语法本地也已支持）。
+			const hasImageSyntax = typeof text === 'string' && /!\[[^\]]*\]\([^)\s]+\)/.test(text);
+			if (HostMarkdownText !== null && !hasImageSyntax) {
 				return h(HostMarkdownText, {
 					text: typeof text === 'string' ? text : '',
 					streaming: streaming === true,
@@ -6286,7 +6311,9 @@ window.__ModuleLoader__.load({
 				'data-cabinet-conversation-settings': '1',
 				title: tt('conversation.settings'),
 				onClick: () => setLeftMode('settings'),
-				style: { display: 'flex', alignItems: 'center', gap: 6, width: '100%', font: 'inherit', fontSize: 12, padding: '7px 8px', marginTop: 'auto', border: 0, borderRadius: 8, background: 'transparent', color: INK2, cursor: 'pointer', borderTop: '1px solid rgba(127,127,127,.25)' }
+				// 从列表底部（marginTop:auto）改成顶部吸顶：会话一多时底部入口要滚到底
+				// 才看得见。sticky 让它在列表上方始终可见，同时保留 data 钩子。
+				style: { display: 'flex', alignItems: 'center', gap: 6, width: '100%', font: 'inherit', fontSize: 12, padding: '7px 8px', border: 0, borderRadius: 8, background: 'var(--dsw-alias-bg-layer-1, light-dark(#ffffff, #26292d))', color: INK2, cursor: 'pointer', borderBottom: '1px solid rgba(127,127,127,.25)', position: 'sticky', top: 0, zIndex: 2, flex: 'none' }
 			}, '⚙ ' + tt('conversation.settings'));
 			// 两个分支常驻、用 display 切换：左列永远是「列表 / 设置」二选一，
 			// 设置不占主区，切换时也不重建成员设置组件（保留其本地草稿状态）。
@@ -6296,9 +6323,9 @@ window.__ModuleLoader__.load({
 					'data-cabinet-page-list': '1',
 					'data-cabinet-page-list-open': leftMode === 'settings' ? '0' : '1',
 					style: { display: leftMode === 'settings' ? 'none' : 'flex', flexDirection: 'column', gap: 2, flex: 1, minHeight: 0 }
-				}, [conversationList,
+				}, [settingsEntry,
 					openNotice === '' ? null : h('div', { key: 'open-notice', 'data-cabinet-open-unavailable': '1', role: 'status', style: { fontSize: 10.5, color: INK3, padding: '0 8px 4px', lineHeight: 1.5 } }, openNotice),
-					settingsEntry]),
+					conversationList]),
 				h('div', {
 					key: 'settings',
 					'data-cabinet-page-settings': '1',
@@ -6395,6 +6422,18 @@ window.__ModuleLoader__.load({
 				return mode === 'custom' ? draft[key].prompt : factoryPromptFor(key);
 			};
 			const inputStyle = { width: '100%', boxSizing: 'border-box', fontSize: 13, color: INK, background: 'transparent', border: '1px solid var(--dsw-alias-border-l3, rgba(127,127,127,.4))', borderRadius: 6, padding: '6px 8px' };
+			// 原生 <select>/<option> 不吃继承色：真机里下拉展开是白底 + 极浅文字，
+			// 几乎看不清。这里显式给主题背景与文字（成对 token + light-dark 兜底）。
+			// 这两个变量已核过在宿主产物里存在（与气泡/输入框同一批 token）。
+			const selectStyle = {
+				...inputStyle,
+				background: 'var(--dsw-alias-bg-layer-1, light-dark(#ffffff, #26292d))',
+				color: 'var(--dsw-alias-label-primary, light-dark(#0f1115, #f9fafb))'
+			};
+			const optionStyle = {
+				background: 'var(--dsw-alias-bg-layer-1, light-dark(#ffffff, #26292d))',
+				color: 'var(--dsw-alias-label-primary, light-dark(#0f1115, #f9fafb))'
+			};
 			const cards = MEMBER_SECTION_FIELDS.map((key) => {
 				const preview = memberAvatarOf(key, avatars);
 				return h('div', { key, style: { border: '1px solid var(--dsw-alias-border-l3, rgba(127,127,127,.28))', borderRadius: 8, padding: '10px 12px', marginBottom: 10 } }, [
@@ -6474,14 +6513,14 @@ window.__ModuleLoader__.load({
 							// Real groups only: an empty catalog never degrades to a
 							// selectable fake 「使用 DSH 默认模型」 row.
 							modelOptions.length > 0 ? (function () {
-								const opts = [h('option', { key: '', value: '' }, t(key === 'lead' ? 'member.model.defaultLead' : 'member.model.default'))];
-								if (value !== '' && !modelOptions.some((option) => option.value === value)) opts.push(h('option', { key: 'current', value }, value));
-								for (const option of modelOptions) opts.push(h('option', { key: option.value, value: option.value }, option.label));
+								const opts = [h('option', { key: '', value: '', style: optionStyle }, t(key === 'lead' ? 'member.model.defaultLead' : 'member.model.default'))];
+								if (value !== '' && !modelOptions.some((option) => option.value === value)) opts.push(h('option', { key: 'current', value, style: optionStyle }, value));
+								for (const option of modelOptions) opts.push(h('option', { key: option.value, value: option.value, style: optionStyle }, option.label));
 								return h('select', {
 									key: 'mi',
 									'data-cabinet-model-select': key,
 									value,
-									style: inputStyle,
+									style: selectStyle,
 									onChange: (event) => update(key, { model: event?.target?.value ?? '' })
 								}, opts);
 							}()) : h('input', {

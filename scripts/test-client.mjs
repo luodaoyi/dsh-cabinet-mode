@@ -2422,6 +2422,51 @@ console.log('PASS 群聊 tab: the right pane keeps the roster only (no 群聊 ta
   assert.ok(inline.some((token) => token.kind === 'strong' && token.text === 'b'), 'bold is a strong token');
   assert.ok(inline.map((token) => token.text).join(' ').includes('[bad](javascript:1)'), 'the refused URL stays plain text');
   assert.equal(client.markdownLinkHref('javascript:alert(1)'), null, 'javascript: is refused by the whitelist');
+  // 3) markdown 图片：合法 http(s) 渲染成 img；非法协议与裸路径安全退化、且不显示原文。
+  const imageTokens = client.inlineMarkdownTokens('看图 ![截图](https://x/y.png) 完');
+  const imageToken = imageTokens.find((token) => token.kind === 'image');
+  assert.ok(imageToken, 'an image token is produced for ![alt](url), got ' + JSON.stringify(imageTokens));
+  assert.equal(imageToken.src, 'https://x/y.png', 'the image keeps its url');
+  assert.equal(imageToken.alt, '截图', 'the image keeps its alt text');
+  const imageTree = elements(client.CabinetMarkdown({ text: '看图 ![截图](https://x/y.png) 完', t: (key) => client.zh[key] || key }));
+  const imageNode = imageTree.find((node) => node.props?.['data-cabinet-markdown-image'] !== undefined);
+  assert.ok(imageNode, 'the markdown renderer emits an img node');
+  assert.equal(imageNode.props.src, 'https://x/y.png', 'the img carries the url');
+  assert.equal(imageNode.props.alt, '截图', 'the img keeps alt for accessibility');
+  assert.equal(imageNode.props.title, '截图', 'the img uses the alt as its hover title');
+  assert.equal(imageNode.props.style.maxWidth, '100%', 'the image never overflows the bubble');
+  assert.ok(imageNode.props.style.borderRadius > 0, 'the image is rounded like the rest of the bubble');
+  for (const bad of ['![a](javascript:alert(1))', '![a](/local/path.png)', '![a](file:///tmp/x.png)']) {
+    const badTokens = client.inlineMarkdownTokens(bad);
+    assert.ok(!badTokens.some((token) => token.kind === 'image'), 'no img token for ' + bad);
+    const flat = badTokens.map((token) => token.text || '').join('');
+    assert.ok(!flat.includes(']('), 'the raw markdown never leaks as text for ' + bad + ', got ' + JSON.stringify(flat));
+    // 递归原始渲染树（children 可能是嵌套数组），并统计其中的 img 节点。
+    const badTree = client.CabinetMarkdown({ text: bad, t: (key) => client.zh[key] || key });
+    const textOf = (node) => {
+      if (typeof node === 'string') return node;
+      if (Array.isArray(node)) return node.map(textOf).join('');
+      if (!node || typeof node !== 'object') return '';
+      return (Array.isArray(node.children) ? node.children : []).map(textOf).join('');
+    };
+    const imgNodes = [];
+    const collect = (node) => {
+      if (Array.isArray(node)) { node.forEach(collect); return; }
+      if (!node || typeof node !== 'object') return;
+      if (node.type === 'img') imgNodes.push(node);
+      for (const child of Array.isArray(node.children) ? node.children : []) collect(child);
+    };
+    collect(badTree);
+    const rendered = textOf(badTree);
+    assert.equal(imgNodes.length, 0, 'no img node for ' + bad);
+    assert.ok(!rendered.includes(']('), 'the rendered text shows no raw image markdown for ' + bad + ', got ' + JSON.stringify(rendered));
+    assert.ok(rendered.includes('[图片]'), 'the refused image degrades to a readable placeholder for ' + bad);
+  }
+  const mixedTree = elements(client.CabinetMarkdown({ text: '[链](https://a.b) **粗** `code`\n\n```js\nlet a=1\n```', t: (key) => client.zh[key] || key }));
+  assert.equal(mixedTree.filter((node) => node.props?.['data-cabinet-markdown-link'] !== undefined).length, 1, 'links still render');
+  assert.equal(mixedTree.filter((node) => node.props?.['data-cabinet-markdown-strong'] !== undefined).length, 1, 'bold still renders');
+  assert.equal(mixedTree.filter((node) => node.props?.['data-cabinet-markdown-inline-code'] !== undefined).length, 1, 'inline code still renders');
+  assert.equal(mixedTree.filter((node) => node.props?.['data-cabinet-markdown-code'] !== undefined).length, 1, 'fenced code still renders');
   assert.equal(client.markdownLinkHref('file:///etc/passwd'), null, 'only http/https passes the whitelist');
   const mdTree = elements(client.CabinetMarkdown({ text: md, t: (key) => client.zh[key] || key }));
   assert.ok(mdTree.some((node) => node.props?.['data-cabinet-markdown'] === '1'), 'a markdown body renders its own root');
@@ -2746,6 +2791,12 @@ console.log('PASS 群聊 tab: the right pane keeps the roster only (no 群聊 ta
   assert.ok(page.some((node) => node.props?.['data-cabinet-page-side'] !== undefined), 'the page renders its settings column');
   assert.ok(page.some((node) => node.props?.['data-cabinet-page-main'] !== undefined), 'the page renders its main column');
   const settingsEntry = page.find((node) => node.props?.['data-cabinet-conversation-settings'] !== undefined);
+  // 2) 设置入口在左列顶部吸顶（会话多时不用滚到底），且 DOM 顺序在列表之前。
+  assert.equal(settingsEntry.props.style.position, 'sticky', 'the settings entry is sticky so it stays visible, got ' + JSON.stringify(settingsEntry.props.style.position));
+  assert.equal(settingsEntry.props.style.top, 0, 'it sticks to the top of the left column');
+  const entryAt = page.findIndex((node) => node.props?.['data-cabinet-conversation-settings'] !== undefined);
+  const listAt = page.findIndex((node) => node.props?.['data-cabinet-conversations'] !== undefined);
+  assert.ok(entryAt >= 0 && listAt >= 0 && entryAt < listAt, 'the settings entry comes before the conversation list in DOM order, got entry@' + entryAt + ' list@' + listAt);
   assert.ok(settingsEntry, 'the page folds member settings into one left-column entry');
   const settingsColumn = page.find((node) => node.props?.['data-cabinet-page-settings'] !== undefined);
   const listColumn = page.find((node) => node.props?.['data-cabinet-page-list'] !== undefined);
@@ -2867,6 +2918,16 @@ console.log('PASS 群聊 tab: the right pane keeps the roster only (no 群聊 ta
       assert.ok(!source.includes(ghost), ghost + ' (invented in an earlier batch) must not come back');
     }
     assert.ok(/var\(--dsw-alias-bg-layer-1, light-dark\(#ffffff, #26292d\)\)/.test(css), 'the other bubble uses the real bg-layer-1 token with a paired fallback');
+// 1) 原生 select/option 必须成对配色（真机下拉白底白字）。
+const styleSource = source;
+const selectBlock = styleSource.slice(styleSource.indexOf('const selectStyle ='), styleSource.indexOf('const optionStyle ='));
+const optionBlock = styleSource.slice(styleSource.indexOf('const optionStyle ='), styleSource.indexOf('const optionStyle =') + 400);
+assert.ok(/background:\s*'var\(--dsw-alias-bg-layer-1, light-dark\(#ffffff, #26292d\)\)'/.test(selectBlock), 'the model select sets a themed background');
+assert.ok(/color:\s*'var\(--dsw-alias-label-primary, light-dark\(#0f1115, #f9fafb\)\)'/.test(selectBlock), 'the model select sets a themed text colour');
+assert.ok(/background:\s*'var\(--dsw-alias-bg-layer-1, light-dark\(#ffffff, #26292d\)\)'/.test(optionBlock), 'the option elements set the same themed background');
+assert.ok(/color:\s*'var\(--dsw-alias-label-primary, light-dark\(#0f1115, #f9fafb\)\)'/.test(optionBlock), 'the option elements set the same themed text colour');
+assert.ok(!/background:\s*'(#fff|white)'/.test(styleSource), 'no bare white background is hardcoded anywhere in the source');
+
     assert.ok(!/background:[^;,}]*\b#fff\b/i.test(css) && !/background:[^;,}]*#ffffff\b(?!\s*,)/i.test(css), 'no bubble/panel background falls back to a bare white');
     for (const rule of ['.cabinet-chat-bubble.cabinet-chat-self{', '.cabinet-chat-bubble.cabinet-chat-other{', '.cabinet-tool-line{']) {
       const at = css.indexOf(rule);
