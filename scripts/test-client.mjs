@@ -2562,6 +2562,36 @@ console.log('PASS 群聊 tab: the right pane keeps the roster only (no 群聊 ta
   assert.equal(allGrouped.length, new Set(allGrouped).size, 'no session appears in two groups, got ' + JSON.stringify(allGrouped));
   assert.equal(JSON.stringify(allGrouped.slice().sort()), JSON.stringify(wsChoices.map((choice) => choice.id).sort()), 'every top-level session appears exactly once across groups');
   assert.doesNotThrow(() => client.cabinetSessionGroups(wsChoices, null, '未分组'), 'grouping without a workspace snapshot never throws');
+  // ---- 归档过滤（会话级：WorkspaceSnapshot.archivedSessionIds）----
+  // 归档会话不得出现在任何组（含兜底组）；归档导致组为空则整组不渲染。
+  const archivedSnapshot = {
+    items: wsSnapshot.items,
+    archivedSessionIds: ['s-w1-new', 's-w2', 's-loose'],
+    pinnedSessionIds: [],
+    state: 'idle',
+    phase: 'ready',
+    error: null,
+  };
+  const archivedGroups = client.cabinetSessionGroups(wsChoices, archivedSnapshot, '未分组');
+  const archivedRendered = archivedGroups.flatMap((group) => group.sessions.map((choice) => choice.id));
+  assert.ok(!archivedRendered.includes('s-w1-new'), 'an archived session never appears in its workspace group, got ' + JSON.stringify(archivedRendered));
+  assert.ok(!archivedRendered.includes('s-w2'), 'an archived session never appears in its workspace group (second one)');
+  assert.ok(!archivedRendered.includes('s-loose'), 'an archived session never appears in the ungrouped bucket either');
+  assert.equal(JSON.stringify(archivedGroups.map((group) => group.key)), JSON.stringify(['ws-1']), 'a workspace whose sessions are all archived renders no section, got ' + JSON.stringify(archivedGroups.map((group) => group.key)));
+  assert.equal(JSON.stringify(archivedGroups[0].sessions.map((choice) => choice.id)), JSON.stringify(['s-w1-old']), 'the surviving session stays in its group');
+  // 兜底组全是归档 → 兜底组不渲染。
+  const onlyLooseArchived = {
+    items: [wsSnapshot.items[0]],
+    archivedSessionIds: ['s-loose', 's-w2'],
+    pinnedSessionIds: [], state: 'idle', phase: 'ready', error: null,
+  };
+  const noBucket = client.cabinetSessionGroups(wsChoices, onlyLooseArchived, '未分组');
+  assert.equal(JSON.stringify(noBucket.map((group) => group.key)), JSON.stringify(['ws-1']), 'an all-archived ungrouped bucket renders no section, got ' + JSON.stringify(noBucket.map((group) => group.key)));
+  // 归档集为空时不过滤（服务缺席时的等价语义由下一条断言覆盖）。
+  const emptyArchive = client.cabinetSessionGroups(wsChoices, { items: wsSnapshot.items, archivedSessionIds: [], pinnedSessionIds: [], state: 'idle', phase: 'ready', error: null }, '未分组');
+  assert.equal(emptyArchive.flatMap((group) => group.sessions).length, wsChoices.length, 'an empty archive set filters nothing');
+
+
   assert.equal(client.cabinetSessionGroups(wsChoices, null, '未分组').length, 1, 'without a snapshot every session lands in the single ungrouped group');
 
   // 列表排序不受默认规则影响：仍按 updatedAt 倒序（空会话排在前面）。
@@ -2822,6 +2852,32 @@ console.log('PASS 群聊 tab: the right pane keeps the roster only (no 群聊 ta
     assert.ok(JSON.stringify(titles[0]).includes('工作区一'), 'the first group title shows its workspace name');
     assert.ok(JSON.stringify(titles[1]).includes('工作区二'), 'the second group title shows its workspace name');
     assert.ok(JSON.stringify(titles[2]).includes(client.zh['conversation.all']), 'the ungrouped bucket title uses the locale label');
+    // 归档过滤（页面层）：最近更新的会话已归档时，默认选中必须落到下一个
+    // 未归档且有阁臣的会话（不能选到已被过滤掉的 id）。
+    const archivedNewestList = {
+      ids: ['s-live-team', 's-archived-newest', 's-noteam'],
+      byId: {
+        's-live-team': { title: '未归档有阁臣', updatedAt: 100 },
+        's-archived-newest': { title: '最新但已归档', updatedAt: 9000 },
+        's-noteam': { title: '未归档无阁臣', updatedAt: 50 },
+      },
+      projectionsBySession: {
+        's-live-team': { values: { agentTeam: { members: [{ name: 'lead', role: 'lead', id: 's-live-team' }, { name: 'works', role: 'teammate', id: 's-mate-live' }], tasks: [] } } },
+        's-archived-newest': { values: { agentTeam: { members: [{ name: 'lead', role: 'lead', id: 's-archived-newest' }, { name: 'works', role: 'teammate', id: 's-mate-arch' }], tasks: [] } } },
+      },
+    };
+    const archivedNewestSnapshot = { items: [{ workspaceId: 'ws-a', path: '/tmp/a', title: '归档样例', sessionIds: ['s-live-team', 's-archived-newest', 's-noteam'], createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-02T00:00:00Z' }], archivedSessionIds: ['s-archived-newest'], pinnedSessionIds: [], state: 'idle', phase: 'ready', error: null };
+    resetHookCursor();
+    const archivedPickTree = elements(pageClient.CabinetPage({ ...teamProps, useSessions: (select) => select(archivedNewestList), workspaceSnapshot: archivedNewestSnapshot }));
+    const archivedPickSelect = archivedPickTree.find((node) => node.props?.['data-cabinet-page-session'] !== undefined);
+    assert.equal(archivedPickSelect.props.value, 's-live-team', 'the default selection skips an archived newest session and lands on the newest visible one with ministers, got ' + String(archivedPickSelect.props.value));
+    const archivedPickIds = archivedPickTree.filter((node) => node.props?.['data-cabinet-conversation-item'] !== undefined).map((node) => node.props['data-cabinet-conversation-id']);
+    assert.ok(!archivedPickIds.includes('s-archived-newest'), 'the archived session renders no row in the left column');
+    assert.ok(archivedPickIds.includes('s-live-team'), 'the surviving session renders its row');
+    // 服务缺席（无快照）：不过滤、不抛，全部会话照常出现。
+    resetHookCursor();
+    const noSnapshotTree = elements(pageClient.CabinetPage({ ...teamProps, useSessions: (select) => select(archivedNewestList), workspaceSnapshot: null }));
+    assert.equal(noSnapshotTree.filter((node) => node.props?.['data-cabinet-conversation-item'] !== undefined).length, 3, 'without a workspace snapshot nothing is archived away');
     // ① 默认折叠规则：兜底组 Ungrouped 初始折叠，有归属的 workspace 组初始展开。
     assert.equal(JSON.stringify(groupNodes.map((node) => node.props['data-cabinet-conversation-group-collapsed'])), JSON.stringify(['0', '0', '1']), 'workspace groups start expanded while the ungrouped bucket starts collapsed');
     const initialIds = groupTree.filter((node) => node.props?.['data-cabinet-conversation-item'] !== undefined).map((node) => node.props['data-cabinet-conversation-id']);

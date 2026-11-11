@@ -5882,7 +5882,19 @@ window.__ModuleLoader__.load({
 		 * 按用户指示改为 updatedAt 倒序。
 		 */
 		function cabinetSessionGroups(choices, workspaceSnapshot, ungroupedLabel) {
-			const list = Array.isArray(choices) ? choices : [];
+			const incoming = Array.isArray(choices) ? choices : [];
+			// 归档过滤（会话级）：宿主 WorkspaceSnapshot.archivedSessionIds
+			// （dsh-api-workspace-controller types/client/model.d.ts:9-19；
+			// 类型定义见 types/types.d.ts:126-128）。
+			// 原生侧栏默认过滤即 `!archived.has(session.id)`
+			// （dsh-client-ui-workspace client.js:964-973 sessionVisible）。
+			// WorkspaceView（types.d.ts:13-25）没有 archived/archivedAt/hidden 字段，
+			// 即 workspace 本身不可归档，所以「工作区已归档的条目」只可能指归档会话。
+			// 服务缺席（snapshot 为 null）时归档集为空：不过滤、不抛。
+			const archived = workspaceSnapshot !== null && typeof workspaceSnapshot === 'object' && Array.isArray(workspaceSnapshot.archivedSessionIds)
+				? new Set(workspaceSnapshot.archivedSessionIds)
+				: new Set();
+			const list = archived.size === 0 ? incoming : incoming.filter((choice) => choice && !archived.has(choice.id));
 			const byId = new Map();
 			for (const choice of list) if (choice && typeof choice.id === 'string') byId.set(choice.id, choice);
 			const items = workspaceSnapshot !== null && typeof workspaceSnapshot === 'object' && Array.isArray(workspaceSnapshot.items) ? workspaceSnapshot.items : [];
@@ -5958,7 +5970,6 @@ window.__ModuleLoader__.load({
 			const list = readSessions((state) => state);
 			readStatus((state) => state);
 			const choices = cabinetSessionChoices(list);
-			const preferred = defaultCabinetSession(choices);
 			const [chosen, setChosen] = React.useState('');
 			// 左列视图：会话列表 或 成员设置（设置只占左列，绝不与聊天区争主区位）。
 			const [leftMode, setLeftMode] = React.useState('list');
@@ -5997,7 +6008,14 @@ window.__ModuleLoader__.load({
 			const workspaceSnapshot = props !== null && typeof props === 'object' && props.workspaceSnapshot !== undefined
 				? props.workspaceSnapshot
 				: liveWorkspaceSnapshot;
-			const selected = chosen !== '' && choices.some((choice) => choice.id === chosen) ? chosen : preferred;
+			// 分组：每个 workspace 一组（组顺序 = 宿主 items 顺序），组内 updatedAt 倒序，
+			// 无归属进兜底组；归档会话已在 cabinetSessionGroups 里被过滤掉。
+			const sessionGroups = cabinetSessionGroups(choices, workspaceSnapshot, tt('conversation.all'));
+			// 默认选中必须在归档过滤之后算：最近更新的会话若已归档，它不在任何组里，
+			// 选中它只会得到空右栏；这里只在「可见会话」里挑。
+			const visibleChoices = sessionGroups.flatMap((group) => group.sessions);
+			const preferred = defaultCabinetSession(visibleChoices);
+			const selected = chosen !== '' && visibleChoices.some((choice) => choice.id === chosen) ? chosen : preferred;
 			const projections = list !== null && typeof list === 'object' && list.projectionsBySession !== null && typeof list.projectionsBySession === 'object' ? list.projectionsBySession : {};
 			const teamValues = projections[selected] && typeof projections[selected] === 'object' ? projections[selected].values : undefined;
 			const team = teamValues !== undefined && teamValues !== null ? teamValues.agentTeam : undefined;
@@ -6050,9 +6068,6 @@ window.__ModuleLoader__.load({
 			const byIdRows = list !== null && typeof list === 'object' && list.byId !== null && typeof list.byId === 'object' ? list.byId : {};
 			const boundRow = byIdRows[boundSession];
 			const boundParentId = boundRow !== null && boundRow !== undefined && typeof boundRow.parentSessionId === 'string' ? boundRow.parentSessionId : '';
-			// 分组：每个 workspace 一组（组顺序 = 宿主 items 顺序），组内 updatedAt 倒序，
-			// 无归属进兜底组。组标题用 workspace 标题，兜底用 locale 既有键。
-			const sessionGroups = cabinetSessionGroups(choices, workspaceSnapshot, tt('conversation.all'));
 			const conversations = sessionGroups.flatMap((group) => group.sessions.map((choice) => ({
 				id: choice.id,
 				name: '',
