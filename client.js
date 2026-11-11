@@ -2694,6 +2694,10 @@ window.__ModuleLoader__.load({
 		// ILayout（dsh-client-ui-layout types/client/service.d.ts:24-50）没有
 		// rightbar 开合状态的 getter，所以按钮状态是乐观状态（本地 state 跟踪）。
 		let cabinetLayout = null;
+		// 宿主导航服务（右栏内容）：openTab('guide') 才会带出「开始」引导页——
+		// 只开轨道（openRightbar）右栏是空壳。注入名 sidebarRight 与宿主消费方
+		// 一致（dsh-client-ui-chat lib/client.js:13091 inject 列表、:13285 用法）。
+		let cabinetSidebarRight = null;
 		/**
 		 * Bounded retry/re-render cadence for member usage while somebody runs.
 		 *
@@ -6184,10 +6188,18 @@ window.__ModuleLoader__.load({
 				const next = !splitOpen;
 				setSplitOpen(next);
 				try {
-					if (cabinetLayout === null) return;
-					if (next) cabinetLayout.openRightbar(true, false);
-					else cabinetLayout.closeRightbar();
-				} catch (error) { /* 布局服务缺席/拒绝时保持乐观状态，不打断页面 */ }
+					if (next) {
+						// 先走原生内容通道：guide 页自带轨道展开（openContent 的
+						// planSetExpanded(true)，sidebar-right :1117）。
+						if (cabinetSidebarRight !== null && typeof cabinetSidebarRight.openTab === 'function') {
+							try {
+								cabinetSidebarRight.openTab('guide');
+								return;
+							} catch (error) { /* 无 on-screen Session 等：落到纯轨道 */ }
+						}
+						if (cabinetLayout !== null) cabinetLayout.openRightbar(true, false);
+					} else if (cabinetLayout !== null) cabinetLayout.closeRightbar();
+				} catch (error) { /* 服务缺席/拒绝时保持乐观状态，不打断页面 */ }
 			};
 			// Workspace 分组快照：模块级服务 + 订阅（服务可能晚到/更换）。
 			const [liveWorkspaceSnapshot, setLiveWorkspaceSnapshot] = React.useState(() => (cabinetWorkspaces && typeof cabinetWorkspaces.list.getSnapshot === 'function' ? cabinetWorkspaces.list.getSnapshot() : null));
@@ -7089,6 +7101,19 @@ window.__ModuleLoader__.load({
 			// every card exactly as it was (cards then print their em dash).
 			// Optional: the Workspace list for the left-column grouping. A host
 			// without it leaves every session in the Ungrouped bucket (never throws).
+			// Optional: the right-bar navigation face. openTab('guide') opens the
+			// host's own guide page ("开始" with its tool-card list); its openContent
+			// step runs planSetExpanded(true) (sidebar-right lib/client.js:1117), so
+			// the track expands with the content — no separate openRightbar needed.
+			// Absent service → the button degrades to the plain track (openRightbar).
+			ctx.inject(['sidebarRight'], (scope) => {
+				const service = scope.sidebarRight;
+				if (!service || typeof service.openTab !== 'function') return;
+				scope.effect(() => {
+					cabinetSidebarRight = service;
+					return () => { if (cabinetSidebarRight === service) cabinetSidebarRight = null; };
+				}, 'cabinet-ui: sidebarRight guide');
+			});
 			// Optional: the host layout face for the native right column. A host
 			// without it leaves the split button inert (no exception, no fake pane).
 			ctx.inject(['layout'], (scope) => {

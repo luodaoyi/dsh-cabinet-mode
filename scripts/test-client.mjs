@@ -3040,6 +3040,7 @@ assert.ok(!/background:\s*'(#fff|white)'/.test(source), 'no bare white backgroun
     // 原生会话打开通道（uiWorkspace.openSession）由 apply 注入；这里记录调用。
     const openedSessions = [];
     const rightbarCalls = [];
+    const sidebarCalls = [];
     try {
       pageClient.apply({
         effect: (fn) => { try { const cleanup = fn(); return typeof cleanup === 'function' ? cleanup : () => {}; } catch (error) { return () => {}; } },
@@ -3047,6 +3048,7 @@ assert.ok(!/background:\s*'(#fff|white)'/.test(source), 'no bare white backgroun
         inject: (names, callback) => {
           if (Array.isArray(names) && names.includes('uiWorkspace')) callback({ uiWorkspace: { openSession: (target) => openedSessions.push(target) }, effect: (fn) => { fn(); return () => {}; } });
           if (Array.isArray(names) && names.includes('layout')) callback({ layout: { openRightbar: (track, fullscreen) => rightbarCalls.push(['open', track, fullscreen]), closeRightbar: () => rightbarCalls.push(['close']) }, effect: (fn) => { fn(); return () => {}; } });
+          if (Array.isArray(names) && names.includes('sidebarRight')) callback({ sidebarRight: { openTab: (kind, options) => sidebarCalls.push(['openTab', kind, options === undefined ? null : JSON.stringify(options)]), active: () => undefined, close: (tabId) => sidebarCalls.push(['close', tabId]) }, effect: (fn) => { fn(); return () => {}; } });
         },
       });
     } catch (error) { /* optional services may be missing in this stub */ }
@@ -3070,7 +3072,10 @@ assert.ok(!/background:\s*'(#fff|white)'/.test(source), 'no bare white backgroun
     assert.equal(splitOpen.props['aria-pressed'], 'true', 'the button reports pressed');
     const openGlyph = glyphOf(splitOpen);
     assert.notEqual(openGlyph, closedGlyph, 'the glyph changes with state, closed=' + closedGlyph + ' open=' + openGlyph);
-    assert.deepEqual(rightbarCalls, [['open', true, false]], 'the native rightbar is opened with (true, false)');
+    // 成功路径：原生内容通道 openTab('guide') 才带出「开始」引导页；轨道由其
+    // openContent→planSetExpanded(true) 自带展开，所以这里**不再**调 openRightbar。
+    assert.deepEqual(sidebarCalls, [['openTab', 'guide', null]], "openTab('guide') is called exactly once with no options");
+    assert.deepEqual(rightbarCalls, [], 'the success path relies on the guide\'s own expansion, no redundant openRightbar');
     // 主列必须让出轨道而不塌：minWidth:0 + flex:1（不靠负边距硬挤）。
     const mainCol = treeOpen.find((node) => node.props?.['data-cabinet-page-main'] !== undefined);
     assert.ok(mainCol, 'the centre column keeps its identity while split');
@@ -3085,11 +3090,51 @@ assert.ok(!/background:\s*'(#fff|white)'/.test(source), 'no bare white backgroun
     assert.equal(splitClosed.props['aria-pressed'], 'false', 'the button reports unpressed');
     const backGlyph = glyphOf(splitClosed);
     assert.equal(backGlyph, closedGlyph, 'the glyph returns to the closed one');
-    assert.deepEqual(rightbarCalls, [['open', true, false], ['close']], 'closeRightbar() is called exactly once on the second click');
+    assert.deepEqual(rightbarCalls, [['close']], 'closeRightbar() is called exactly once on the second click');
+    assert.deepEqual(sidebarCalls, [['openTab', 'guide', null]], 'the guide is not re-opened or closed by the close path (track collapse hides it)');
     // 既有钩子不丢。
     assert.ok(treeClosed.find((node) => node.props?.['data-cabinet-page-session'] !== undefined), 'the session picker hook survives');
     assert.ok(treeClosed.find((node) => node.props?.['data-cabinet-page-side'] !== undefined), 'the side column hook survives');
     assert.ok(treeClosed.find((node) => node.props?.['data-cabinet-page-main'] !== undefined), 'the main column hook survives');
+
+    // ---- 降级分支：宿主没有 sidebarRight 服务时，按钮退回纯轨道（openRightbar）----
+    {
+      let plainClient = null;
+      runInNewContext(source.replace(exportPoint, 'return { apply, CabinetPage, zh };'), {
+        window: { __ModuleLoader__: { load: ({ factory }) => {
+          plainClient = factory((name) => {
+            if (name === '@deepseek-ai/dsh-client-ui-primitives') throw new Error('primitives not seeded');
+            return React;
+          });
+        } } },
+        console,
+      });
+      const plainRightbar = [];
+      plainClient.apply({
+        effect: (fn) => { try { const cleanup = fn(); return typeof cleanup === 'function' ? cleanup : () => {}; } catch (error) { return () => {}; } },
+        locale: { register: () => {}, bind: () => (key) => plainClient.zh[key] || key },
+        inject: (names, callback) => {
+          // 只注入 layout，**不**注入 sidebarRight —— 模拟插件没跑/服务缺席。
+          if (Array.isArray(names) && names.includes('layout')) callback({ layout: { openRightbar: (track, fullscreen) => plainRightbar.push(['open', track, fullscreen]), closeRightbar: () => plainRightbar.push(['close']) }, effect: (fn) => { fn(); return () => {}; } });
+        },
+      });
+      resetHookCursor();
+      const plainStart = elements(plainClient.CabinetPage(teamProps));
+      const plainBtn = plainStart.find((node) => node.props?.['data-cabinet-split-toggle'] !== undefined);
+      assert.ok(plainBtn, 'the split toggle still renders without the sidebarRight service');
+      plainBtn.props.onClick();
+      resetHookCursor();
+      const plainOpen = elements(plainClient.CabinetPage(teamProps));
+      const plainOpenBtn = plainOpen.find((node) => node.props?.['data-cabinet-split-toggle'] !== undefined);
+      assert.equal(plainOpenBtn.props['data-cabinet-split-state'], '1', 'the state still flips without the service');
+      assert.deepEqual(plainRightbar, [['open', true, false]], 'the fallback opens the plain track with (true, false)');
+      plainOpenBtn.props.onClick();
+      resetHookCursor();
+      const plainClosed = elements(plainClient.CabinetPage(teamProps));
+      const plainClosedBtn = plainClosed.find((node) => node.props?.['data-cabinet-split-toggle'] !== undefined);
+      assert.equal(plainClosedBtn.props['data-cabinet-split-state'], '0', 'the fallback close flips back to closed');
+      assert.deepEqual(plainRightbar, [['open', true, false], ['close']], 'the fallback close calls closeRightbar exactly once');
+    }
   }
     resetHookCursor();
     const collapsedTree0 = elements(pageClient.CabinetPage(teamProps));
