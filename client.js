@@ -2632,6 +2632,9 @@ window.__ModuleLoader__.load({
 		 */
 		let cabinetSessions = null;
 		const cabinetSessionsListeners = new Set();
+		// 宿主 Workspace 服务（分组数据源）；缺席时左列退化为单一兜底组。
+		let cabinetWorkspaces = null;
+		const cabinetWorkspacesListeners = new Set();
 		/**
 		 * Bounded retry/re-render cadence for member usage while somebody runs.
 		 *
@@ -5862,6 +5865,57 @@ window.__ModuleLoader__.load({
 			return choices;
 		}
 		/**
+		 * 左列分组：按 Workspace 分组，与宿主原生左侧栏同一口径。
+		 * 数据源与契约（已核）：
+		 *  · 服务名 `workspaces`（cordis），`IWorkspaces.list: WorkspaceSource`
+		 *    （dsh-api-workspace-controller/lib/types/client/service.d.ts:27-40），
+		 *    `getSnapshot(): WorkspaceSnapshot`（model.d.ts:9-19）。
+		 *  · `snapshot.items: WorkspaceView[]`，每项
+		 *    `{ workspaceId, path, title, sessionIds, createdAt, updatedAt }`
+		 *    （dsh-api-workspace-controller/lib/types/types.d.ts:13-25）。
+		 *  · 组顺序 = items 顺序（原生 groupByWorkspace 逐项 push：
+		 *    dsh-client-ui-workspace/lib/client.js:1027-1045）；组标题用
+		 *    `workspace.title`；无归属会话进兜底组，原生标题键是
+		 *    `group.ungrouped`（同文件 :1953）。
+		 * 与原文的差异（已知并有意）：原生空组在非 only 过滤下仍保留，
+		 * 这里跳过「没有任何可见顶层会话」的组；原生组内用 sessionIds 顺序，
+		 * 按用户指示改为 updatedAt 倒序。
+		 */
+		function cabinetSessionGroups(choices, workspaceSnapshot, ungroupedLabel) {
+			const list = Array.isArray(choices) ? choices : [];
+			const byId = new Map();
+			for (const choice of list) if (choice && typeof choice.id === 'string') byId.set(choice.id, choice);
+			const items = workspaceSnapshot !== null && typeof workspaceSnapshot === 'object' && Array.isArray(workspaceSnapshot.items) ? workspaceSnapshot.items : [];
+			const byRecency = (a, b) => (b.updatedAt - a.updatedAt) || (a.id < b.id ? -1 : 1);
+			const accounted = new Set();
+			const groups = [];
+			for (const workspace of items) {
+				if (workspace === null || typeof workspace !== 'object') continue;
+				const members = [];
+				const sessionIds = Array.isArray(workspace.sessionIds) ? workspace.sessionIds : [];
+				for (const id of sessionIds) {
+					const choice = byId.get(id);
+					if (choice === undefined || accounted.has(id)) continue;
+					accounted.add(id);
+					members.push(choice);
+				}
+				if (members.length === 0) continue;
+				members.sort(byRecency);
+				const key = typeof workspace.workspaceId === 'string' && workspace.workspaceId !== '' ? workspace.workspaceId : '';
+				const title = typeof workspace.title === 'string' && workspace.title !== ''
+					? workspace.title
+					: (typeof workspace.path === 'string' && workspace.path !== '' ? workspace.path : key);
+				groups.push({ key: key === '' ? 'workspace:' + groups.length : key, title, ungrouped: false, sessions: members });
+			}
+			// 没有 Workspace 归属的会话：兜底组（原生叫 Ungrouped）。
+			const stray = list.filter((choice) => choice && !accounted.has(choice.id));
+			if (stray.length > 0) {
+				stray.sort(byRecency);
+				groups.push({ key: '', title: typeof ungroupedLabel === 'string' && ungroupedLabel !== '' ? ungroupedLabel : '', ungrouped: true, sessions: stray });
+			}
+			return groups;
+		}
+		/**
 		 * 默认选中：最近更新**且有成员**的会话优先（agentTeam.members 非空）。
 		 * 只按「最近更新」会有个真实陷阱：最新顶层若是刚建的空会话，右侧就是
 		 * 一片空白群聊，用户会以为又坏了。全都没有成员时再退回最近更新者，
@@ -5912,6 +5966,20 @@ window.__ModuleLoader__.load({
 			// `focus` 状态，点左列只改 focus、下拉仍显示旧 chosen —— 真机里
 			// 左列已选中「内阁模式问题修复」而下拉还是「群聊每日总结定时任务」。
 			const [groupSnapshot, setGroupSnapshot] = React.useState(null);
+			// Workspace 分组快照：模块级服务 + 订阅（服务可能晚到/更换）。
+			const [liveWorkspaceSnapshot, setLiveWorkspaceSnapshot] = React.useState(() => (cabinetWorkspaces && typeof cabinetWorkspaces.list.getSnapshot === 'function' ? cabinetWorkspaces.list.getSnapshot() : null));
+			React.useEffect(() => {
+				const sync = () => setLiveWorkspaceSnapshot(cabinetWorkspaces && typeof cabinetWorkspaces.list.getSnapshot === 'function' ? cabinetWorkspaces.list.getSnapshot() : null);
+				cabinetWorkspacesListeners.add(sync);
+				sync();
+				return () => { cabinetWorkspacesListeners.delete(sync); };
+			}, []);
+			// 折叠的组（key 集合）；原生侧栏的 workspace 组可折叠，这里同样可折叠。
+			const [collapsedGroups, setCollapsedGroups] = React.useState({});
+			// 显式传入的快照优先（宿主可直接喂，测试也可）：不改变注入通道。
+			const workspaceSnapshot = props !== null && typeof props === 'object' && props.workspaceSnapshot !== undefined
+				? props.workspaceSnapshot
+				: liveWorkspaceSnapshot;
 			const selected = chosen !== '' && choices.some((choice) => choice.id === chosen) ? chosen : preferred;
 			const projections = list !== null && typeof list === 'object' && list.projectionsBySession !== null && typeof list.projectionsBySession === 'object' ? list.projectionsBySession : {};
 			const teamValues = projections[selected] && typeof projections[selected] === 'object' ? projections[selected].values : undefined;
@@ -5965,21 +6033,24 @@ window.__ModuleLoader__.load({
 			const byIdRows = list !== null && typeof list === 'object' && list.byId !== null && typeof list.byId === 'object' ? list.byId : {};
 			const boundRow = byIdRows[boundSession];
 			const boundParentId = boundRow !== null && boundRow !== undefined && typeof boundRow.parentSessionId === 'string' ? boundRow.parentSessionId : '';
-			const sessionItems = choices.slice().sort((a, b) => (b.updatedAt - a.updatedAt) || (a.id < b.id ? -1 : 1));
-			const conversations = sessionItems.map((choice) => ({
+			// 分组：每个 workspace 一组（组顺序 = 宿主 items 顺序），组内 updatedAt 倒序，
+			// 无归属进兜底组。组标题用 workspace 标题，兜底用 locale 既有键。
+			const sessionGroups = cabinetSessionGroups(choices, workspaceSnapshot, tt('conversation.all'));
+			const conversations = sessionGroups.flatMap((group) => group.sessions.map((choice) => ({
 				id: choice.id,
 				name: '',
 				label: choice.title || choice.id,
 				role: 'session',
 				native: true,
 				updatedAt: choice.updatedAt,
-				note: choice.hasTeam ? tt('conversation.team') : (choice.running ? tt('status.running') : '')
-			}));
-			const conversationList = h('div', {
-				key: 'conversations',
-				'data-cabinet-conversations': '1',
-				style: { display: 'flex', flexDirection: 'column', gap: 2, padding: '8px 0' }
-			}, conversations.map((entry) => {
+				note: choice.hasTeam ? tt('conversation.team') : (choice.running ? tt('status.running') : ''),
+				groupKey: group.key,
+				groupTitle: group.title,
+				ungrouped: group.ungrouped
+			})));
+			// 组 → 标题 + 组内会话项。组标题可点击折叠；会话项保留全部既有
+			// data-cabinet-conversation-* 钩子（现有断言依赖它们）。
+			const renderEntry = (entry) => {
 				const last = entry.native === true ? undefined : lastRowFor(entry.id);
 				const summary = entry.native === true
 					? (entry.note || '')
@@ -6013,6 +6084,40 @@ window.__ModuleLoader__.load({
 						]),
 						h('span', { key: 'summary', 'data-cabinet-conversation-summary': '1', style: { fontSize: 11, color: INK3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, summary === '' ? '—' : summary.slice(0, 48))
 					])
+				]);
+			};
+			const conversationList = h('div', {
+				key: 'conversations',
+				'data-cabinet-conversations': '1',
+				style: { display: 'flex', flexDirection: 'column', gap: 2, padding: '8px 0' }
+			}, sessionGroups.map((group) => {
+				const collapsed = collapsedGroups[group.key] === true;
+				const items = conversations.filter((entry) => entry.groupKey === group.key && (group.key !== '' || entry.ungrouped === true));
+				return h('div', {
+					key: 'group:' + (group.key === '' ? 'ungrouped' : group.key),
+					'data-cabinet-conversation-group': group.key === '' ? 'ungrouped' : group.key,
+					'data-cabinet-conversation-group-count': String(items.length),
+					'data-cabinet-conversation-group-collapsed': collapsed ? '1' : '0',
+					style: { display: 'flex', flexDirection: 'column', gap: 2, marginBottom: 4 }
+				}, [
+					h('button', {
+						key: 'title',
+						type: 'button',
+						'data-cabinet-conversation-group-title': group.key === '' ? 'ungrouped' : group.key,
+						'aria-expanded': collapsed ? 'false' : 'true',
+						title: group.title,
+						onClick: () => setCollapsedGroups((previous) => ({ ...previous, [group.key]: previous[group.key] !== true })),
+						style: { display: 'flex', alignItems: 'center', gap: 6, width: '100%', textAlign: 'left', font: 'inherit', fontSize: 11, fontWeight: 600, color: INK3, padding: '4px 8px', border: 0, borderRadius: 6, background: 'transparent', cursor: 'pointer' }
+					}, [
+						h('span', { key: 'caret', 'aria-hidden': 'true', style: { flex: 'none', width: 10, display: 'inline-block' } }, collapsed ? '▸' : '▾'),
+						h('span', { key: 'label', style: { whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flex: 1, minWidth: 0 } }, group.title),
+						h('span', { key: 'count', style: { flex: 'none', fontWeight: 400, opacity: 0.8 } }, String(items.length))
+					]),
+					collapsed ? null : h('div', {
+						key: 'items',
+						'data-cabinet-conversation-group-items': group.key === '' ? 'ungrouped' : group.key,
+						style: { display: 'flex', flexDirection: 'column', gap: 2 }
+					}, items.map((entry) => renderEntry(entry)))
 				]);
 			}));
 			const settingsEntry = h('button', {
@@ -6377,7 +6482,9 @@ window.__ModuleLoader__.load({
 			'groupchat.tools.count': '{n} 个工具',
 			'groupchat.tools.hide': '收起工具',
 			'groupchat.you': '你',
-			'conversation.all': '全部/群聊',
+			// 复用该既有键：原「全部/群聊」合成项已删，现在它是「未分组」兜底组的标题
+			// （对齐原生侧栏 t('group.ungrouped')，见 dsh-client-ui-workspace:1953）。
+			'conversation.all': '未分组',
 			'conversation.sessions': 'DSH 会话',
 			'conversation.team': '内阁群聊',
 			'conversation.openUnavailable': '当前宿主没有可用的会话打开通道（uiWorkspace.openSession），无法跳转原生会话视图。',
@@ -6524,7 +6631,7 @@ window.__ModuleLoader__.load({
 			'groupchat.tools.count': '{n} tools',
 			'groupchat.tools.hide': 'Hide tools',
 			'groupchat.you': 'You',
-			'conversation.all': 'All / Group chat',
+			'conversation.all': 'Ungrouped',
 			'conversation.sessions': 'DSH sessions',
 			'conversation.team': 'Cabinet group',
 			'conversation.openUnavailable': 'This host exposes no session opener (uiWorkspace.openSession), so the native session view cannot be opened.',
@@ -6685,6 +6792,17 @@ window.__ModuleLoader__.load({
 			// and context pressure from the DSH session projections. Its own guard,
 			// so a host without the sessions service leaves every other channel and
 			// every card exactly as it was (cards then print their em dash).
+			// Optional: the Workspace list for the left-column grouping. A host
+			// without it leaves every session in the Ungrouped bucket (never throws).
+			ctx.inject(['workspaces'], (scope) => {
+				const workspaces = scope.workspaces;
+				if (!workspaces || !workspaces.list || typeof workspaces.list.getSnapshot !== 'function') return;
+				scope.effect(() => {
+					cabinetWorkspaces = workspaces;
+					for (const notify of cabinetWorkspacesListeners) notify();
+					return () => { if (cabinetWorkspaces === workspaces) { cabinetWorkspaces = null; for (const notify of cabinetWorkspacesListeners) notify(); } };
+				}, 'cabinet-ui: workspace groups');
+			});
 			ctx.inject(['sessions'], (scope) => {
 				const sessions = scope.sessions;
 				if (!sessions || typeof sessions.refreshProjections !== 'function') return;

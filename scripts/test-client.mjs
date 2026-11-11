@@ -65,7 +65,7 @@ React.useRef = (initial) => {
 };
 
 
-const exportList = 'return { inject, apply, avatarFor, displayName, CabinetPanel, MemberCard, TaskLine, TaskEdgeLayer, buildTaskEdges, taskEdgesEqual, zh, en, BUREAUX, AVATARS, setMemberConfig, memberLabel, configuredAvatar, configuredPrompt, factoryPromptFor, DEFAULT_MEMBER_PROMPTS, DEFAULT_LEAD_PROMPT, CabinetMemberSettings, MemoryPluginCard, memoryPluginInstalledOf, SETTINGS_TABS, formatTokenCount, formatElapsed, tokenTotalOf, usageFor, planProjectionRequests, teamUsageOf, groupChatFold, markdownBlocksOf, inlineMarkdownTokens, markdownLinkHref, modelOptionsOf, modelCatalogNotice, modelSelectionOf, cabinetSessionChoices, defaultCabinetSession, CabinetMarkdown, CabinetPage, CabinetPanelIcon, GroupChatRow, STYLE_CSS, cabinetGroupMemberStates, mergeGroupChat, cabinetChatViewRows, chatStampNeeded, nearChatBottom, scrollChatToBottom, scrollFollowingTail, cabinetScopeRows, openCabinetSession };';
+const exportList = 'return { inject, apply, avatarFor, displayName, CabinetPanel, MemberCard, TaskLine, TaskEdgeLayer, buildTaskEdges, taskEdgesEqual, zh, en, BUREAUX, AVATARS, setMemberConfig, memberLabel, configuredAvatar, configuredPrompt, factoryPromptFor, DEFAULT_MEMBER_PROMPTS, DEFAULT_LEAD_PROMPT, CabinetMemberSettings, MemoryPluginCard, memoryPluginInstalledOf, SETTINGS_TABS, formatTokenCount, formatElapsed, tokenTotalOf, usageFor, planProjectionRequests, teamUsageOf, groupChatFold, markdownBlocksOf, inlineMarkdownTokens, markdownLinkHref, modelOptionsOf, modelCatalogNotice, modelSelectionOf, cabinetSessionChoices, cabinetSessionGroups, defaultCabinetSession, CabinetMarkdown, CabinetPage, CabinetPanelIcon, GroupChatRow, STYLE_CSS, cabinetGroupMemberStates, mergeGroupChat, cabinetChatViewRows, chatStampNeeded, nearChatBottom, scrollChatToBottom, scrollFollowingTail, cabinetScopeRows, openCabinetSession };';
 runInNewContext(source.replace(exportPoint, exportList), {
   setTimeout: (fn, ms) => setTimeout(fn, ms === 120000 ? 20 : ms), clearTimeout,
   Date: RealmDate,
@@ -2526,6 +2526,44 @@ console.log('PASS 群聊 tab: the right pane keeps the roster only (no 群聊 ta
   let allLeadPick = null;
   assert.doesNotThrow(() => { allLeadPick = client.defaultCabinetSession(client.cabinetSessionChoices(allLeadOnly)); }, 'defaulting when every session is lead-only never throws');
   assert.equal(allLeadPick, 's-lo-2', 'when no session has ministers the newest one still wins, got ' + String(allLeadPick));
+  // ---- 左列按 Workspace 分组（用户拍板；口径对齐宿主原生侧栏）----
+  const wsList = {
+    ids: ['s-w1-old', 's-w1-new', 's-w2', 's-loose'],
+    byId: {
+      's-w1-old': { title: '一区旧会话', updatedAt: 100 },
+      's-w1-new': { title: '一区新会话', updatedAt: 500 },
+      's-w2': { title: '二区会话', updatedAt: 300 },
+      's-loose': { title: '无归属会话', updatedAt: 900 },
+    },
+    projectionsBySession: {},
+  };
+  const wsSnapshot = {
+    items: [
+      { workspaceId: 'ws-1', path: '/tmp/one', title: '工作区一', sessionIds: ['s-w1-old', 's-w1-new', 's-child'], createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-02T00:00:00Z' },
+      { workspaceId: 'ws-2', path: '/tmp/two', title: '工作区二', sessionIds: ['s-w2'], createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-02T00:00:00Z' },
+      { workspaceId: 'ws-empty', path: '/tmp/empty', title: '空工作区', sessionIds: ['s-not-visible'], createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-02T00:00:00Z' },
+    ],
+    archivedSessionIds: [],
+    pinnedSessionIds: [],
+    state: 'idle',
+    phase: 'ready',
+    error: null,
+  };
+  const wsChoices = client.cabinetSessionChoices(wsList);
+  const wsGroups = client.cabinetSessionGroups(wsChoices, wsSnapshot, client.zh['conversation.all']);
+  // 组顺序 = 宿主 items 顺序；空工作区（无可见顶层会话）不占位。
+  assert.equal(JSON.stringify(wsGroups.map((group) => group.key)), JSON.stringify(['ws-1', 'ws-2', '']), 'groups follow the host workspace order and skip empty workspaces, got ' + JSON.stringify(wsGroups.map((group) => group.key)));
+  assert.equal(wsGroups[0].title, '工作区一', 'a group is titled by the workspace title');
+  assert.equal(JSON.stringify(wsGroups[0].sessions.map((choice) => choice.id)), JSON.stringify(['s-w1-new', 's-w1-old']), 'sessions inside a group sort by updatedAt descending, got ' + JSON.stringify(wsGroups[0].sessions.map((choice) => choice.id)));
+  assert.equal(wsGroups[2].ungrouped, true, 'sessions outside every workspace land in the ungrouped bucket');
+  assert.equal(wsGroups[2].title, '未分组', 'the ungrouped bucket is titled by the reused locale key');
+  assert.equal(JSON.stringify(wsGroups[2].sessions.map((choice) => choice.id)), JSON.stringify(['s-loose']), 'only the loose session is ungrouped');
+  const allGrouped = wsGroups.flatMap((group) => group.sessions.map((choice) => choice.id));
+  assert.equal(allGrouped.length, new Set(allGrouped).size, 'no session appears in two groups, got ' + JSON.stringify(allGrouped));
+  assert.equal(JSON.stringify(allGrouped.slice().sort()), JSON.stringify(wsChoices.map((choice) => choice.id).sort()), 'every top-level session appears exactly once across groups');
+  assert.doesNotThrow(() => client.cabinetSessionGroups(wsChoices, null, '未分组'), 'grouping without a workspace snapshot never throws');
+  assert.equal(client.cabinetSessionGroups(wsChoices, null, '未分组').length, 1, 'without a snapshot every session lands in the single ungrouped group');
+
   // 列表排序不受默认规则影响：仍按 updatedAt 倒序（空会话排在前面）。
   const blankOrder = client.cabinetSessionChoices(blankNewest).slice().sort((a, b) => (b.updatedAt - a.updatedAt) || (a.id < b.id ? -1 : 1)).map((choice) => choice.id);
   assert.equal(JSON.stringify(blankOrder), JSON.stringify(['s-blank-new', 's-team-old']), 'the list order stays newest-first even though the default is a memberful session, got ' + JSON.stringify(blankOrder));
@@ -2771,6 +2809,39 @@ console.log('PASS 群聊 tab: the right pane keeps the roster only (no 群聊 ta
     assert.equal(syncSelect(syncTree2).props.value, 's-b', 'the dropdown keeps its own choice');
     assert.equal(items(syncTree2).find((node) => node.props['data-cabinet-conversation-id'] === 's-b').props['data-cabinet-conversation-selected'], '1', 'changing the dropdown moves the left-column selection to the same session');
     assert.equal(items(syncTree2).find((node) => node.props['data-cabinet-conversation-id'] === 's-a').props['data-cabinet-conversation-selected'], '0', 'the previously selected row is deselected');
+    // 左列分组渲染：每组一个标题节点 + 组内会话项；组顺序 = 宿主 items 顺序。
+    const groupProps = { ...teamProps, useSessions: (select) => select(wsList), workspaceSnapshot: wsSnapshot };
+    resetHookCursor();
+    const groupTree = elements(pageClient.CabinetPage(groupProps));
+    const groupNodes = groupTree.filter((node) => node.props?.['data-cabinet-conversation-group'] !== undefined);
+    assert.equal(groupNodes.length, 3, 'the left column renders one section per workspace plus the ungrouped bucket, got ' + JSON.stringify(groupNodes.map((node) => node.props['data-cabinet-conversation-group'])));
+    assert.equal(JSON.stringify(groupNodes.map((node) => node.props['data-cabinet-conversation-group'])), JSON.stringify(['ws-1', 'ws-2', 'ungrouped']), 'group order follows the host workspace order');
+    const titles = groupTree.filter((node) => node.props?.['data-cabinet-conversation-group-title'] !== undefined);
+    assert.equal(titles.length, 3, 'every group carries a title node');
+    assert.equal(JSON.stringify(titles.map((node) => node.props['data-cabinet-conversation-group-title'])), JSON.stringify(['ws-1', 'ws-2', 'ungrouped']), 'each title node is keyed by its group');
+    assert.ok(JSON.stringify(titles[0]).includes('工作区一'), 'the first group title shows its workspace name');
+    assert.ok(JSON.stringify(titles[1]).includes('工作区二'), 'the second group title shows its workspace name');
+    assert.ok(JSON.stringify(titles[2]).includes(client.zh['conversation.all']), 'the ungrouped bucket title uses the locale label');
+    // 组内会话项仍带全部既有钩子，并按组归属不重复。
+    const groupedIds = groupTree.filter((node) => node.props?.['data-cabinet-conversation-item'] !== undefined).map((node) => node.props['data-cabinet-conversation-id']);
+    assert.equal(groupedIds.length, new Set(groupedIds).size, 'no session renders under two groups, got ' + JSON.stringify(groupedIds));
+    assert.equal(JSON.stringify(groupedIds.slice().sort()), JSON.stringify(wsChoices.map((choice) => choice.id).sort()), 'every top-level session renders exactly once across groups');
+    assert.equal(groupTree.filter((node) => node.props?.['data-cabinet-conversation-group-items'] !== undefined).length, 3, 'each group exposes its own items container');
+    // 折叠：点组标题后该组 items 消失、collapsed=1，其他组不受影响。
+    titles[0].props.onClick();
+    resetHookCursor();
+    const collapsedTree = elements(pageClient.CabinetPage(groupProps));
+    const collapsedGroups = collapsedTree.filter((node) => node.props?.['data-cabinet-conversation-group'] !== undefined);
+    assert.equal(collapsedGroups[0].props['data-cabinet-conversation-group-collapsed'], '1', 'clicking a group title collapses that group');
+    assert.equal(collapsedGroups[1].props['data-cabinet-conversation-group-collapsed'], '0', 'collapsing one group leaves the others expanded');
+    assert.equal(collapsedTree.filter((node) => node.props?.['data-cabinet-conversation-group-items'] !== undefined).length, 2, 'a collapsed group renders no items container');
+    const collapsedIds = collapsedTree.filter((node) => node.props?.['data-cabinet-conversation-item'] !== undefined).map((node) => node.props['data-cabinet-conversation-id']);
+    assert.ok(!collapsedIds.includes('s-w1-new'), 'sessions of a collapsed group are not rendered');
+    // 再点一次展开。
+    collapsedTree.filter((node) => node.props?.['data-cabinet-conversation-group-title'] === 'ws-1')[0].props.onClick();
+    resetHookCursor();
+    const expandedTree = elements(pageClient.CabinetPage(groupProps));
+    assert.equal(expandedTree.filter((node) => node.props?.['data-cabinet-conversation-item'] !== undefined).length, wsChoices.length, 'expanding the group restores its sessions');
     // 排序：多会话按 updatedAt 倒序。
     const sortedList = {
       ids: ['s-a', 's-b', 's-c'],
