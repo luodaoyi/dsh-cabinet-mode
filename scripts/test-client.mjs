@@ -22,6 +22,23 @@ const React = {
   useRef: () => ({ current: null }),
   // Persistent state is opt-in like useRef: only the re-render chain test needs
   // a setter that really changes the value the next render reads.
+  // useMemo 的替身：按槽位保存上次的依赖数组，浅比较相同就复用上次结果
+  // （生产代码用它收敛派生计算，测试也要能验证「同依赖不重算」）。
+  // 与 useState 共用同一套调用顺序槽位（React 里所有 hook 共享顺序）。
+  // 依赖浅比较相同则**不调用 factory**，这样才能断言「同依赖不重算」。
+  useMemo: (factory, deps) => {
+    const list = Array.isArray(deps) ? deps : [];
+    if (persistentRefs === null) return factory();
+    const index = hookStates.cursor++;
+    const previous = hookStates.slots[index];
+    const same = previous !== undefined && previous.__memo === true
+      && previous.deps.length === list.length
+      && previous.deps.every((item, i) => Object.is(item, list[i]));
+    if (same) return previous.value;
+    const value = factory();
+    hookStates.slots[index] = { __memo: true, deps: list, value };
+    return value;
+  },
   useState: (initial) => {
     const value = typeof initial === 'function' ? initial() : initial;
     if (persistentRefs === null) return [value, () => {}];
@@ -71,7 +88,7 @@ const PAGE_NOW = Date.now();
 // ageOf 保序：原值越大 ⇒ 时间越新，且所有映射结果都落在最近 ~12 天内
 // （小于 30 天窗口，不会触发新鲜度过滤），既有排序断言的语义不变。
 const ageOf = (value) => PAGE_NOW - (1000000 - value);
-const exportList = 'return { inject, apply, avatarFor, displayName, chatBubbleName, chatBubbleNames, bureauOf, CabinetPanel, MemberCard, TaskLine, TaskEdgeLayer, buildTaskEdges, taskEdgesEqual, zh, en, BUREAUX, AVATARS, setMemberConfig, memberLabel, configuredAvatar, configuredPrompt, factoryPromptFor, DEFAULT_MEMBER_PROMPTS, DEFAULT_LEAD_PROMPT, CabinetMemberSettings, MemoryPluginCard, memoryPluginInstalledOf, SETTINGS_TABS, formatTokenCount, formatElapsed, tokenTotalOf, usageFor, planProjectionRequests, teamUsageOf, groupChatFold, markdownBlocksOf, inlineMarkdownTokens, markdownLinkHref, modelOptionsOf, modelCatalogNotice, modelSelectionOf, cabinetSessionChoices, cabinetSessionFilters, cabinetSessionGroups, defaultCabinetSession, CabinetMarkdown, CabinetPage, CabinetPanelIcon, GroupChatRow, STYLE_CSS, cabinetGroupMemberStates, mergeGroupChat, cabinetChatViewRows, chatStampNeeded, nearChatBottom, scrollChatToBottom, scrollFollowingTail, cabinetScopeRows, openCabinetSession };';
+const exportList = 'return { inject, apply, avatarFor, displayName, chatBubbleName, chatBubbleNames, bureauOf, CabinetPanel, MemberCard, TaskLine, TaskEdgeLayer, buildTaskEdges, taskEdgesEqual, zh, en, BUREAUX, AVATARS, setMemberConfig, memberLabel, configuredAvatar, configuredPrompt, factoryPromptFor, DEFAULT_MEMBER_PROMPTS, DEFAULT_LEAD_PROMPT, CabinetMemberSettings, MemoryPluginCard, memoryPluginInstalledOf, SETTINGS_TABS, formatTokenCount, formatElapsed, tokenTotalOf, usageFor, planProjectionRequests, teamUsageOf, groupChatFold, markdownBlocksOf, markdownBlocksCached, inlineMarkdownTokens, markdownLinkHref, modelOptionsOf, modelCatalogNotice, modelSelectionOf, cabinetSessionChoices, cabinetSessionFilters, cabinetSessionGroups, defaultCabinetSession, CabinetMarkdown, CabinetPage, CabinetPanelIcon, GroupChatRow, STYLE_CSS, cabinetGroupMemberStates, mergeGroupChat, cabinetChatViewRows, chatStampNeeded, nearChatBottom, scrollChatToBottom, scrollFollowingTail, cabinetScopeRows, openCabinetSession };';
 runInNewContext(source.replace(exportPoint, exportList), {
   setTimeout: (fn, ms) => setTimeout(fn, ms === 120000 ? 20 : ms), clearTimeout,
   Date: RealmDate,
@@ -2087,6 +2104,22 @@ console.log('PASS 内阁 Bot section removal: no section box, office rows, 现�
   settleReady();
   const longView = groupRender();
   const rowWithText = (tree, needle) => rowsOf(tree).filter((row) => rowTextOf(row).includes(needle));
+  // ---- 性能：memo 生效 + markdown 解析缓存 ----
+  // 1) 生产代码确实用 useMemo 收敛了重派生（否则「群聊很卡」的根因没被处理）。
+  const memoUses = (source.match(/React\.useMemo\(/g) || []).length;
+  assert.ok(memoUses >= 4, 'the heavy derivations are memoised, expected at least 4 useMemo calls, got ' + memoUses);
+  for (const target of ['chatBubbleNames(members)', 'mergeGroupChat(chatMembers.flatMap', 'cabinetSessionFilters(cabinetSessionChoices(list)', 'cabinetSessionGroups(choices']) {
+    assert.ok(source.includes('React.useMemo(() => ' + target), target + ' is wrapped in a React.useMemo');
+  }
+  // 2) markdown 解析缓存：同一文本第二次走缓存、返回同一份 blocks（不重新解析）。
+  const cachedText = '缓存测试 **粗体** 与 ![图](https://x/y.png)';
+  const blocksFirst = client.markdownBlocksCached(cachedText);
+  const blocksSecond = client.markdownBlocksCached(cachedText);
+  assert.ok(Object.is(blocksFirst, blocksSecond), 'the same markdown text returns the cached blocks object instead of re-parsing');
+  assert.ok(blocksFirst.length > 0, 'the cached value is the parsed block list');
+  // 3) 缓存上限存在（防止无界增长）：塞满后仍可正常返回。
+  for (let i = 0; i < 260; i += 1) client.markdownBlocksCached('填充 ' + i);
+  assert.ok(Object.is(client.markdownBlocksCached(cachedText), client.markdownBlocksCached(cachedText)), 'the cache still works after exceeding its limit');
   const longRow = rowWithText(longView.tree, '第20行')[0];
   assert.ok(longRow, 'the long reply renders');
   const longTextNode = findNodes([longRow], (node) => node.props?.['data-cabinet-groupchat-text'] !== undefined)[0];

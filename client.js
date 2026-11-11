@@ -4425,6 +4425,24 @@ window.__ModuleLoader__.load({
 			color: 'var(--dsw-alias-label-primary, light-dark(#0f1115, #f9fafb))',
 			colorScheme: 'light dark'
 		};
+		// markdown 解析缓存：同一段文本在一次会话里会被反复渲染（每次重渲染都会
+		// 重新走一遍解析），30 条气泡 × 每帧解析在真机上就是白烧 CPU。
+		// key = 原文，value = blocks；上限 200 条，超出按插入顺序淘汰最早的。
+		const MARKDOWN_BLOCK_CACHE_LIMIT = 200;
+		const MARKDOWN_BLOCK_CACHE = new Map();
+		/** 带缓存的 blocks 解析：纯函数结果，命中直接返回（不可变，调用方只读）。 */
+		function markdownBlocksCached(text) {
+			const key = typeof text === 'string' ? text : '';
+			const hit = MARKDOWN_BLOCK_CACHE.get(key);
+			if (hit !== undefined) return hit;
+			const blocks = markdownBlocksOf(key);
+			if (MARKDOWN_BLOCK_CACHE.size >= MARKDOWN_BLOCK_CACHE_LIMIT) {
+				const oldest = MARKDOWN_BLOCK_CACHE.keys().next();
+				if (!oldest.done) MARKDOWN_BLOCK_CACHE.delete(oldest.value);
+			}
+			MARKDOWN_BLOCK_CACHE.set(key, blocks);
+			return blocks;
+		}
 		const MARKDOWN_TEXT_STYLE = { margin: 0 };
 		/**
 		 * Render the subset. `data-cabinet-markdown` marks a rendered body and
@@ -4462,7 +4480,7 @@ window.__ModuleLoader__.load({
 				}
 				return token.text;
 			});
-			const blocks = markdownBlocksOf(text);
+			const blocks = markdownBlocksCached(text);
 			const nodes = blocks.map((block, index) => {
 				const key = 'b' + index;
 				if (block.kind === 'code') {
@@ -4935,7 +4953,8 @@ window.__ModuleLoader__.load({
 			// retain ⇒ sessionOf 拿不到 reference ⇒ canPrompt=false ⇒ 输入框禁用
 			// （真机：respire 空白会话「Send channel unavailable」）。当前会话的
 			// lead 必须在名单里，即便成员列表是空的；重复 id 只保留一条。
-			const chatMembers = (() => {
+			const rosterSignature = orderedMembers.map((member) => String(member && member.id) + ':' + String(member && member.name)).join('|');
+			const chatMembers = React.useMemo(() => {
 				const leadId = typeof leadSessionId === 'string' && leadSessionId !== '' ? leadSessionId : '';
 				const list = [];
 				const seen = new Set();
@@ -4952,7 +4971,7 @@ window.__ModuleLoader__.load({
 				else if (leadId !== '') push({ id: leadId, name: 'lead', role: 'lead', phase: 'active' });
 				for (const member of orderedMembers) push(member);
 				return list;
-			})();
+			}, [rosterSignature, leadSessionId]);
 			const group = useCabinetGroupChat(chatMembers, activeTab, groupService);
 			// The 5s usage tick also folds the newest event window while the tab is
 			// open, so a settled message lands without waiting for the next frame.
@@ -4973,8 +4992,11 @@ window.__ModuleLoader__.load({
 			// owner is actually running (the blocker's owner running makes its flow
 			// edge bright/fast — same language as the cabinet-task-live pulse).
 			const memberByName = new Map(members.map((member) => [member.name, member]));
+			// 名册签名：成员集合不变时下面两个派生不必重算（每帧重算 merge 与昵称表
+			// 是「群聊很卡」的主要来源之一）。
+			const membersSignature = members.map((member) => String(member.id) + ':' + String(member.name) + ':' + String(member.phase)).join('|');
 			// 气泡昵称：同一会话内不同成员必定显示不同名字（规则见 chatBubbleNames）。
-			const bubbleNames = chatBubbleNames(members);
+			const bubbleNames = React.useMemo(() => chatBubbleNames(members), [membersSignature]);
 			const edgeLead = members.find((member) => member.role === 'lead');
 			const liveTaskIds = new Set();
 			for (const task of tasks) {
@@ -5083,11 +5105,19 @@ window.__ModuleLoader__.load({
 			// Each folded row keeps the member it came from: the row itself only
 			// carries {kind,time,seq,text,tools}, so the portrait and the office
 			// name would otherwise have nothing to resolve against.
-			const groupRows = mergeGroupChat(chatMembers.flatMap((member) => {
+			// 行签名：成员集合 + 每个成员 fold 的行数与末行 seq。签名不变时整段
+			// flatMap + 全量排序合并（8 成员 × 上千行的 mergeGroupChat）不必重做。
+			const groupRowsSignature = chatMembers.map((member) => {
+				const view = group.views(member.id);
+				const rows = view.fold === null ? [] : view.fold.rows;
+				const last = rows.length > 0 ? rows[rows.length - 1] : undefined;
+				return member.id + '#' + rows.length + '@' + (last === undefined ? '' : String(last.seq) + String(last.text.length)) ;
+			}).join('|');
+			const groupRows = React.useMemo(() => mergeGroupChat(chatMembers.flatMap((member) => {
 				const view = group.views(member.id);
 				// 行上同时保留 member（头像/中文名）与 memberName（不认 member 的旧路径：同人判定、气泡兜底）。
 				return view.fold === null ? [] : view.fold.rows.map((row) => ({ ...row, member, memberName: member.name }));
-			}));
+			})), [groupRowsSignature]);
 
 
 					// A member without a live view (retain failed, or the window has not
@@ -6171,8 +6201,26 @@ window.__ModuleLoader__.load({
 				? props.workspaceSnapshot
 				: liveWorkspaceSnapshot;
 			// 先过滤再分组：A 有阁臣 / B 非空白 / C 非子会话非归档 / D 30 天内有更新。
-			const choices = cabinetSessionFilters(cabinetSessionChoices(list), workspaceSnapshot, Date.now());
-			const sessionGroups = cabinetSessionGroups(choices, workspaceSnapshot, tt('conversation.all'));
+			// 会话列表签名：ids + 每条的更新时间/标题/空白标记 + 阁臣数 + 归档集合。
+			// 签名不变时不再重算 choices 与分组（235 个会话的分组在每帧重算过）。
+			// 注意 Date.now() 因此被固定在整个签名周期内：30 天边界不随秒推移变化，
+			// 页面重新挂载或列表变化时才会重新取当前时间。
+			const archivedSignature = workspaceSnapshot !== null && typeof workspaceSnapshot === 'object' && Array.isArray(workspaceSnapshot.archivedSessionIds)
+				? workspaceSnapshot.archivedSessionIds.join(',')
+				: '';
+			const sessionListSignature = (function () {
+				if (list === null || typeof list !== 'object') return '';
+				const byId = list.byId !== null && typeof list.byId === 'object' ? list.byId : {};
+				const projections = list.projectionsBySession !== null && typeof list.projectionsBySession === 'object' ? list.projectionsBySession : {};
+				return (Array.isArray(list.ids) ? list.ids : Object.keys(byId)).map((id) => {
+					const row = byId[id] !== null && typeof byId[id] === 'object' ? byId[id] : {};
+					const team = projections[id] && projections[id].values ? projections[id].values.agentTeam : undefined;
+					const roster = team !== null && team !== undefined && Array.isArray(team.members) ? team.members : [];
+					return id + ':' + String(row.updatedAt) + ':' + String(row.title) + ':' + (row.blank === true ? '1' : '0') + ':' + roster.length + ':' + String(row.parentSessionId === undefined ? '' : row.parentSessionId) + ':' + String(row.origin === undefined ? '' : row.origin);
+				}).join('|');
+			}());
+			const choices = React.useMemo(() => cabinetSessionFilters(cabinetSessionChoices(list), workspaceSnapshot, Date.now()), [sessionListSignature, archivedSignature]);
+			const sessionGroups = React.useMemo(() => cabinetSessionGroups(choices, workspaceSnapshot, tt('conversation.all')), [choices, archivedSignature]);
 			// 默认选中必须在归档过滤之后算：最近更新的会话若已归档，它不在任何组里，
 			// 选中它只会得到空右栏；这里只在「可见会话」里挑。
 			const visibleChoices = sessionGroups.flatMap((group) => group.sessions);
