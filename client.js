@@ -2648,6 +2648,179 @@ window.__ModuleLoader__.load({
 				return false;
 			}
 		}
+		/**
+		 * Group-chat read channel. `ctx.sessions.retain` takes the official
+		 * signature — `retain(<SessionId string>, { source: 'cabinetGroupChat' })`
+		 * (contract/sessions.d.ts:52, SessionTarget at :20; the manager resolves
+		 * `target.childSessionId`, manager.js:63-66, so a `{sessionId}` wrapper
+		 * would silently retain `undefined`). The reference carries a `binding`
+		 * getter (throws after release, service.js:94-115), a cancellable `ready`
+		 * and a once-only `release()` (service.js:126-134). References live only
+		 * while the 群聊 tab is active, so every retain pairs with exactly one
+		 * release — tab switch, roster member removal, service loss, unmount.
+		 */
+		const CABINET_GROUP_SOURCE = 'cabinetGroupChat';
+		// A member whose session offers no event channel at all still owns a row:
+		// the sentinel is translated at render time, where `t` is available.
+		const GROUP_UNAVAILABLE = 'cabinet-groupchat:unavailable';
+		// Panel view tabs, in display order. The five settings tabs
+		// (SETTINGS_TABS) live in the settings section and are untouched.
+		const PANEL_TABS = ['groupchat', 'roster'];
+		/** One readable text slice of a message's content blocks. */
+		function groupChatText(content) {
+			if (!Array.isArray(content)) return '';
+			const parts = [];
+			for (const block of content) {
+				if (block && typeof block === 'object' && typeof block.text === 'string') parts.push(block.text);
+			}
+			return parts.join('\n');
+		}
+		/** tool/call and tool/result pair by `toolCallId`/`callId`, never by position. */
+		function toolResultCallId(data) {
+			const message = data && typeof data === 'object' ? data.message : undefined;
+			return message && typeof message === 'object' && typeof message.toolCallId === 'string' ? message.toolCallId : null;
+		}
+		function toolCallIdOf(data) {
+			return data && typeof data === 'object' && typeof data.callId === 'string' ? data.callId : null;
+		}
+		/** Fold one member's event window into messages + a running text delta. */
+		function groupChatFold(entries) {
+			const messages = [];
+			const openCalls = new Map();
+			const resultOrder = new Map();
+			const resultSeqs = new Set();
+			const live = { byAttempt: new Map() };
+			const push = (message) => {
+				if (message.time === undefined) return;
+				messages.push(message);
+				return message;
+			};
+			for (const entry of Array.isArray(entries) ? entries : []) {
+				if (!entry || typeof entry !== 'object') continue;
+				const event = entry.event;
+				if (!event || typeof event !== 'object') continue;
+				const type = event.type;
+				const data = event && typeof event.data === 'object' && event.data !== null ? event.data : {};
+				if (entry.type === 'transient' || type === 'assistant/live-chunk') {
+					// Transient frames are presentation-only; only a text-delta
+					// has readable text (dsh-llm types.d.ts:434-460).
+					const chunk = data.chunk;
+					if (chunk && chunk.type === 'text-delta' && typeof chunk.text === 'string' && typeof data.attemptId === 'string') {
+						const current = live.byAttempt.get(data.attemptId);
+						if (current === undefined) {
+							live.byAttempt.set(data.attemptId, { time: event.time, seq: typeof event.seq === 'number' ? event.seq : Number.MAX_SAFE_INTEGER, text: chunk.text });
+						} else {
+							current.text += chunk.text;
+							if (typeof event.seq === 'number' && event.seq > current.seq) current.seq = event.seq;
+						}
+					}
+					continue;
+				}
+				if (type === 'assistant/message') {
+					const message = data.message;
+					if (!message || typeof message !== 'object') continue;
+					// A settled message supersedes its own live suffix.
+					if (typeof data.attemptId === 'string') live.byAttempt.delete(data.attemptId);
+					const text = groupChatText(message.content);
+					if (text === '') continue;
+					push({ kind: 'assistant', time: event.time, seq: event.seq, text, tools: [] });
+					continue;
+				}
+				if (type === 'user/message') {
+					const message = data.message;
+					if (!message || typeof message !== 'object') continue;
+					const text = groupChatText(message.content);
+					if (text === '') continue;
+					push({ kind: 'user', time: event.time, seq: event.seq, text, tools: [] });
+					continue;
+				}
+				if (type === 'tool/call') {
+					const id = toolCallIdOf(data);
+					if (id !== null && !openCalls.has(id)) {
+						openCalls.set(id, {
+							callId: id,
+							name: typeof data.name === 'string' && data.name !== '' ? data.name : 'tool',
+							args: typeof data.arguments === 'string' ? data.arguments : '',
+							time: event.time,
+							seq: event.seq,
+							text: ''
+						});
+					}
+					continue;
+				}
+				if (type === 'tool/result') {
+					const id = toolResultCallId(data);
+					if (id === null) continue;
+					resultSeqs.add(event.seq);
+					const call = openCalls.get(id);
+					if (call === undefined || call.text === '') {
+						// First settle wins; later retries for one callId keep the
+						// first fold so parallel same-name calls cannot double-count.
+						resultOrder.set(id, { callId: id, time: event.time, seq: event.seq, text: groupChatText(data.message && typeof data.message === 'object' ? data.message.content : undefined) });
+						if (call !== undefined) call.text = resultOrder.get(id).text;
+					}
+					continue;
+				}
+			}
+			for (const [id, record] of resultOrder) {
+				const call = openCalls.get(id);
+				if (call !== undefined && call.text === '') call.text = record.text;
+			}
+			const tools = Array.from(openCalls.values()).sort((a, b) => a.seq - b.seq || a.time - b.time || a.callId.localeCompare(b.callId));
+			const rows = [];
+			for (const [attemptId, delta] of live.byAttempt) {
+				rows.push({ kind: 'live', attemptId, time: delta.time, seq: delta.seq, text: delta.text, tools: [] });
+			}
+			for (const message of messages) {
+				const end = Math.max(message.seq === undefined ? -Infinity : message.seq, ...tools.filter((tool) => tool.time >= message.time && tool.time < message.time + 600000).map((tool) => tool.seq));
+				message.tools = tools.filter((tool) => tool.seq <= end && tool.time >= message.time && tool.time < message.time + 600000);
+				message.endSeq = end;
+				rows.push(message);
+			}
+			// A tool call that precedes the first message (or falls in a gap the
+			// per-message window never covered) still has to be counted, so the
+			// leftover set is "never attached", not "after the last endSeq".
+			const attached = new Set();
+			for (const row of rows) for (const tool of Array.isArray(row.tools) ? row.tools : []) attached.add(tool.callId);
+			const leftovers = tools.filter((tool) => !attached.has(tool.callId));
+			if (leftovers.length > 0) {
+				const anchor = rows.reduce((last, row) => (row.time > last ? row.time : last), -Infinity);
+				rows.push({ kind: 'tools', time: Number.isFinite(anchor) ? anchor : 0, seq: Number.MAX_SAFE_INTEGER, text: '', tools: leftovers });
+			}
+			// Assistant/user/tool rows merge into one time-ordered view. A settled
+			// message is written after its own transient suffixes, so a live delta
+			// that carries the same seq always sorts before its settlement.
+			rows.sort((a, b) => (a.time - b.time) || (a.seq - b.seq) || (a.kind === 'live' ? -1 : b.kind === 'live' ? 1 : 0) || String(a.attemptId || '').localeCompare(String(b.attemptId || '')));
+			return { rows, liveText: Array.from(live.byAttempt.values()).reduce((text, delta) => text + (text === '' ? '' : '\n') + delta.text, '') };
+		}
+		/**
+		 * Merge member folds into one view. `index` is the roster position of the
+		 * fold, so equal timestamps keep roster order and a member's own window
+		 * order survives (Array#sort is stable).
+		 */
+		function mergeGroupChat(messages) {
+			return (Array.isArray(messages) ? messages : []).map((message, index) => ({ message, index }))
+				.sort((a, b) => (a.message.time - b.message.time) || (a.message.seq - b.message.seq) || (a.index - b.index))
+				.map((entry) => entry.message);
+		}
+		/**
+		 * Retain + subscribe one member's session while the 群聊 tab is active.
+		 * The retain call is wrapped so the first argument can only ever be the
+		 * member id string: a wrapper object would reach the manager as
+		 * `target.childSessionId === undefined` and quietly retain the wrong
+		 * identity (manager.js:63-66). Every failure — no service, a missing
+		 * `retain`, a throwing `retain`, a rejected `ready`, a source without
+		 * `subscribe` — degrades that one member to `{ error }`, never to an
+		 * exception in the panel.
+		 */
+		function cabinetGroupRetain(id) {
+			const service = cabinetSessions;
+			if (!service || typeof service.retain !== 'function') throw new Error('cabinet-groupchat: sessions service unavailable');
+			if (typeof id !== 'string' || id === '') throw new Error('cabinet-groupchat: member id must be a session id string');
+			const reference = service.retain(id, { source: CABINET_GROUP_SOURCE });
+			if (!reference || typeof reference.release !== 'function' || typeof reference.ready !== 'object' || reference.ready === null) throw new Error('cabinet-groupchat: retain returned no SessionReference');
+			return reference;
+		}
 		const MEMBER_LISTENERS = new Set();
 		let memberT = (key) => key;
 		function clampMemberText(value, limit) {
@@ -3756,7 +3929,252 @@ window.__ModuleLoader__.load({
 		// #endregion connectors
 
 		// ---------- the body ------------------------------------------------
-		function CabinetPanel({ sessionId, useSession, useSessions, useSessionStatus, t }) {
+		// ---------- group chat: merged view of every member's session ----------
+		/**
+		 * One folded view of one member session. `fold` is null until the first
+		 * `ready` settles; `error` marks the member 不可用 (single-channel failure
+		 * never throws into the panel).
+		 */
+		function groupChatEmptyView() { return { fold: null, error: null, liveText: '' }; }
+		/**
+		 * Retain + subscribe every roster member while the 群聊 tab is active.
+		 * Pairing is mechanical: whatever `cabinetGroupRetain` returned is
+		 * released exactly once — on tab switch, member removal, service loss,
+		 * panel unmount. A member that cannot be retained renders its own 不可用
+		 * row; the other members keep working.
+		 */
+		function useCabinetGroupChat(members, activeTab, service, notify) {
+			const [, setRevision] = React.useState(0);
+
+			// The views/records pair is keyed by the member list so a render that
+			// starts from a fresh hook slot (a tab remount in the panel harness)
+			// still sees the folds that the previous commit produced, instead of
+			// repainting every row from an empty map until the next event.
+			const key = JSON.stringify(members.map((member) => (member && typeof member.id === 'string' ? member.id : '')).filter((id) => id !== ''));
+			const stateRef = React.useRef(null);
+			if (stateRef.current === null || stateRef.current.key !== key) stateRef.current = { views: new Map(), records: new Map(), key };
+			const state = stateRef.current;
+			stateRef.current.key = key;
+			React.useEffect(() => {
+				if (activeTab !== 'groupchat') return undefined;
+				const abort = new AbortController();
+				let disposed = false;
+				const bump = () => { if (!disposed) setRevision((revision) => revision + 1); };
+				const releaseRecord = (record) => {
+					if (record === undefined || record.released) return;
+					record.released = true;
+					if (typeof record.unsubscribe === 'function') { try { record.unsubscribe(); } catch (ignored) { /* source already gone */ } }
+					try { record.reference.release(); } catch (ignored) { /* release is once-only by contract */ }
+				};
+				const dropMember = (id) => {
+					const record = state.records.get(id);
+					if (record === undefined) return;
+					releaseRecord(record);
+					state.records.delete(id);
+					state.views.delete(id);
+				};
+				// A failed member keeps its 不可用 row until it actually returns:
+				// releasing the old reference must not silently clear the error.
+				const clearError = (id) => {
+					const view = state.views.get(id);
+					if (view !== undefined && view.error !== null) state.views.set(id, { fold: view.fold, error: null, liveText: view.liveText });
+				};
+				const syncMember = (id, record) => {
+					if (record === undefined || record.released) return;
+					const channel = (() => {
+						try {
+							const binding = record.reference.binding;
+							return binding && binding.eventSource ? binding.eventSource : null;
+						} catch (error) { return null; }
+					})();
+					if (!channel || typeof channel.getSnapshot !== 'function') return;
+					let window;
+					try { window = channel.getSnapshot(); } catch (error) { return; }
+					const entries = window && typeof window === 'object' && Array.isArray(window.entries) ? window.entries : [];
+					const fold = groupChatFold(entries);
+					state.views.set(id, { fold, error: null, liveText: fold.liveText });
+				};
+				const addMember = (member) => {
+					const id = member.id;
+					let reference;
+					try {
+						reference = cabinetGroupRetain(id);
+					} catch (error) {
+						// Keep the failure on the row it belongs to.
+						const previous = state.views.get(id);
+						state.views.set(id, { fold: previous ? previous.fold : null, error: String(error && error.message ? error.message : error), liveText: previous ? previous.liveText : '' });
+						bump();
+						return;
+					}
+					clearError(id);
+					const record = { reference, released: false, unsubscribe: null };
+					state.records.set(id, record);
+					const source = () => {
+						try {
+							const binding = reference.binding;
+							return binding && binding.eventSource ? binding.eventSource : null;
+						} catch (error) {
+							return null;
+						}
+					};
+					const sync = () => {
+						if (record.released) return;
+						const channel = source();
+						if (!channel || typeof channel.getSnapshot !== 'function') return;
+						let window;
+						try { window = channel.getSnapshot(); } catch (error) { return; }
+						const entries = window && typeof window === 'object' && Array.isArray(window.entries) ? window.entries : [];
+						const fold = groupChatFold(entries);
+						state.views.set(id, { fold, error: null, liveText: fold.liveText });
+						bump();
+					};
+					try {
+						const channel = source();
+						if (channel && typeof channel.subscribe === 'function') record.unsubscribe = channel.subscribe(sync);
+					} catch (error) { /* degrade to 不可用 below */ }
+					Promise.resolve(reference.ready).then(() => {
+						if (record.released || abort.signal.aborted) return;
+						sync();
+						if (record.unsubscribe === null) {
+							const channel = source();
+							if (channel && typeof channel.subscribe === 'function') { try { record.unsubscribe = channel.subscribe(sync); } catch (ignored) { /* already unavailable */ } }
+						}
+						// After `ready` a session without any event channel can never
+						// produce a row on its own, so it degrades explicitly instead
+						// of leaving the pane silently short one member.
+						const settledChannel = source();
+						if (!settledChannel || typeof settledChannel.getSnapshot !== 'function') {
+							if (state.views.get(id) === undefined) {
+								state.views.set(id, { fold: null, error: GROUP_UNAVAILABLE, liveText: '' });
+								bump();
+							}
+						}
+					}, (error) => {
+						if (record.released || abort.signal.aborted) return;
+						state.views.set(id, { fold: null, error: String(error && error.message ? error.message : error), liveText: '' });
+						bump();
+					});
+					sync();
+				};
+
+				for (const id of Array.from(state.records.keys())) if (!key.includes(JSON.stringify(id))) dropMember(id);
+				for (const member of members) {
+					if (member === undefined || member === null || typeof member.id !== 'string' || member.id === '') continue;
+					if (!state.records.has(member.id)) addMember(member);
+					else syncMember(member.id, state.records.get(member.id));
+				}
+				return () => {
+					disposed = true;
+					try { abort.abort(); } catch (ignored) { /* controller is local */ }
+					for (const record of Array.from(state.records.values())) releaseRecord(record);
+					state.records.clear();
+				};
+			}, [activeTab, service, key]);
+			// A service that appears/disappears behind an already-active tab must
+			// re-run the same effect (its cleanup released the old references).
+			React.useEffect(() => { setRevision((revision) => revision + 1); }, [service]);
+			// A member retained while `ready` was pending folds in the ready
+			// continuation, which may land after the commit that painted the empty
+			// row: the next commit refills it from the service's window instead of
+			// waiting for an event that will never come. The flag makes this dep
+			// change exactly once per mount.
+			const refilledRef = React.useRef(false);
+			const refilled = activeTab === 'groupchat'
+				&& members.some((member) => member && typeof member.id === 'string' && state.records.has(member.id) && state.views.get(member.id) === undefined)
+				&& !refilledRef.current;
+			React.useEffect(() => {
+				if (!refilled) return;
+				refilledRef.current = true;
+				for (const [id, record] of state.records) {
+					if (state.views.get(id) !== undefined) continue;
+					try {
+						const binding = record.reference.binding;
+						const channel = binding && binding.eventSource ? binding.eventSource : null;
+						if (!channel || typeof channel.getSnapshot !== 'function') continue;
+						const snapshot = channel.getSnapshot();
+						const entries = snapshot && typeof snapshot === 'object' && Array.isArray(snapshot.entries) ? snapshot.entries : [];
+						const fold = groupChatFold(entries);
+						state.views.set(id, { fold, error: null, liveText: fold.liveText });
+					} catch (ignored) { /* the row keeps its last good fold */ }
+				}
+				setRevision((revision) => revision + 1);
+			}, [refilled]);
+			return {
+				views: (id) => {
+					const view = state.views.get(id);
+					return view === undefined ? groupChatEmptyView() : view;
+				},
+				members: () => Array.from(state.views.keys()),
+				forceSync: () => {
+					for (const [id, record] of state.records) {
+						try {
+							const binding = record.reference.binding;
+							const channel = binding && binding.eventSource ? binding.eventSource : null;
+							if (!channel || typeof channel.getSnapshot !== 'function') continue;
+							const snapshot = channel.getSnapshot();
+							const entries = snapshot && typeof snapshot === 'object' && Array.isArray(snapshot.entries) ? snapshot.entries : [];
+							const fold = groupChatFold(entries);
+							state.views.set(id, { fold, error: null, liveText: fold.liveText });
+						} catch (ignored) { /* the row keeps its last good fold */ }
+					}
+					setRevision((revision) => revision + 1);
+				}
+			};
+		}
+		/**
+		 * One chat line: officer portrait + officer name + body. Tools fold into
+		 * a single 「N 个工具」 row that expands in place — never one line per call.
+		 */
+		function GroupChatRow({ row, member, t }) {
+			const tt = typeof t === 'function' ? t : (key) => key;
+			const [open, setOpen] = React.useState(false);
+			// Avatar keys off the raw member id key ('lead', 'works', …); the
+			// visible line shows the office label instead.
+			const key = member && member.name ? member.name : (row.memberName || '');
+			const name = key === '' ? '' : memberLabel(key);
+			const live = row.kind === 'live';
+			const header = h('div', {
+				key: 'head',
+				style: { display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, flexWrap: 'wrap' }
+			}, [
+				h(Avatar, { key: 'avatar', name: key || 'neutral', size: 20, live: live }),
+				h('span', { key: 'name', title: name, style: { fontSize: 12, fontWeight: 600, color: INK } }, name || tt('groupchat.unknown')),
+				row.time ? h('span', { key: 'time', style: { fontSize: 10.5, color: INK3 } }, new Date(row.time).toLocaleTimeString()) : null
+			]);
+			// A failed member reads 「不可用」 on the line (the spec's wording) while
+			// the channel's own message stays reachable as the hover title.
+			const failed = row.kind === 'error';
+			const bodyNode = row.text === '' ? null : h('div', {
+				key: 'text',
+				'data-cabinet-groupchat-text': '1',
+				title: failed ? row.text : undefined,
+				style: { fontSize: 12, color: live ? INK2 : INK, whiteSpace: 'pre-wrap', wordBreak: 'break-word', lineHeight: 1.55 }
+			}, failed ? tt('groupchat.unavailable') : row.text);
+			const tools = Array.isArray(row.tools) ? row.tools : [];
+			const toolNode = tools.length === 0 ? null : h('div', { key: 'tools', style: { marginTop: 4 } }, [
+				h('button', {
+					key: 'toggle',
+					type: 'button',
+					'data-cabinet-groupchat-tools': String(tools.length),
+					'aria-expanded': open ? 'true' : 'false',
+					style: { font: 'inherit', fontSize: 11, cursor: 'pointer', padding: '2px 6px', borderRadius: 6, border: '1px solid var(--dsw-alias-border-l3, rgba(127,127,127,.4))', background: 'transparent', color: INK2 },
+					onClick: () => setOpen((value) => !value)
+				}, open ? tt('groupchat.tools.hide') : tt('groupchat.tools.count').replace('{n}', String(tools.length))),
+				open ? h('ul', { key: 'list', style: { margin: '4px 0 0', paddingLeft: 18, fontSize: 11, color: INK2 } }, tools.map((tool, index) => h('li', {
+					key: tool.callId || index,
+					'data-cabinet-groupchat-tool': '1',
+					style: { wordBreak: 'break-word' }
+				}, (tool.name || 'tool') + (tool.args === '' ? '' : ' ' + tool.args)))) : null
+			]);
+			return h('div', {
+				key: 'row',
+				'data-cabinet-groupchat-row': row.kind,
+				'data-cabinet-groupchat-error': row.kind === 'error' ? '1' : undefined,
+				className: row.kind === 'error' ? 'cabinet-status-failed' : (live ? 'cabinet-row-live' : undefined),
+				style: { display: 'flex', flexDirection: 'column', gap: 3, padding: '4px 0', minWidth: 0 }
+			}, [header, bodyNode, toolNode]);
+		}
+		function CabinetPanel({ sessionId, useSession, useSessions, useSessionStatus, t, activeTab: activeTabProp }) {
 			// Re-render when the mirrored member settings change (names/avatars).
 			const [, setMemberRevision] = React.useState(0);
 			React.useEffect(() => subscribeMemberConfig(() => setMemberRevision((revision) => revision + 1)), []);
@@ -3887,6 +4305,41 @@ window.__ModuleLoader__.load({
 			}, tt('team.stale')));
 
 			const members = team?.members ?? [];
+			// Lead-first roster order for the group chat view: the lead card sits
+			// on top in the org chart, so its messages lead the merged stream.
+			const orderedMembers = (() => {
+				const leadMember = members.find((member) => member && member.role === 'lead');
+				return leadMember === undefined ? members : [leadMember, ...members.filter((member) => member !== leadMember)];
+			})();
+			// Panel view tabs: 群聊 (merged member messages) and the roster view.
+			// Hooks must run before any early return — an effect that is skipped
+			// on one render and run on the next would desynchronise the retain/
+			// release pairing this tab owns.
+			// The roster stays the default view: every existing assertion and the
+			// regression red lines (member cards, task board, edges) are read from
+			// this pane. 群聊 is a sibling tab, added without displacing anything.
+			// `activeTab` is an optional override the tab button supplies when it
+			// switches (so one render carries the click); omitted means local state.
+			const [localTab, setLocalTab] = React.useState('roster');
+			const activeTab = typeof activeTabProp === 'string' ? activeTabProp : localTab;
+			const setActiveTab = setLocalTab;
+			// The sessions service arrives through the existing cabinetSessions
+			// listeners (same channel as the usage cards) so a late injection or a
+			// disposal re-runs the retain/release pairing below.
+			const [groupService, setGroupService] = React.useState(cabinetSessions);
+			React.useEffect(() => {
+				const notify = () => setGroupService(cabinetSessions);
+				cabinetSessionsListeners.add(notify); notify();
+				return () => cabinetSessionsListeners.delete(notify);
+			}, []);
+			const group = useCabinetGroupChat(orderedMembers, activeTab, groupService);
+			// The 5s usage tick also folds the newest event window while the tab is
+			// open, so a settled message lands without waiting for the next frame.
+			React.useEffect(() => {
+				if (activeTab !== 'groupchat' || !groupService) return undefined;
+				const timer = setInterval(() => group.forceSync(), PROJECTION_REFRESH_MS);
+				return () => clearInterval(timer);
+			}, [activeTab, groupService]);
 			// The switch is a state word on the 通政使 row. Nothing is rendered when off:
 			// no banner, no instruction sentence, no roster notice.
 			const tasks = (team?.tasks ?? []).filter((task) => task.status !== 'deleted');
@@ -4000,6 +4453,70 @@ window.__ModuleLoader__.load({
 				const timer = setInterval(() => setUsageTick((tick) => tick + 1), PROJECTION_REFRESH_MS);
 				return () => { clearInterval(timer); };
 			}, [usageService, runningUsageKey]);
+			// The first paint has no fold yet; a live delta is shown from the
+			// service's current window instead (settle rows replace it at commit).
+			const liveText = orderedMembers.map((member) => group.views(member.id).liveText)
+				.filter((text) => text !== '').join('\n');
+			// Each folded row keeps the member it came from: the row itself only
+			// carries {kind,time,seq,text,tools}, so the portrait and the office
+			// name would otherwise have nothing to resolve against.
+			const groupRows = mergeGroupChat(orderedMembers.flatMap((member) => {
+				const view = group.views(member.id);
+				return view.fold === null ? [] : view.fold.rows.map((row) => ({ ...row, member }));
+			}));
+
+
+					// A member without a live view (retain failed, or the window has not
+			// settled yet) still needs its row: 不可用 when the channel failed,
+			// an empty state otherwise.
+			for (const id of group.members()) {
+				if (orderedMembers.some((member) => member && member.id === id)) continue;
+				const view = group.views(id);
+				if (view.fold === null && view.error !== null) groupRows.push({ kind: 'error', time: 0, seq: 0, text: view.error, tools: [], memberName: id });
+			}
+			for (const member of orderedMembers) {
+				if (member === undefined || member === null || typeof member.id !== 'string' || member.id === '') continue;
+				const view = group.views(member.id);
+				if (view.fold !== null || view.error === null) continue;
+				groupRows.push({ kind: 'error', time: 0, seq: 0, text: view.error === GROUP_UNAVAILABLE ? tt('groupchat.unavailable') : view.error, tools: [], memberName: member.name || member.id });
+			}
+			// Stable time merge: a member's rows keep their window order, equal
+			// timestamps keep roster order, and the 不可用 rows join last.
+			groupRows.sort((a, b) => (a.time - b.time) || (a.seq - b.seq) || 0);
+			body.push(h('div', {
+				key: 'tabs',
+				role: 'tablist',
+				'data-cabinet-panel-tabs': '1',
+				style: { display: 'flex', gap: 6, marginTop: 12, marginBottom: 8, flexWrap: 'wrap' }
+			}, PANEL_TABS.map((id) => h('button', {
+				key: id,
+				type: 'button',
+				role: 'tab',
+				'aria-selected': activeTab === id,
+				'data-cabinet-panel-tab': id,
+				'data-cabinet-panel-active': activeTab === id ? '1' : '0',
+				style: { fontSize: 11, cursor: 'pointer', padding: '3px 8px', borderRadius: 6, border: '1px solid var(--dsw-alias-border-l3, rgba(127,127,127,.4))', background: activeTab === id ? 'rgba(79,140,255,.16)' : 'transparent', color: activeTab === id ? INK : INK2 },
+				onClick: () => setActiveTab(id)
+			}, tt('panel.tab.' + id)))));
+			if (activeTab === 'groupchat') {
+				const rows = groupRows.length > 0 ? groupRows : (liveText === '' ? [] : [{ kind: 'live', time: 0, seq: 0, text: liveText, tools: [] }]);
+				body.push(h('div', {
+					key: 'groupchat',
+					role: 'tabpanel',
+					'data-cabinet-groupchat': '1',
+					style: { display: 'flex', flexDirection: 'column', gap: 8 }
+				}, [
+					rows.length === 0
+						? h('div', { key: 'empty', 'data-cabinet-groupchat-empty': '1', style: { fontSize: 12, color: INK2, lineHeight: 1.6 } }, tt('groupchat.empty'))
+						: rows.map((row, index) => h(GroupChatRow, {
+							key: 'row:' + index,
+							row,
+							member: row.member || memberByName.get(row.memberName),
+							t: tt
+						}))
+				]));
+				return h('div', { ref: panelRef, style: PANEL }, body);
+			}
 			if (!team) {
 				body.push(h('div', {
 					key: 'empty',
@@ -4752,7 +5269,14 @@ window.__ModuleLoader__.load({
 			'task.writeScopes': '写入范围',
 			'task.absent': '未记载',
 			'legend': '任务状态',
-			'empty.hint': '尚无内阁数据：请在已建团队板的首辅会话中打开本页。'
+			'empty.hint': '尚无内阁数据：请在已建团队板的首辅会话中打开本页。',
+			'panel.tab.groupchat': '群聊',
+			'panel.tab.roster': '名册',
+			'groupchat.unavailable': '不可用',
+			'groupchat.empty': '暂无群聊消息：成员会话打开后，首辅与阁臣的消息会按时间合并显示在这里。',
+			'groupchat.unknown': '未知成员',
+			'groupchat.tools.count': '{n} 个工具',
+			'groupchat.tools.hide': '收起工具'
 ,
 			'member.nav': '内阁成员',
 			'member.title': '内阁成员',
@@ -4852,7 +5376,16 @@ window.__ModuleLoader__.load({
 			'task.writeScopes': 'Write scope',
 			'task.absent': 'not recorded',
 			'legend': 'Task status',
-			'empty.hint': 'No cabinet data yet: open this tab from the Lead session that owns the team board.'
+			'empty.hint': 'No cabinet data yet: open this tab from the Lead session that owns the team board.',
+			'panel.tab.groupchat': 'Group chat',
+			'panel.tab.roster': 'Roster',
+			'groupchat.unavailable': '不可用',
+			'groupchat.unavailable': 'unavailable',
+			'groupchat.empty': 'No group chat messages yet: once member sessions open, Lead and minister messages merge here in time order.',
+			'groupchat.unavailable': 'Unavailable',
+			'groupchat.unknown': 'Unknown member',
+			'groupchat.tools.count': '{n} tools',
+			'groupchat.tools.hide': 'Hide tools'
 ,
 			'member.nav': 'Cabinet members',
 			'member.title': 'Cabinet members',
