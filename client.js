@@ -5913,6 +5913,11 @@ window.__ModuleLoader__.load({
 				title,
 				running: row.running === true,
 				updatedAt: typeof row.updatedAt === 'number' ? row.updatedAt : (typeof row.lastMessageAt === 'number' ? row.lastMessageAt : 0),
+				// 空白会话标记：SessionSummary.blank（dsh-api-session-controller
+				// types/types.d.ts:161-176，「folded prefix contains no turn」），
+				// 即「没发过消息、没有一轮对话」。SessionSummary 上没有 messageCount /
+				// lastPromptAt（后者只在 SessionListMetadata 上），所以空白判定用它。
+				blank: row.blank === true,
 				hasTeam: values !== undefined && values !== null && values.agentTeam !== undefined,
 				// 「有阁臣」比「有投影」严格，比「members.length > 0」也严格：
 				// **lead 自身就在 members 里**，只判 length 会让任何带 agentTeam 的
@@ -5943,6 +5948,38 @@ window.__ModuleLoader__.load({
 			}
 			return choices;
 		}
+		/**
+		 * 左列只保留最近 N 天内有更新的会话。
+		 * 用户要求「跨工作区的旧会话不该混进来」：分组仍跨 workspace 保留，
+		 * 但太久没动的掐掉。要调整阈值只改这一个常量。
+		 */
+		const CABINET_SESSION_MAX_AGE_DAYS = 30;
+
+		/**
+		 * 左列的准入过滤（四条件同时成立才进列表）：
+		 *  A 有阁臣参与：choice.hasMembers（lead 之外的成员，见 cabinetSessionChoiceRow）；
+		 *  B 有实际消息：非空白会话（SessionSummary.blank === false）；
+		 *  C 非子会话、非已归档：子会话已在 cabinetSessionChoiceRow 里排除，
+		 *    归档集合来自 WorkspaceSnapshot.archivedSessionIds；
+		 *  D 足够新：updatedAt（缺失时回退 lastMessageAt）在
+		 *    CABINET_SESSION_MAX_AGE_DAYS 天内。
+		 * `now` 显式传入便于测试；缺省取当前时间。
+		 * 过滤后为空的组由 cabinetSessionGroups 跳过（既有规则）。
+		 */
+		function cabinetSessionFilters(choices, workspaceSnapshot, now) {
+			const list = Array.isArray(choices) ? choices : [];
+			const archived = workspaceSnapshot !== null && typeof workspaceSnapshot === 'object' && Array.isArray(workspaceSnapshot.archivedSessionIds)
+				? new Set(workspaceSnapshot.archivedSessionIds)
+				: new Set();
+			const current = typeof now === 'number' && Number.isFinite(now) ? now : Date.now();
+			const horizon = current - CABINET_SESSION_MAX_AGE_DAYS * 24 * 60 * 60 * 1000;
+			return list.filter((choice) => choice !== null && typeof choice === 'object'
+				&& choice.hasMembers === true
+				&& choice.blank !== true
+				&& !archived.has(choice.id)
+				&& (typeof choice.updatedAt === 'number' ? choice.updatedAt : 0) >= horizon);
+		}
+
 		/**
 		 * 左列分组：按 Workspace 分组，与宿主原生左侧栏同一口径。
 		 * 数据源与契约（已核）：
@@ -6048,7 +6085,7 @@ window.__ModuleLoader__.load({
 			const readStatus = safeHook(props?.useSessionStatus, identityHook);
 			const list = readSessions((state) => state);
 			readStatus((state) => state);
-			const choices = cabinetSessionChoices(list);
+
 			const [chosen, setChosen] = React.useState('');
 			// 左列视图：会话列表 或 成员设置（设置只占左列，绝不与聊天区争主区位）。
 			const [leftMode, setLeftMode] = React.useState('list');
@@ -6082,12 +6119,14 @@ window.__ModuleLoader__.load({
 				if (recorded !== undefined) return recorded === true;
 				return true;
 			};
+			// 分组：每个 workspace 一组（组顺序 = 宿主 items 顺序），组内 updatedAt 倒序，
+			// 无归属进兜底组；归档会话已在 cabinetSessionGroups 里被过滤掉。
 			// 显式传入的快照优先（宿主可直接喂，测试也可）：不改变注入通道。
 			const workspaceSnapshot = props !== null && typeof props === 'object' && props.workspaceSnapshot !== undefined
 				? props.workspaceSnapshot
 				: liveWorkspaceSnapshot;
-			// 分组：每个 workspace 一组（组顺序 = 宿主 items 顺序），组内 updatedAt 倒序，
-			// 无归属进兜底组；归档会话已在 cabinetSessionGroups 里被过滤掉。
+			// 先过滤再分组：A 有阁臣 / B 非空白 / C 非子会话非归档 / D 30 天内有更新。
+			const choices = cabinetSessionFilters(cabinetSessionChoices(list), workspaceSnapshot, Date.now());
 			const sessionGroups = cabinetSessionGroups(choices, workspaceSnapshot, tt('conversation.all'));
 			// 默认选中必须在归档过滤之后算：最近更新的会话若已归档，它不在任何组里，
 			// 选中它只会得到空右栏；这里只在「可见会话」里挑。
@@ -6200,7 +6239,11 @@ window.__ModuleLoader__.load({
 				key: 'conversations',
 				'data-cabinet-conversations': '1',
 				style: { display: 'flex', flexDirection: 'column', gap: 2, padding: '8px 0' }
-			}, sessionGroups.map((group) => {
+			}, sessionGroups.length === 0 ? h('div', {
+				key: 'no-conversation',
+				'data-cabinet-conversations-empty': '1',
+				style: { padding: '10px 8px', fontSize: 11.5, color: INK3, lineHeight: 1.6 }
+			}, tt('conversation.emptyFiltered')) : sessionGroups.map((group) => {
 				const collapsed = collapsedOf(group);
 				const items = conversations.filter((entry) => entry.groupKey === group.key && (group.key !== '' || entry.ungrouped === true));
 				return h('div', {
@@ -6608,6 +6651,7 @@ window.__ModuleLoader__.load({
 			'conversation.all': '未分组',
 			'conversation.sessions': 'DSH 会话',
 			'conversation.team': '内阁群聊',
+			'conversation.emptyFiltered': '当前没有可展示的内阁会话（需有阁臣参与、近期活跃且未归档）。',
 			'conversation.openUnavailable': '当前宿主没有可用的会话打开通道（uiWorkspace.openSession），无法跳转原生会话视图。',
 			'groupchat.pending': '该成员会话等待中…',
 			'conversation.settings': '成员设置',
@@ -6755,6 +6799,7 @@ window.__ModuleLoader__.load({
 			'conversation.all': 'Ungrouped',
 			'conversation.sessions': 'DSH sessions',
 			'conversation.team': 'Cabinet group',
+			'conversation.emptyFiltered': 'No cabinet conversation to show (needs ministers, recent activity and no archive).',
 			'conversation.openUnavailable': 'This host exposes no session opener (uiWorkspace.openSession), so the native session view cannot be opened.',
 			'groupchat.pending': 'This member session is still loading…',
 			'conversation.settings': 'Member settings',

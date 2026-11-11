@@ -65,7 +65,13 @@ React.useRef = (initial) => {
 };
 
 
-const exportList = 'return { inject, apply, avatarFor, displayName, chatBubbleName, chatBubbleNames, bureauOf, CabinetPanel, MemberCard, TaskLine, TaskEdgeLayer, buildTaskEdges, taskEdgesEqual, zh, en, BUREAUX, AVATARS, setMemberConfig, memberLabel, configuredAvatar, configuredPrompt, factoryPromptFor, DEFAULT_MEMBER_PROMPTS, DEFAULT_LEAD_PROMPT, CabinetMemberSettings, MemoryPluginCard, memoryPluginInstalledOf, SETTINGS_TABS, formatTokenCount, formatElapsed, tokenTotalOf, usageFor, planProjectionRequests, teamUsageOf, groupChatFold, markdownBlocksOf, inlineMarkdownTokens, markdownLinkHref, modelOptionsOf, modelCatalogNotice, modelSelectionOf, cabinetSessionChoices, cabinetSessionGroups, defaultCabinetSession, CabinetMarkdown, CabinetPage, CabinetPanelIcon, GroupChatRow, STYLE_CSS, cabinetGroupMemberStates, mergeGroupChat, cabinetChatViewRows, chatStampNeeded, nearChatBottom, scrollChatToBottom, scrollFollowingTail, cabinetScopeRows, openCabinetSession };';
+// 左列有 30 天新鲜度过滤（CABINET_SESSION_MAX_AGE_DAYS）：页面 fixture 的
+// updatedAt 必须落在窗口内。统一用相对基准，保留原先的大小顺序。
+const PAGE_NOW = Date.now();
+// ageOf 保序：原值越大 ⇒ 时间越新，且所有映射结果都落在最近 ~12 天内
+// （小于 30 天窗口，不会触发新鲜度过滤），既有排序断言的语义不变。
+const ageOf = (value) => PAGE_NOW - (1000000 - value);
+const exportList = 'return { inject, apply, avatarFor, displayName, chatBubbleName, chatBubbleNames, bureauOf, CabinetPanel, MemberCard, TaskLine, TaskEdgeLayer, buildTaskEdges, taskEdgesEqual, zh, en, BUREAUX, AVATARS, setMemberConfig, memberLabel, configuredAvatar, configuredPrompt, factoryPromptFor, DEFAULT_MEMBER_PROMPTS, DEFAULT_LEAD_PROMPT, CabinetMemberSettings, MemoryPluginCard, memoryPluginInstalledOf, SETTINGS_TABS, formatTokenCount, formatElapsed, tokenTotalOf, usageFor, planProjectionRequests, teamUsageOf, groupChatFold, markdownBlocksOf, inlineMarkdownTokens, markdownLinkHref, modelOptionsOf, modelCatalogNotice, modelSelectionOf, cabinetSessionChoices, cabinetSessionFilters, cabinetSessionGroups, defaultCabinetSession, CabinetMarkdown, CabinetPage, CabinetPanelIcon, GroupChatRow, STYLE_CSS, cabinetGroupMemberStates, mergeGroupChat, cabinetChatViewRows, chatStampNeeded, nearChatBottom, scrollChatToBottom, scrollFollowingTail, cabinetScopeRows, openCabinetSession };';
 runInNewContext(source.replace(exportPoint, exportList), {
   setTimeout: (fn, ms) => setTimeout(fn, ms === 120000 ? 20 : ms), clearTimeout,
   Date: RealmDate,
@@ -2374,8 +2380,9 @@ console.log('PASS 内阁 Bot section removal: no section box, office rows, 现�
     const retainsBeforePage = retainCalls.length;
     const pageList = {
       ids: ['lead-session'],
-      byId: { 'lead-session': { title: '首辅会话', updatedAt: 9 } },
-      projectionsBySession: { 'lead-session': { values: { agentTeam: { members: [{ name: 'lead', role: 'lead', id: 'lead-session' }], tasks: [] } } } },
+      byId: { 'lead-session': { title: '首辅会话', updatedAt: ageOf(9) } },
+      // 左列准入要求「有 lead 之外的阁臣」，否则会话被 A 条件滤掉、页面无群聊可渲染。
+      projectionsBySession: { 'lead-session': { values: { agentTeam: { members: [{ name: 'lead', role: 'lead', id: 'lead-session' }, { name: 'works', role: 'mate', id: 'm-works' }], tasks: [] } } } },
     };
     const pageProps = { useSessions: (select) => select(pageList), useSessionStatus: (select) => select(new Map()), t: (key) => client.zh[key] || key };
     const pageRender = () => { resetHookCursor(); return elements(client.CabinetPage(pageProps)); };
@@ -2389,7 +2396,11 @@ console.log('PASS 内阁 Bot section removal: no section box, office rows, 现�
     assert.ok(sendButtonOf(pageSettled).length > 0, 'the page carries the send button');
     const pageRetains = retainCalls.slice(retainsBeforePage);
     assert.ok(pageRetains.length >= 1, 'mounting the page retains its session, got ' + JSON.stringify(pageRetains));
-    assert.ok(pageRetains.every((call) => call.target === 'lead-session' && call.options.source === 'cabinetGroupChat'), 'the page retains the selected SessionId under our source');
+    // 群聊会 retain 选中会话 + 每位阁臣（本轮 fixture 多了一个阁臣 m-works）：
+    // 断言来源一致、且目标只可能是这两个。
+    assert.ok(pageRetains.every((call) => call.options.source === 'cabinetGroupChat'), 'every retain goes through our source');
+    assert.ok(pageRetains.some((call) => call.target === 'lead-session'), 'the page retains the selected SessionId, got ' + JSON.stringify(pageRetains));
+    assert.ok(pageRetains.every((call) => call.target === 'lead-session' || call.target === 'm-works'), 'only the selected session and its ministers are retained, got ' + JSON.stringify(pageRetains));
     stopPage();
     assert.ok(releases.includes('lead-session'), 'unmounting the page releases the retained session, got ' + JSON.stringify(releases.slice(-3)));
     persistentRefs = null;
@@ -2515,11 +2526,16 @@ console.log('PASS 群聊 tab: the right pane keeps the roster only (no 群聊 ta
   const sessionList = {
     ids: ['s-old', 's-lead', 's-new'],
     byId: {
-      's-old': { title: '旧会话', updatedAt: 100 },
-      's-lead': { title: '首辅会话', updatedAt: 50 },
-      's-new': { title: '新会话', updatedAt: 300 },
+      's-old': { title: '旧会话', updatedAt: ageOf(100) },
+      's-lead': { title: '首辅会话', updatedAt: ageOf(50) },
+      // s-new 也要过「有阁臣」准入，否则下拉手选后会被过滤掉、选中值回退；
+      // 它的 updatedAt 故意比 s-lead 旧，默认选中仍是 s-lead（见下方断言）。
+      's-new': { title: '新会话', updatedAt: ageOf(40) },
     },
-    projectionsBySession: { 's-lead': { values: { agentTeam: { members: [{ name: 'lead', role: 'lead', id: 's-lead' }, { name: 'works', role: 'teammate', id: 's-mate' }], tasks: [] } } } },
+    projectionsBySession: {
+      's-lead': { values: { agentTeam: { members: [{ name: 'lead', role: 'lead', id: 's-lead' }, { name: 'works', role: 'teammate', id: 's-mate' }], tasks: [] } } },
+      's-new': { values: { agentTeam: { members: [{ name: 'lead', role: 'lead', id: 's-new' }, { name: 'works', role: 'teammate', id: 's-mate-2' }], tasks: [] } } },
+    },
   };
   const choices = client.cabinetSessionChoices(sessionList);
   assert.equal(JSON.stringify(choices.map((choice) => choice.id)), JSON.stringify(['s-old', 's-lead', 's-new']), 'the picker lists the sessions snapshot');
@@ -2609,12 +2625,18 @@ console.log('PASS 群聊 tab: the right pane keeps the roster only (no 群聊 ta
   const wsList = {
     ids: ['s-w1-old', 's-w1-new', 's-w2', 's-loose'],
     byId: {
-      's-w1-old': { title: '一区旧会话', updatedAt: 100 },
-      's-w1-new': { title: '一区新会话', updatedAt: 500 },
-      's-w2': { title: '二区会话', updatedAt: 300 },
-      's-loose': { title: '无归属会话', updatedAt: 900 },
+      's-w1-old': { title: '一区旧会话', updatedAt: ageOf(100) },
+      's-w1-new': { title: '一区新会话', updatedAt: ageOf(500) },
+      's-w2': { title: '二区会话', updatedAt: ageOf(300) },
+      's-loose': { title: '无归属会话', updatedAt: ageOf(900) },
     },
-    projectionsBySession: {},
+    // 每个会话都要有 lead 之外的阁臣，否则会被左列准入（A 条件）全部滤掉。
+    projectionsBySession: {
+      's-w1-old': { values: { agentTeam: { members: [{ name: 'lead', role: 'lead', id: 's-w1-old' }, { name: 'works', role: 'mate', id: 'm-w1' }], tasks: [] } } },
+      's-w1-new': { values: { agentTeam: { members: [{ name: 'lead', role: 'lead', id: 's-w1-new' }, { name: 'works', role: 'mate', id: 'm-w1' }], tasks: [] } } },
+      's-w2': { values: { agentTeam: { members: [{ name: 'lead', role: 'lead', id: 's-w2' }, { name: 'works', role: 'mate', id: 'm-w2' }], tasks: [] } } },
+      's-loose': { values: { agentTeam: { members: [{ name: 'lead', role: 'lead', id: 's-loose' }, { name: 'works', role: 'mate', id: 'm-loose' }], tasks: [] } } },
+    },
   };
   const wsSnapshot = {
     items: [
@@ -2672,6 +2694,42 @@ console.log('PASS 群聊 tab: the right pane keeps the roster only (no 群聊 ta
 
 
   assert.equal(client.cabinetSessionGroups(wsChoices, null, '未分组').length, 1, 'without a snapshot every session lands in the single ungrouped group');
+
+  // ---- 左列准入四条件（A 有阁臣 / B 非空白 / C 非子会话非归档 / D 30 天内）----
+  const FILTER_NOW = Date.now();
+  const DAY_MS = 24 * 60 * 60 * 1000;
+  const mate = (id) => ({ name: 'lead', role: 'lead', id: id + '-lead' });
+  const filterList = {
+    ids: ['s-ok', 's-noteam', 's-blank', 's-old', 's-child', 's-archived'],
+    byId: {
+      's-ok': { title: '完全合格', updatedAt: FILTER_NOW - 1000 },
+      's-noteam': { title: '没有阁臣', updatedAt: FILTER_NOW - 1000 },
+      's-blank': { title: '空白会话', updatedAt: FILTER_NOW - 1000, blank: true },
+      's-old': { title: '31 天前', updatedAt: FILTER_NOW - 31 * DAY_MS },
+      's-child': { title: '子会话', updatedAt: FILTER_NOW - 1000, parentSessionId: 's-ok' },
+      's-archived': { title: '已归档', updatedAt: FILTER_NOW - 1000 },
+    },
+    projectionsBySession: {
+      's-ok': { values: { agentTeam: { members: [mate('s-ok'), { name: 'works', role: 'teammate', id: 'm-ok' }], tasks: [] } } },
+      's-blank': { values: { agentTeam: { members: [mate('s-blank'), { name: 'works', role: 'teammate', id: 'm-blank' }], tasks: [] } } },
+      's-old': { values: { agentTeam: { members: [mate('s-old'), { name: 'works', role: 'teammate', id: 'm-old' }], tasks: [] } } },
+      's-archived': { values: { agentTeam: { members: [mate('s-archived'), { name: 'works', role: 'teammate', id: 'm-arch' }], tasks: [] } } },
+    },
+  };
+  const filterSnapshot = { items: [], archivedSessionIds: ['s-archived'], pinnedSessionIds: [], state: 'idle', phase: 'ready', error: null };
+  const eligible = client.cabinetSessionFilters(client.cabinetSessionChoices(filterList), filterSnapshot, FILTER_NOW);
+  assert.equal(JSON.stringify(eligible.map((choice) => choice.id)), JSON.stringify(['s-ok']), 'only the fully eligible session survives all four filters, got ' + JSON.stringify(eligible.map((choice) => choice.id)));
+  assert.ok(!eligible.some((choice) => choice.id === 's-noteam'), 'A: a session with no minister besides the Lead is filtered out');
+  assert.ok(!eligible.some((choice) => choice.id === 's-blank'), 'B: a blank session (SessionSummary.blank) is filtered out');
+  assert.ok(!eligible.some((choice) => choice.id === 's-old'), 'D: a session whose last update is older than the 30-day window is filtered out');
+  assert.ok(!eligible.some((choice) => choice.id === 's-child'), 'C: a sub-session never reaches the list');
+  assert.ok(!eligible.some((choice) => choice.id === 's-archived'), 'C: an archived session never reaches the list');
+  // 29 天前的会话仍然合格（阈值边界）。
+  const almostOld = client.cabinetSessionFilters(client.cabinetSessionChoices({ ids: ['s-29'], byId: { 's-29': { title: '29 天前', updatedAt: FILTER_NOW - 29 * DAY_MS } }, projectionsBySession: { 's-29': { values: { agentTeam: { members: [mate('s-29'), { name: 'works', role: 'teammate', id: 'm-29' }], tasks: [] } } } } }), null, FILTER_NOW);
+  assert.equal(almostOld.length, 1, '29 days is still inside the 30-day window');
+  // 服务缺席（无快照）：不做归档过滤，其余三条照旧。
+  const noSnapshotEligible = client.cabinetSessionFilters(client.cabinetSessionChoices(filterList), null, FILTER_NOW);
+  assert.ok(noSnapshotEligible.some((choice) => choice.id === 's-archived'), 'without a workspace snapshot the archive filter does not run');
 
   // 列表排序不受默认规则影响：仍按 updatedAt 倒序（空会话排在前面）。
   const blankOrder = client.cabinetSessionChoices(blankNewest).slice().sort((a, b) => (b.updatedAt - a.updatedAt) || (a.id < b.id ? -1 : 1)).map((choice) => choice.id);
@@ -2846,7 +2904,7 @@ console.log('PASS 群聊 tab: the right pane keeps the roster only (no 群聊 ta
     hookStates.cursor = 0;
     const teamList = {
       ids: ['s-lead'],
-      byId: { 's-lead': { title: '首辅会话', updatedAt: 50 } },
+      byId: { 's-lead': { title: '首辅会话', updatedAt: ageOf(50) } },
       projectionsBySession: { 's-lead': { values: { agentTeam: { members: [
         { name: 'lead', role: 'lead', id: 's-lead' },
         { name: 'works', role: 'mate', id: 'm-works' }
@@ -2912,12 +2970,21 @@ console.log('PASS 群聊 tab: the right pane keeps the roster only (no 群聊 ta
     const mixedList = {
       ids: ['s-lead', 's-sub-a', 's-sub-b'],
       byId: {
-        's-lead': { title: '首辅会话', updatedAt: 50 },
-        's-sub-a': { title: '你 是内阁工部尚书…', updatedAt: 500, parentSessionId: 's-lead' },
-        's-sub-b': { title: '你 是内阁翰林院编修…', updatedAt: 400, origin: 'subagent' },
+        's-lead': { title: '首辅会话', updatedAt: ageOf(50) },
+        's-sub-a': { title: '你 是内阁工部尚书…', updatedAt: ageOf(500), parentSessionId: 's-lead' },
+        's-sub-b': { title: '你 是内阁翰林院编修…', updatedAt: ageOf(400), origin: 'subagent' },
       },
-      projectionsBySession: { 's-lead': { values: { agentTeam: { members: [{ name: 'lead', role: 'lead', id: 's-lead' }], tasks: [] } } } }
+      // 顶层会话要有 lead 之外的阁臣，否则会被左列准入（A 条件）滤掉。
+      projectionsBySession: { 's-lead': { values: { agentTeam: { members: [{ name: 'lead', role: 'lead', id: 's-lead' }, { name: 'works', role: 'mate', id: 'm-works' }], tasks: [] } } } }
     };
+    // 前面的用例改过折叠 state：重置成干净挂载，保证「默认折叠 → 点开」的语义。
+    persistentRefs = { cursor: 0, slots: [] };
+    hookStates.slots.length = 0;
+    hookStates.cursor = 0;
+    resetHookCursor();
+    const mixedCollapsed = elements(pageClient.CabinetPage({ ...teamProps, useSessions: (select) => select(mixedList) }));
+
+    mixedCollapsed.filter((node) => node.props?.['data-cabinet-conversation-group-title'] !== undefined).forEach((node) => node.props.onClick());
     resetHookCursor();
     const mixedTree = elements(pageClient.CabinetPage({ ...teamProps, useSessions: (select) => select(mixedList) }));
     const mixedIds = items(mixedTree).map((node) => node.props['data-cabinet-conversation-id']);
@@ -2926,10 +2993,20 @@ console.log('PASS 群聊 tab: the right pane keeps the roster only (no 群聊 ta
     // 下拉与左列必须共用一个选中状态（真机里左列已选中而下拉仍显示旧会话）。
     const syncList = {
       ids: ['s-a', 's-b'],
-      byId: { 's-a': { title: '会话甲', updatedAt: 100 }, 's-b': { title: '会话乙', updatedAt: 300 } },
-      projectionsBySession: {},
+      byId: { 's-a': { title: '会话甲', updatedAt: ageOf(100) }, 's-b': { title: '会话乙', updatedAt: ageOf(300) } },
+      // 两个会话都要过「有阁臣」准入，否则左列/下拉都是空的。
+      projectionsBySession: {
+        's-a': { values: { agentTeam: { members: [{ name: 'lead', role: 'lead', id: 's-a' }, { name: 'works', role: 'mate', id: 'm-a' }], tasks: [] } } },
+        's-b': { values: { agentTeam: { members: [{ name: 'lead', role: 'lead', id: 's-b' }, { name: 'works', role: 'mate', id: 'm-b' }], tasks: [] } } },
+      },
     };
     const syncProps = { ...teamProps, useSessions: (select) => select(syncList) };
+    persistentRefs = { cursor: 0, slots: [] };
+    hookStates.slots.length = 0;
+    hookStates.cursor = 0;
+    resetHookCursor();
+    const syncCollapsed = elements(pageClient.CabinetPage(syncProps));
+    syncCollapsed.filter((node) => node.props?.['data-cabinet-conversation-group-title'] !== undefined).forEach((node) => node.props.onClick());
     resetHookCursor();
     const syncTree0 = elements(pageClient.CabinetPage(syncProps));
     const syncSelect = (tree) => tree.find((node) => node.props?.['data-cabinet-page-session'] !== undefined);
@@ -2970,9 +3047,9 @@ console.log('PASS 群聊 tab: the right pane keeps the roster only (no 群聊 ta
     const archivedNewestList = {
       ids: ['s-live-team', 's-archived-newest', 's-noteam'],
       byId: {
-        's-live-team': { title: '未归档有阁臣', updatedAt: 100 },
-        's-archived-newest': { title: '最新但已归档', updatedAt: 9000 },
-        's-noteam': { title: '未归档无阁臣', updatedAt: 50 },
+        's-live-team': { title: '未归档有阁臣', updatedAt: ageOf(100) },
+        's-archived-newest': { title: '最新但已归档', updatedAt: ageOf(9000) },
+        's-noteam': { title: '未归档无阁臣', updatedAt: ageOf(50) },
       },
       projectionsBySession: {
         's-live-team': { values: { agentTeam: { members: [{ name: 'lead', role: 'lead', id: 's-live-team' }, { name: 'works', role: 'teammate', id: 's-mate-live' }], tasks: [] } } },
@@ -3022,18 +3099,37 @@ console.log('PASS 群聊 tab: the right pane keeps the roster only (no 群聊 ta
     // ④ 兜底组为 0 项时整组不渲染。
     const noLooseList = {
       ids: ['s-w1-new', 's-w2'],
-      byId: { 's-w1-new': { title: '一区新会话', updatedAt: 500 }, 's-w2': { title: '二区会话', updatedAt: 300 } },
-      projectionsBySession: {},
+      byId: { 's-w1-new': { title: '一区新会话', updatedAt: ageOf(500) }, 's-w2': { title: '二区会话', updatedAt: ageOf(300) } },
+      projectionsBySession: {
+        's-w1-new': { values: { agentTeam: { members: [{ name: 'lead', role: 'lead', id: 's-w1-new' }, { name: 'works', role: 'mate', id: 'm-w1' }], tasks: [] } } },
+        's-w2': { values: { agentTeam: { members: [{ name: 'lead', role: 'lead', id: 's-w2' }, { name: 'works', role: 'mate', id: 'm-w2' }], tasks: [] } } },
+      },
     };
     resetHookCursor();
     const noLooseTree = elements(pageClient.CabinetPage({ ...teamProps, useSessions: (select) => select(noLooseList), workspaceSnapshot: wsSnapshot }));
     const noLooseGroups = noLooseTree.filter((node) => node.props?.['data-cabinet-conversation-group'] !== undefined);
     assert.equal(noLooseGroups.length, 2, 'an empty ungrouped bucket renders no section at all, got ' + JSON.stringify(noLooseGroups.map((node) => node.props['data-cabinet-conversation-group'])));
     assert.ok(!noLooseTree.some((node) => node.props?.['data-cabinet-conversation-group-title'] === 'ungrouped'), 'no ungrouped title node exists when the bucket is empty');
+    // 全部被滤掉时左列给一行说明，不能是一片空白。
+    const allFilteredList = {
+      ids: ['s-empty-a', 's-empty-b'],
+      byId: { 's-empty-a': { title: '无阁臣甲', updatedAt: ageOf(100) }, 's-empty-b': { title: '无阁臣乙', updatedAt: ageOf(200) } },
+      projectionsBySession: {},
+    };
+    persistentRefs = { cursor: 0, slots: [] };
+    hookStates.slots.length = 0;
+    hookStates.cursor = 0;
+    resetHookCursor();
+    const allFilteredTree = elements(pageClient.CabinetPage({ ...teamProps, useSessions: (select) => select(allFilteredList), workspaceSnapshot: wsSnapshot }));
+    assert.equal(items(allFilteredTree).length, 0, 'a fully filtered left column renders no session row');
+    const filteredEmpty = allFilteredTree.find((node) => node.props?.['data-cabinet-conversations-empty'] !== undefined);
+    assert.ok(filteredEmpty, 'the left column explains itself instead of going blank');
+    const emptyTextOf = (node) => (typeof node === 'string' ? node : (!node || typeof node !== 'object' ? '' : (node.children || []).map(emptyTextOf).join('')));
+    assert.ok(emptyTextOf(filteredEmpty).includes(pageClient.zh['conversation.emptyFiltered']), 'the explanation uses the locale copy, got ' + JSON.stringify(emptyTextOf(filteredEmpty)));
     // 排序：多会话按 updatedAt 倒序。
     const sortedList = {
       ids: ['s-a', 's-b', 's-c'],
-      byId: { 's-a': { title: 'A', updatedAt: 100 }, 's-b': { title: 'B', updatedAt: 300 }, 's-c': { title: 'C', updatedAt: 200 } },
+      byId: { 's-a': { title: 'A', updatedAt: ageOf(100) }, 's-b': { title: 'B', updatedAt: ageOf(300) }, 's-c': { title: 'C', updatedAt: ageOf(200) } },
       projectionsBySession: { 's-b': { values: { agentTeam: { members: [{ name: 'lead', role: 'lead', id: 's-b' }], tasks: [] } } } }
     };
     assert.equal(JSON.stringify(client.cabinetSessionChoices(sortedList).map((choice) => choice.id)), JSON.stringify(['s-a', 's-b', 's-c']), 'the snapshot keeps its own order (useSessions is the source)');
