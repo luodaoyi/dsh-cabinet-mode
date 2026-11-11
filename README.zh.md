@@ -8,6 +8,8 @@
 
 **介绍站：** [luodaoyi.github.io/dsh-cabinet-mode](https://luodaoyi.github.io/dsh-cabinet-mode/)（中英双语介绍页，源码在本仓库 `site/` 目录）。
 
+Pages 工作流从最近五个已发布的正式 GitHub Release 自动生成双语页面的更新日志、当前版本、发布日期和下载链接。发布流程结束或修改 Release 说明后会自动重新部署，无需再编辑 HTML 中的版本和日志。请直接维护 GitHub Release 说明，网站按原文展示。`workflow_run` 也覆盖使用 `GITHUB_TOKEN` 创建的 Release，因为这种操作不会触发另一个 release 工作流。市场索引任务失败不会阻止已发布版本更新到官网。本地预览可在 `gh` 已登录的环境运行 `node .github/scripts/build-site.mjs`，输出目录为 `_site/`。
+
 <p align="center">
   <img src="docs/images/cabinet-portrait.jpg" width="200" alt="内阁模式图标来源：明代内阁首辅画像（已作为 bundle 图标 icon.svg 随包发布）"/>
 </p>

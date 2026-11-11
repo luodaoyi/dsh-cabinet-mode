@@ -8,6 +8,8 @@
 
 **Website:** [luodaoyi.github.io/dsh-cabinet-mode](https://luodaoyi.github.io/dsh-cabinet-mode/) (bilingual intro page, served from `site/` in this repository).
 
+The Pages workflow generates both pages' changelog, current version, release date and download links from the latest five published stable GitHub Releases. Release completion and release-note edits redeploy the site automatically; maintain the notes on the GitHub Release, not in the HTML. `workflow_run` also covers releases created with `GITHUB_TOKEN`, which do not trigger another release workflow. A failed market-index job does not prevent an already-published release from reaching the website. To preview locally, run `node .github/scripts/build-site.mjs` with an authenticated `gh`; the output is `_site/`.
+
 <p align="center">
   <img src="docs/images/cabinet-portrait.jpg" width="200" alt="Cabinet Mode — grand-secretary portrait, shipped as the bundle icon (icon.svg)"/>
 </p>
