@@ -2,6 +2,19 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.8.1] - 2026-11-11
+
+### Fixed
+
+- Show only plain text content in group chat; reasoning and other block types are not rendered as ordinary messages.
+- Distinguish human messages from relayed/context input with bilingual source labels and neutral portraits; keep the destination office as context rather than impersonating its speaker.
+- Assign tools by the official turn and step, including tool-only assistant steps. Keep unmatched calls independent and prevent legacy calls from crossing empty or image-only user inputs.
+
+### Tests
+
+- Add focused source/ownership regressions and real official event-stream contract checks.
+- Add an isolated real-React Chromium CI fixture for source identity, tool expansion/keyboard, interrupted subscriptions, repeated tab changes and narrow layout. It uses synthetic session services, not a live DSH session or model-team E2E.
+
 ## [0.8.0] - 2026-11-11
 
 ### Added

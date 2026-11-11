@@ -110,3 +110,40 @@ jobs:
             node scripts/test-model-selection.cjs
           fi
           node scripts/test-prompt-assembly.cjs
+
+  group-chat-browser:
+    name: Group chat browser and official stream contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install isolated browser and official contract dependencies
+        run: npm install --prefix "$RUNNER_TEMP/cabinet-browser" --ignore-scripts --no-audit --no-fund @deepseek-ai/dsh@0.2.2-rc.1 @deepseek-ai/dsh-client-store@0.2.2-rc.1 zustand@4.5.7 immer@10.1.1 react@19.3.1 react-dom@19.3.1 esbuild@0.25.12 playwright-core@1.65.0
+      - name: Official stream and message regressions
+        env:
+          DSH_MODULE_ROOT: ${{ runner.temp }}/cabinet-browser/node_modules
+        run: node scripts/test-groupchat-contract.mjs
+      - name: Install Chinese fonts for bilingual visual checks
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes fonts-noto-cjk
+          fc-match -f '%{family}\n' 'Noto Sans CJK SC' | grep -F 'Noto Sans CJK SC'
+      - name: Real Chromium lifecycle, layout and keyboard regressions
+        env:
+          DSH_BROWSER_TEST_ROOT: ${{ runner.temp }}/cabinet-browser
+          CABINET_SCREENSHOT: ${{ runner.temp }}/cabinet-groupchat.png
+        run: |
+          export CHROME_PATH="$(command -v google-chrome || command -v chromium)"
+          node scripts/test-groupchat-browser.mjs --headless
+      - name: Keep browser evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cabinet-groupchat-browser
+          path: ${{ runner.temp }}/cabinet-groupchat.png
+          if-no-files-found: ignore

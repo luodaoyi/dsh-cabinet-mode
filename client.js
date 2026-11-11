@@ -2671,7 +2671,7 @@ window.__ModuleLoader__.load({
 			if (!Array.isArray(content)) return '';
 			const parts = [];
 			for (const block of content) {
-				if (block && typeof block === 'object' && typeof block.text === 'string') parts.push(block.text);
+				if (block && typeof block === 'object' && block.type === 'text' && typeof block.text === 'string') parts.push(block.text);
 			}
 			return parts.join('\n');
 		}
@@ -2689,6 +2689,7 @@ window.__ModuleLoader__.load({
 			const openCalls = new Map();
 			const resultOrder = new Map();
 			const live = { byAttempt: new Map() };
+			const stepKey = data => Number.isInteger(data.turn) && Number.isInteger(data.step) ? data.turn + ':' + data.step : null;
 			const push = (message) => {
 				if (message.time === undefined) return;
 				messages.push(message);
@@ -2725,16 +2726,18 @@ window.__ModuleLoader__.load({
 						if (data.turn !== undefined && data.step !== undefined && delta.turn === data.turn && delta.step === data.step) live.byAttempt.delete(id);
 					}
 					const text = groupChatText(message.content);
-					if (text === '') continue;
-					push({ kind: 'assistant', time: event.time, seq: event.seq, text, tools: [] });
+					// Keep empty/tool-only steps until ownership is resolved.
+					push({ kind: 'assistant', time: event.time, seq: event.seq, step: stepKey(data), text, tools: [] });
 					continue;
 				}
 				if (type === 'user/message') {
 					const message = data;
 					if (!message || typeof message !== 'object') continue;
 					const text = groupChatText(message.content);
-					if (text === '') continue;
-					push({ kind: 'user', time: event.time, seq: event.seq, text, tools: [] });
+					// Only an explicit user source represents a human; other producers
+					// are context input. Empty inputs still break legacy ownership.
+					const kind = message.source?.kind === 'user' ? 'user' : 'input';
+					push({ kind, time: event.time, seq: event.seq, text, tools: [] });
 					continue;
 				}
 				if (type === 'tool/call') {
@@ -2742,6 +2745,7 @@ window.__ModuleLoader__.load({
 					if (id !== null && !openCalls.has(id)) {
 						openCalls.set(id, {
 							callId: id,
+							step: stepKey(data),
 							name: typeof data.name === 'string' && data.name !== '' ? data.name : 'tool',
 							args: typeof data.arguments === 'string' ? data.arguments : '',
 							time: event.time,
@@ -2773,23 +2777,37 @@ window.__ModuleLoader__.load({
 			for (const [attemptId, delta] of live.byAttempt) {
 				rows.push({ kind: 'live', attemptId, time: delta.time, seq: delta.seq, text: delta.text, tools: [] });
 			}
-			// Each call belongs to the latest assistant in this user turn, once.
+			// Official turn/step identity wins even for tool-only steps. Never
+			// borrow a different step when a partial event window omits its owner.
+			// Legacy calls without identity use the preceding message boundary.
 			const bySeq = messages.slice().sort((a, b) => a.seq - b.seq);
+			const byStep = new Map(bySeq.filter(message => message.kind === 'assistant' && message.step !== null).map(message => [message.step, message]));
 			let cursor = 0, owner;
 			for (const tool of tools) {
 				while (cursor < bySeq.length && bySeq[cursor].seq <= tool.seq) {
 					const message = bySeq[cursor++];
 					owner = message.kind === 'assistant' ? message : undefined;
 				}
-				if (owner !== undefined) owner.tools.push(tool);
+				const exactOwner = tool.step === null ? owner : byStep.get(tool.step);
+				if (exactOwner !== undefined) exactOwner.tools.push(tool);
 			}
-			rows.push(...messages);
+			rows.push(...messages.filter(message => message.text !== '' || message.tools.length > 0));
 			const attached = new Set();
 			for (const row of rows) for (const tool of Array.isArray(row.tools) ? row.tools : []) attached.add(tool.callId);
 			const leftovers = tools.filter((tool) => !attached.has(tool.callId));
 			if (leftovers.length > 0) {
-				const anchor = rows.reduce((last, row) => (row.time > last ? row.time : last), -Infinity);
-				rows.push({ kind: 'tools', time: Number.isFinite(anchor) ? anchor : 0, seq: Number.MAX_SAFE_INTEGER, text: '', tools: leftovers });
+				const groups = new Map();
+				for (const tool of leftovers) {
+					// Unidentified calls are independent rather than falsely grouped.
+					const key = tool.step ?? 'call:' + tool.callId;
+					let row = groups.get(key);
+					if (!row) {
+						row = { kind: 'tools', time: tool.time, seq: tool.seq, text: '', tools: [] };
+						groups.set(key, row);
+						rows.push(row);
+					}
+					row.tools.push(tool);
+				}
 			}
 			// Assistant/user/tool rows merge into one time-ordered view. A settled
 			// message is written after its own transient suffixes, so a live delta
@@ -4003,7 +4021,8 @@ window.__ModuleLoader__.load({
 			};
 		}
 		/**
-		 * One chat line: officer portrait + officer name + body. Tools fold into
+		 * One chat line: source identity + body (officer for assistant output only).
+		 * Tools fold into
 		 * a single 「N 个工具」 row that expands in place — never one line per call.
 		 */
 		function GroupChatRow({ row, member, t }) {
@@ -4012,13 +4031,15 @@ window.__ModuleLoader__.load({
 			// Avatar keys off the raw member id key ('lead', 'works', …); the
 			// visible line shows the office label instead.
 			const key = member && member.name ? member.name : (row.memberName || '');
-			const name = key === '' ? '' : memberLabel(key);
+			const office = key === '' ? '' : memberLabel(key);
+			const input = row.kind === 'user' || row.kind === 'input';
+			const name = input ? tt(row.kind === 'user' ? 'groupchat.user' : 'groupchat.input') + (office ? ' · ' + office : '') : office;
 			const live = row.kind === 'live';
 			const header = h('div', {
 				key: 'head',
 				style: { display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, flexWrap: 'wrap' }
 			}, [
-				h(Avatar, { key: 'avatar', name: key || 'neutral', size: 20, live: live }),
+				h(Avatar, { key: 'avatar', name: input ? 'neutral' : key || 'neutral', size: 20, live: live }),
 				h('span', { key: 'name', title: name, style: { fontSize: 12, fontWeight: 600, color: INK } }, name || tt('groupchat.unknown')),
 				row.time ? h('span', { key: 'time', style: { fontSize: 10.5, color: INK3 } }, new Date(row.time).toLocaleTimeString()) : null
 			]);
@@ -5156,6 +5177,8 @@ window.__ModuleLoader__.load({
 			'groupchat.unavailable': '不可用',
 			'groupchat.empty': '暂无群聊消息：成员会话打开后，首辅与阁臣的消息会按时间合并显示在这里。',
 			'groupchat.unknown': '未知成员',
+			'groupchat.user': '用户',
+			'groupchat.input': '上下文输入',
 			'groupchat.tools.count': '{n} 个工具',
 			'groupchat.tools.hide': '收起工具'
 ,
@@ -5263,6 +5286,8 @@ window.__ModuleLoader__.load({
 			'groupchat.empty': 'No group chat messages yet: once member sessions open, Lead and minister messages merge here in time order.',
 			'groupchat.unavailable': 'Unavailable',
 			'groupchat.unknown': 'Unknown member',
+			'groupchat.user': 'User',
+			'groupchat.input': 'Context input',
 			'groupchat.tools.count': '{n} tools',
 			'groupchat.tools.hide': 'Hide tools'
 ,
