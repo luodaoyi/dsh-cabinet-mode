@@ -4404,6 +4404,11 @@ window.__ModuleLoader__.load({
 			const top = typeof node.scrollTop === 'number' ? node.scrollTop : 0;
 			return node.scrollHeight - (top + height) <= (typeof slack === 'number' ? slack : 24);
 		}
+		/** 跟随决策：只有贴底才滚；返回是否真的滚动过（无定时器，纯调用）。 */
+		function scrollFollowingTail(node, following) {
+			if (following !== true) return false;
+			return scrollChatToBottom(node);
+		}
 		/** 一次性滚到底：挂载/首次拿到消息各一次，绝不持续定时滚动。 */
 		function scrollChatToBottom(node) {
 			if (node === null || node === undefined) return false;
@@ -4727,6 +4732,21 @@ window.__ModuleLoader__.load({
 			// 贴底跟随：ref 判断 + 状态供 data 属性断言；只跟新消息，不持续定时滚。
 			const scrollNodeRef = React.useRef(null);
 			const followBottomRef = React.useRef(true);
+			// 稳定 ref 回调：只在真实挂载/卸载时被调用。内联箭头会在每次渲染时
+			// 先 null 再重挂，若回调里滚到底就等于「任何重渲染都拽回底部」。
+			const scrollRefCallback = React.useRef(null);
+			const mountScrolledRef = React.useRef(false);
+			const firstRowsScrolledRef = React.useRef(false);
+			if (scrollRefCallback.current === null) {
+				scrollRefCallback.current = (node) => {
+					scrollNodeRef.current = node;
+					if (node === null || node === undefined) return;
+					// 一次性标记：挂载/严格模式二次触发也只滚这一次。
+					if (mountScrolledRef.current === true) return;
+					mountScrolledRef.current = true;
+					scrollChatToBottom(node);
+				};
+			}
 			const [following, setFollowing] = React.useState(true);
 			const [sending, setSending] = React.useState(false);
 			const [sendError, setSendError] = React.useState(null);
@@ -4895,11 +4915,19 @@ window.__ModuleLoader__.load({
 			groupRows.sort((a, b) => (a.time - b.time) || (a.seq - b.seq) || 0);
 			// 进入即到底：挂载后一次、首次拿到消息后一次；用户上滚（非贴底）后
 			// 不再把视图拽回底部。没有定时器，只有这两个依赖点。
-			const chatTailKey = groupRows.length === 0 ? '' : String(groupRows[0].time) + ':' + String(groupRows[0].seq) + ':' + String(groupRows.length);
+			const chatTailRow = groupRows.length === 0 ? null : groupRows[groupRows.length - 1];
+			const chatTailKey = chatTailRow === null ? '' : String(chatTailRow.time) + ':' + String(chatTailRow.seq) + ':' + String(groupRows.length);
 			React.useEffect(() => {
 				if (activeTab !== 'groupchat') return;
-				if (followBottomRef.current !== true) return;
-				scrollChatToBottom(scrollNodeRef.current);
+				if (groupRows.length === 0) return;
+				// 首次拿到消息：补滚一次（一次性标记，不靠依赖重复触发）。
+				if (firstRowsScrolledRef.current !== true) {
+					firstRowsScrolledRef.current = true;
+					if (followBottomRef.current === true) scrollChatToBottom(scrollNodeRef.current);
+					return;
+				}
+				// 用户上滚后：tick、重渲染、新消息都不得滚动；只有当前贴底才跟随。
+				scrollFollowingTail(scrollNodeRef.current, followBottomRef.current);
 			}, [activeTab, chatTailKey]);
 			// 左列会话列表的数据源：把折叠后的行与在册成员交给页面（页面只读展示，
 			// 不再另开一条 retain 通道）。依赖收敛到尾行签名，避免逐帧回调。
@@ -5122,11 +5150,8 @@ window.__ModuleLoader__.load({
 					'data-cabinet-groupchat': '1',
 					'data-cabinet-groupchat-scroll': '1',
 					'data-cabinet-groupchat-follow': following ? '1' : '0',
-					ref: (node) => {
-						scrollNodeRef.current = node;
-						// 挂载即到底（ref 回调在首次 commit 时运行）。
-						if (node !== null && node !== undefined) scrollChatToBottom(node);
-					},
+					// 稳定引用：渲染不重建，只有真实挂载/卸载才调用。
+					ref: scrollRefCallback.current,
 					onScroll: (event) => {
 						const node = event !== null && event !== undefined && event.target ? event.target : null;
 						const next = nearChatBottom(node, 24);

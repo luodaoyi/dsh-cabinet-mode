@@ -65,7 +65,7 @@ React.useRef = (initial) => {
 };
 
 
-const exportList = 'return { inject, apply, avatarFor, displayName, CabinetPanel, MemberCard, TaskLine, TaskEdgeLayer, buildTaskEdges, taskEdgesEqual, zh, en, BUREAUX, AVATARS, setMemberConfig, memberLabel, configuredAvatar, configuredPrompt, factoryPromptFor, DEFAULT_MEMBER_PROMPTS, DEFAULT_LEAD_PROMPT, CabinetMemberSettings, MemoryPluginCard, memoryPluginInstalledOf, SETTINGS_TABS, formatTokenCount, formatElapsed, tokenTotalOf, usageFor, planProjectionRequests, teamUsageOf, groupChatFold, markdownBlocksOf, inlineMarkdownTokens, markdownLinkHref, modelOptionsOf, modelCatalogNotice, modelSelectionOf, cabinetSessionChoices, defaultCabinetSession, CabinetMarkdown, CabinetPage, CabinetPanelIcon, GroupChatRow, cabinetChatViewRows, chatStampNeeded, nearChatBottom, scrollChatToBottom, cabinetScopeRows, openCabinetSession };';
+const exportList = 'return { inject, apply, avatarFor, displayName, CabinetPanel, MemberCard, TaskLine, TaskEdgeLayer, buildTaskEdges, taskEdgesEqual, zh, en, BUREAUX, AVATARS, setMemberConfig, memberLabel, configuredAvatar, configuredPrompt, factoryPromptFor, DEFAULT_MEMBER_PROMPTS, DEFAULT_LEAD_PROMPT, CabinetMemberSettings, MemoryPluginCard, memoryPluginInstalledOf, SETTINGS_TABS, formatTokenCount, formatElapsed, tokenTotalOf, usageFor, planProjectionRequests, teamUsageOf, groupChatFold, markdownBlocksOf, inlineMarkdownTokens, markdownLinkHref, modelOptionsOf, modelCatalogNotice, modelSelectionOf, cabinetSessionChoices, defaultCabinetSession, CabinetMarkdown, CabinetPage, CabinetPanelIcon, GroupChatRow, cabinetChatViewRows, chatStampNeeded, nearChatBottom, scrollChatToBottom, scrollFollowingTail, cabinetScopeRows, openCabinetSession };';
 runInNewContext(source.replace(exportPoint, exportList), {
   setTimeout: (fn, ms) => setTimeout(fn, ms === 120000 ? 20 : ms), clearTimeout,
   Date: RealmDate,
@@ -2066,25 +2066,57 @@ console.log('PASS 内阁 Bot section removal: no section box, office rows, 现�
     assert.equal(client.scrollChatToBottom(fakeScroller), true);
     assert.equal(fakeScroller.called, 1, 'scrollChatToBottom asks the node to scroll once');
     assert.equal(fakeScroller.lastTop, 1200, 'it scrolls to scrollHeight');
+    // 前面的缓存测试把 lead 源换成了不带 push 的假对象，这里换回真实窗口源。
+    sources['lead-session'] = makeSource([...leadEntries]);
+    sources['m-works'] = makeSource(worksEntries);
     const scrolled = await mountSettled();
     const container = findNodes(scrolled.tree, (node) => node.props?.['data-cabinet-groupchat'] !== undefined)[0];
     assert.equal(container.props['data-cabinet-groupchat-scroll'], '1', 'the chat container carries a stable scroll hook');
     assert.equal(typeof container.props.ref, 'function', 'the chat container has a callback ref');
     assert.equal(typeof container.props.onScroll, 'function', 'the chat container tracks scroll position');
     assert.equal(container.props['data-cabinet-groupchat-follow'], '1', 'the view starts in follow mode');
-    const mountScroller = { scrollTop: 0, scrollHeight: 900, clientHeight: 300, scrollTo: function () { this.called = (this.called || 0) + 1; } };
-    container.props.ref(mountScroller);
-    assert.ok(mountScroller.called >= 1, 'attaching the ref scrolls to the bottom immediately');
-    container.props.onScroll({ target: { scrollTop: 0, scrollHeight: 900, clientHeight: 300 } });
+    // 稳定 ref：同一实例再渲染一次，取到的 ref 函数引用必须相同（内联箭头会变）。
+    const rerendered = groupRender();
+    const containerAgain = findNodes(rerendered.tree, (node) => node.props?.['data-cabinet-groupchat'] !== undefined)[0];
+    assert.equal(containerAgain.props.ref, container.props.ref, 'the scroll container ref is a stable function across renders');
+    const scroller = { scrollTop: 0, scrollHeight: 900, clientHeight: 300, scrollTo: function () { this.called = (this.called || 0) + 1; } };
+    containerAgain.props.ref(scroller);
+    assert.equal(scroller.called, 1, 'attaching the ref on mount scrolls to the bottom exactly once');
+    containerAgain.props.ref(scroller);
+    assert.equal(scroller.called, 1, 'a repeated ref attach does not scroll again');
+    // 用户上滚：follow 关闭；此后新消息/重渲染都不得把视图拽回底部。
+    containerAgain.props.onScroll({ target: { scrollTop: 0, scrollHeight: 900, clientHeight: 300 } });
     const afterUp = groupRender();
     const upContainer = findNodes(afterUp.tree, (node) => node.props?.['data-cabinet-groupchat'] !== undefined)[0];
     assert.equal(upContainer.props['data-cabinet-groupchat-follow'], '0', 'scrolling up turns follow mode off');
-    upContainer.props.onScroll({ target: { scrollTop: 600, scrollHeight: 900, clientHeight: 300 } });
+    const callsBeforePush = scroller.called;
+    const leadTail = [...leadEntries, durable('assistant/message', 97, 9700, { message: { role: 'assistant', content: [{ type: 'text', text: '新尾部一' }] } })];
+    sources['lead-session'].push(leadTail);
+    const afterPush = groupRender();
+    const afterPushContainer = findNodes(afterPush.tree, (node) => node.props?.['data-cabinet-groupchat'] !== undefined)[0];
+    assert.equal(scroller.called, callsBeforePush, 'a new tail does not scroll while the reader is scrolled up');
+    assert.equal(afterPushContainer.props['data-cabinet-groupchat-follow'], '0', 'a re-render does not silently re-enable follow');
+    // 回到底部：贴底读者在新尾部到达时恰好滚一次。
+    afterPushContainer.props.onScroll({ target: { scrollTop: 600, scrollHeight: 900, clientHeight: 300 } });
     const afterBottom = groupRender();
     const bottomContainer = findNodes(afterBottom.tree, (node) => node.props?.['data-cabinet-groupchat'] !== undefined)[0];
     assert.equal(bottomContainer.props['data-cabinet-groupchat-follow'], '1', 'scrolling back to the bottom re-enables follow');
+    const callsSticky = scroller.called;
+    sources['lead-session'].push([...leadTail, durable('assistant/message', 98, 9800, { message: { role: 'assistant', content: [{ type: 'text', text: '新尾部二' }] } })]);
+    groupRender();
+    // 跟随决策函数（effect 直接调用它）：非贴底不滚，贴底滚一次。
+    assert.equal(client.scrollFollowingTail(scroller, false), false, 'the follow decision refuses to scroll while the reader is scrolled up');
+    assert.equal(scroller.called, callsSticky, 'a refused follow leaves the scroll position alone');
+    assert.equal(client.scrollFollowingTail(scroller, true), true, 'the follow decision scrolls when the reader is at the bottom');
+    assert.equal(scroller.called, callsSticky + 1, 'a sticky reader follows the new tail with exactly one scroll');
+    assert.ok(source.includes('scrollFollowingTail(scrollNodeRef.current, followBottomRef.current)'), 'the tail effect goes through the follow decision, not an unconditional scroll');
+    // 源码级：滚动只由 ref/尾部 + follow 触发，绝无定时器驱动。
+    const scrollSource = source.slice(source.indexOf('function scrollChatToBottom'), source.indexOf('function cabinetChatViewRows'));
+    assert.ok(!/setInterval|setTimeout/.test(scrollSource), 'scrollChatToBottom schedules no timer');
+    assert.ok(!/set(?:Interval|Timeout)[\s\S]{0,160}scrollChatToBottom/.test(source), 'no timer is scheduled around a bottom scroll');
     afterBottom.stop();
     afterUp.stop();
+    rerendered.stop();
     scrolled.stop();
 
     // @ mentions: typing @ opens the roster picker, choosing one stores a target
