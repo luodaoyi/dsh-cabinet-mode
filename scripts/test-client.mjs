@@ -1360,7 +1360,7 @@ console.log('PASS 内阁 Bot section removal: no section box, office rows, 现�
 // manager.js:63-66). A `{sessionId}` wrapper would retain `undefined`, so the
 // suite asserts the first argument is a plain string — the contract guard.
 {
-  const makeWindow = (entries) => ({ entries, hasMore: false, revision: 1, change: { kind: 'replace', entries } });
+  const makeWindow = (entries, revision) => ({ entries, hasMore: false, revision: revision ?? 1, change: { kind: 'replace', entries } });
   // Fold probe: the pure reducer, called exactly like the hook calls it.
   const foldOf = (id) => client.groupChatFold(sources[id].getSnapshot().entries);
   const durable = (type, seq, time, data) => ({ type: 'event', event: { type, seq, time, data } });
@@ -1372,11 +1372,15 @@ console.log('PASS 内阁 Bot section removal: no section box, office rows, 现�
   const groupMembers = groupTeam.members;
   const makeSource = (entries) => {
     const listeners = new Set();
-    let window = makeWindow(entries);
+    // Every push publishes a new revision, exactly like MutableSessionEventSource
+    // (events.js publish(): snapshot.revision + 1). The group-chat fold cache
+    // keys on this number, so a frozen revision would hide new messages.
+    let revision = 1;
+    let window = makeWindow(entries, revision);
     return {
       getSnapshot: () => window,
       subscribe: (listener) => { listeners.add(listener); return () => listeners.delete(listener); },
-      push: (entries2) => { window = makeWindow(entries2); for (const listener of Array.from(listeners)) listener(); },
+      push: (entries2) => { revision += 1; window = makeWindow(entries2, revision); for (const listener of Array.from(listeners)) listener(); },
     };
   };
   const leadEntries = [
@@ -1396,6 +1400,9 @@ console.log('PASS 内阁 Bot section removal: no section box, office rows, 现�
   ];
   const sources = { 'lead-session': makeSource(leadEntries), 'm-works': makeSource(worksEntries) };
   const releases = [];
+  // The composer's only public send channel is the retained reference's own
+  // SessionFace.prompt(content, mode) (contract/session.d.ts ISession.prompt).
+  const promptCalls = [];
   const makeReference = (id) => {
     const ref = {
       sessionId: id,
@@ -1404,7 +1411,13 @@ console.log('PASS 内阁 Bot section removal: no section box, office rows, 现�
       // (service.js:94-115) and `release()` is once-only (service.js:126-134).
       get binding() {
         if (ref.releaseCount > 0) throw new Error('Session reference "' + id + '" is released');
-        return { sessionId: id, eventSource: { getSnapshot: () => sources[id].getSnapshot(), subscribe: () => () => {} } };
+        return {
+          sessionId: id,
+          eventSource: { getSnapshot: () => sources[id].getSnapshot(), subscribe: () => () => {} },
+          session: {
+            prompt: (content, mode) => { promptCalls.push({ id, content, mode }); return Promise.resolve({ ok: true, value: { accepted: true } }); },
+          },
+        };
       },
       ready: new Promise((resolve) => { pendingReady.set(id, resolve); }),
       // The real controller tears the reference down eagerly inside release()
@@ -1595,8 +1608,12 @@ console.log('PASS 内阁 Bot section removal: no section box, office rows, 现�
   const mergedRows = rowsOf(merged.tree);
   // The avatar element stays unexpanded in this host tree (no function
   // components are invoked inside rows), so assert on the props the row feeds
-  // it: the raw office key plus the chat-sized portrait.
-  assert.ok(findNodes([mergedRows[0]], (node) => node.props?.size === 20 && node.props?.name === 'lead').length > 0, 'the first merged row carries the officer portrait');
+  // it: the raw office key plus the chat-sized portrait. The user's own line is
+  // the newest addition and carries no portrait, so the portrait assertion
+  // targets the first officer row (assistant) instead of row 0.
+  const firstOfficerRow = mergedRows.find((node) => node.props['data-cabinet-groupchat-row'] === 'assistant');
+  assert.ok(firstOfficerRow, 'the merged view carries an officer row');
+  assert.ok(findNodes([firstOfficerRow], (node) => node.props?.size === 20 && node.props?.name === 'lead').length > 0, 'the first officer row carries the officer portrait');
   assert.ok(findNodes(merged.tree, (node) => node.props?.key === 'name' && node.children.flat().includes(client.displayName('lead'))).length > 0, 'the officer name renders on the merged row');
   // This harness renders the panel several times into one tree, so rows repeat
   // as distinct objects; deduplicate by (kind,text) before counting.
@@ -1734,6 +1751,228 @@ console.log('PASS 内阁 Bot section removal: no section box, office rows, 现�
   ]);
   sources['lead-session'] = makeSource(leadEntries);
   sources['m-works'] = makeSource(worksEntries);
+  // A fresh commit slot array resets the hook state that the panel owns
+  // (draft, paging, fold state) without touching the effect-slot pairing: each
+  // new section starts from a clean component state, exactly like a remount.
+  const remountGroup = (overrides) => {
+    groupSlots.length = 0;
+    hookStates.slots.length = 0;
+    return groupRender(overrides);
+  };
+  const rowTextOf = (node) => findNodes([node], (child) => child.props?.['data-cabinet-groupchat-text'] !== undefined)
+    .map((child) => child.children.flat().filter((part) => typeof part === 'string').join('')).join('');
+  const settleReady = () => {
+    for (const resolve of pendingReady.values()) resolve({});
+    pendingReady.clear();
+  };
+  const composerInputOf = (tree) => findNodes(tree, (node) => node.props?.['data-cabinet-groupchat-input'] !== undefined);
+  const sendButtonOf = (tree) => findNodes(tree, (node) => node.props?.['data-cabinet-groupchat-send'] !== undefined);
+
+  // 8) The user's own words. A durable user/message carries role/content on
+  //    `data` (live journal), not under `data.message`; only source.kind 'user'
+  //    is the user speaking. The line reads 「你」 with no office label and no
+  //    cabinet portrait.
+  sources['lead-session'] = makeSource([
+    ...leadEntries,
+    durable('user/message', 5, 7000, { role: 'user', content: [{ type: 'text', text: '真实用户发言' }], source: { kind: 'user' } }),
+    durable('user/message', 6, 8000, { role: 'user', content: [{ type: 'text', text: '系统注入不该出现' }], source: { kind: 'respire' } }),
+  ]);
+  sources['m-works'] = makeSource(worksEntries);
+  const userFoldRows = client.groupChatFold(sources['lead-session'].getSnapshot().entries).rows
+    .filter((row) => row.kind === 'user').map((row) => row.text);
+  assert.ok(userFoldRows.includes('真实用户发言'), 'a durable user/message (role/content on data) folds into a user row, got ' + JSON.stringify(userFoldRows));
+  assert.ok(!userFoldRows.includes('系统注入不该出现'), 'a non-user source.kind is not the user speaking');
+  const userMount = remountGroup();
+  settleReady();
+  const userView = groupRender();
+  const userRows = rowsOf(userView.tree).filter((row) => row.props['data-cabinet-groupchat-row'] === 'user');
+  assert.ok(userRows.length > 0, 'the user line reaches the merged view');
+  const realUserRow = userRows.find((row) => rowTextOf(row).includes('真实用户发言'));
+  assert.ok(realUserRow, 'the real prompt renders as a user row, got ' + JSON.stringify(userRows.map(rowTextOf)));
+  assert.equal(realUserRow.props['data-cabinet-groupchat-self'], '1', 'the user row is marked as the reader');
+  assert.equal(realUserRow.props['data-cabinet-groupchat-author'], 'self', 'the user row carries no cabinet author');
+  assert.deepEqual(findNodes([realUserRow], (node) => node.props?.key === 'name').map((node) => node.children.flat().join('')), [client.zh['groupchat.you']], 'the user line reads 「你」');
+  assert.equal(findNodes([realUserRow], (node) => node.props?.size === 20).length, 0, 'the user line carries no cabinet portrait');
+  assert.deepEqual(findNodes([realUserRow], (node) => node.props?.size === 20), [], 'no avatar node hides in the user row');
+  userView.stop();
+
+  // 9) Composer: the 群聊 footer sends to the Lead session through the
+  //    retained SessionFace.prompt(parts, 'queue'). The draft survives an
+  //    external re-render; a send disables the composer; duplicates are refused.
+  sources['lead-session'] = makeSource([...leadEntries]);
+  sources['m-works'] = makeSource(worksEntries);
+  promptCalls.length = 0;
+  const composerMount = remountGroup();
+  settleReady();
+  const composerView = groupRender();
+  const composerInput = composerInputOf(composerView.tree);
+  assert.equal(composerInput.length, 1, 'the 群聊 pane renders exactly one composer input');
+  assert.equal(composerInput[0].props.disabled, false, 'a retained Lead SessionFace makes the composer writable');
+  composerInput[0].props.onChange({ target: { value: '你好首辅' } });
+  const draftedView = groupRender();
+  const draftedInput = composerInputOf(draftedView.tree)[0];
+  assert.equal(draftedInput.props.value, '你好首辅', 'an external re-render keeps the draft');
+  assert.equal(promptCalls.length, 0, 'typing alone sends nothing');
+  draftedInput.props.onKeyDown({ key: 'Enter', shiftKey: false, preventDefault: () => {} });
+  assert.equal(promptCalls.length, 1, 'Enter submits one prompt');
+  assert.equal(JSON.stringify(promptCalls[0].content), JSON.stringify([{ type: 'text', text: '你好首辅' }]), 'the draft is sent as one text part');
+  assert.equal(promptCalls[0].mode, 'queue', 'the group chat queues instead of steering the running turn');
+  assert.equal(promptCalls[0].id, 'lead-session', 'the prompt targets the Lead session');
+  const sendingView = groupRender();
+  assert.equal(composerInputOf(sendingView.tree)[0].props.disabled, true, 'a sending composer is disabled');
+  assert.equal(composerInputOf(sendingView.tree)[0].props['data-cabinet-groupchat-composer-disabled'], '1');
+  assert.equal(findNodes(sendingView.tree, (node) => node.props?.['data-cabinet-groupchat-sending'] === '1').length, 1, 'the send button reports the in-flight state');
+  sendButtonOf(sendingView.tree)[0].props.onClick();
+  assert.equal(promptCalls.length, 1, 'a second submit while sending is refused');
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  const idleView = groupRender();
+  assert.equal(composerInputOf(idleView.tree)[0].props.value, '', 'a successful send clears the draft');
+  assert.equal(findNodes(idleView.tree, (node) => node.props?.['data-cabinet-groupchat-sending'] === '1').length, 0, 'the sending flag clears after settlement');
+  idleView.stop();
+
+  // 9b) No send channel: a service whose references expose no SessionFace
+  //     leaves the composer disabled with a hint; clicking it never throws.
+  const noSessionService = {
+    refreshProjections: async () => {},
+    retain: (target) => ({
+      sessionId: target,
+      ready: Promise.resolve(),
+      release: () => {},
+      get binding() { return { sessionId: target, eventSource: { getSnapshot: () => makeWindow([]), subscribe: () => () => {} } }; },
+    }),
+  };
+  const applyWithSessions = (sessions) => rawApply({
+    locale: { register: () => {}, bind: () => (key) => key },
+    effect: (fn) => { try { return fn(); } catch (error) { return undefined; } },
+    inject: (names, callback) => {
+      if (Array.isArray(names) && names.includes('sessions')) callback({ sessions, effect: (fn) => { try { return fn(); } catch (error) { return undefined; } } });
+    },
+  });
+  applyWithSessions(noSessionService);
+  const unavailableMount = remountGroup();
+  settleReady();
+  const unavailableView = groupRender();
+  const unavailableInput = composerInputOf(unavailableView.tree)[0];
+  assert.equal(unavailableInput.props.disabled, true, 'without a SessionFace the composer is disabled');
+  assert.equal(unavailableInput.props['data-cabinet-groupchat-composer-disabled'], '1');
+  assert.deepEqual(findNodes(unavailableView.tree, (node) => node.props?.['data-cabinet-groupchat-composer-hint'] !== undefined)
+    .map((node) => node.children.flat().join('')), [client.zh['groupchat.composer.unavailable']], 'the disabled composer explains the missing channel');
+  sendButtonOf(unavailableView.tree)[0].props.onClick();
+  assert.equal(promptCalls.length, 1, 'a disabled composer never sends');
+  unavailableView.stop();
+  applyWithSessions(groupService);
+
+  // 10) Long replies fold: >12 lines or >600 chars collapse to a preview with
+  //     「展开/收起」 and stable data hooks; short messages never fold.
+  const longBody = Array.from({ length: 20 }, (_, index) => '第' + (index + 1) + '行').join('\n');
+  sources['lead-session'] = makeSource([
+    ...leadEntries,
+    durable('assistant/message', 5, 7100, { message: { role: 'assistant', content: [{ type: 'text', text: longBody }] } }),
+    durable('assistant/message', 6, 7200, { message: { role: 'assistant', content: [{ type: 'text', text: 'x'.repeat(601) }] } }),
+    durable('assistant/message', 7, 7300, { message: { role: 'assistant', content: [{ type: 'text', text: '短消息不折叠' }] } }),
+  ]);
+  sources['m-works'] = makeSource(worksEntries);
+  const longMount = remountGroup();
+  settleReady();
+  const longView = groupRender();
+  const rowWithText = (tree, needle) => rowsOf(tree).filter((row) => rowTextOf(row).includes(needle));
+  const longRow = rowWithText(longView.tree, '第20行')[0];
+  assert.ok(longRow, 'the long reply renders');
+  const longTextNode = findNodes([longRow], (node) => node.props?.['data-cabinet-groupchat-text'] !== undefined)[0];
+  assert.equal(longTextNode.props['data-cabinet-groupchat-long'], '1', 'a 20-line reply is over the fold threshold');
+  assert.equal(longTextNode.props['data-cabinet-groupchat-collapsed'], '1', 'a long reply starts folded');
+  const wideRow = rowWithText(longView.tree, 'x'.repeat(601))[0];
+  assert.ok(wideRow, 'the wide reply renders');
+  assert.equal(findNodes([wideRow], (node) => node.props?.['data-cabinet-groupchat-text'] !== undefined)[0].props['data-cabinet-groupchat-long'], '1', '600+ chars folds even on one line');
+  const shortRow = rowWithText(longView.tree, '短消息不折叠')[0];
+  assert.ok(shortRow, 'the short reply renders');
+  assert.equal(findNodes([shortRow], (node) => node.props?.['data-cabinet-groupchat-text'] !== undefined)[0].props['data-cabinet-groupchat-long'], '0', 'a short reply is never marked long');
+  assert.equal(findNodes([shortRow], (node) => node.props?.['data-cabinet-groupchat-fold'] !== undefined).length, 0, 'a short reply carries no toggle');
+  const longToggle = findNodes([longRow], (node) => node.props?.['data-cabinet-groupchat-fold'] !== undefined)[0];
+  assert.equal(longToggle.props['data-cabinet-groupchat-fold'], 'expand', 'the collapsed toggle offers 展开');
+  assert.equal(longToggle.children.flat().join(''), client.zh['groupchat.fold.expand']);
+  longToggle.props.onClick();
+  const expandedView = groupRender();
+  const expandedRow = rowWithText(expandedView.tree, '第20行')[0];
+  assert.ok(expandedRow, 'the row survives its own toggle');
+  assert.equal(findNodes([expandedRow], (node) => node.props?.['data-cabinet-groupchat-text'] !== undefined)[0].props['data-cabinet-groupchat-collapsed'], '0', '展开 removes the fold');
+  const collapseToggle = findNodes([expandedRow], (node) => node.props?.['data-cabinet-groupchat-fold'] !== undefined)[0];
+  assert.equal(collapseToggle.props['data-cabinet-groupchat-fold'], 'collapse');
+  assert.equal(collapseToggle.children.flat().join(''), client.zh['groupchat.fold.collapse']);
+  expandedView.stop();
+
+  // 11) Long histories page: the newest 30 rows render by default, 「显示更早」
+  //     adds one page, and the hidden count is exposed for the assertion.
+  const manyEntries = [
+    durable('user/message', 1, 1000, { message: { role: 'user', content: [{ type: 'text', text: '最早一句' }] } }),
+    ...Array.from({ length: 34 }, (_, index) => durable('assistant/message', index + 2, 2000 + index, {
+      message: { role: 'assistant', content: [{ type: 'text', text: '批量' + index }] },
+    })),
+  ];
+  sources['lead-session'] = makeSource(manyEntries);
+  // No tool rows in this fixture: the page assertion counts message rows only.
+  sources['m-works'] = makeSource([]);
+  const pageMount = remountGroup();
+  settleReady();
+  const pageView = groupRender();
+  const uniqueGroupRows = (tree) => {
+    const seen = new Set();
+    const out = [];
+    for (const row of rowsOf(tree)) {
+      const signature = row.props['data-cabinet-groupchat-row'] + '|' + rowTextOf(row);
+      if (seen.has(signature)) continue;
+      seen.add(signature);
+      out.push(row);
+    }
+    return out;
+  };
+  const totalRows = client.groupChatFold(manyEntries).rows.length;
+  assert.ok(totalRows > 30, 'the fixture exceeds one page, got ' + totalRows);
+  assert.equal(uniqueGroupRows(pageView.tree).length, 30, 'only the newest page mounts by default');
+  const olderButtons = findNodes(pageView.tree, (node) => node.props?.['data-cabinet-groupchat-older'] !== undefined);
+  assert.ok(olderButtons.length >= 1, 'the paging button renders');
+  assert.equal(olderButtons[0].props['data-cabinet-groupchat-hidden'], String(totalRows - 30), 'the button counts the hidden rows');
+  assert.equal(olderButtons[0].children.flat().join(''), client.zh['groupchat.older'].replace('{n}', String(totalRows - 30)));
+  olderButtons[0].props.onClick();
+  const pagedView = groupRender();
+  assert.equal(uniqueGroupRows(pagedView.tree).length, totalRows, '显示更早 expands exactly one batch');
+  assert.equal(findNodes(pagedView.tree, (node) => node.props?.['data-cabinet-groupchat-older'] !== undefined).length, 0, 'the button disappears once everything is shown');
+  pagedView.stop();
+
+  // 12) Fold cache: the fold is keyed on the window's own revision, so a 5s
+  //     tick with an unchanged window never re-reads the entry list; a new
+  //     revision refolds once.
+  let entriesReads = 0;
+  let cacheRevision = 7;
+  const cacheEntries = [...leadEntries];
+  sources['lead-session'] = {
+    getSnapshot: () => ({
+      get entries() { entriesReads += 1; return cacheEntries; },
+      hasMore: false,
+      revision: cacheRevision,
+      change: { kind: 'replace', entries: cacheEntries },
+    }),
+    subscribe: () => () => {},
+  };
+  sources['m-works'] = makeSource(worksEntries);
+  const cacheMount = remountGroup();
+  settleReady();
+  const cacheView = groupRender();
+  const readsAfterReady = entriesReads;
+  assert.ok(readsAfterReady >= 1, 'the first commit folds the window');
+  const cacheTimer = intervalSpy.lastTimer;
+  assert.ok(cacheTimer && cacheTimer.ms === 5000, 'the paging view keeps the 5s tick');
+  cacheTimer.fn();
+  cacheTimer.fn();
+  const cacheTicked = groupRender();
+  assert.equal(entriesReads, readsAfterReady, 'an unchanged revision reuses the cached fold instead of re-reading entries');
+  cacheEntries.push(durable('assistant/message', 9, 9000, { message: { role: 'assistant', content: [{ type: 'text', text: '缓存后到达' }] } }));
+  cacheRevision += 1;
+  cacheTimer.fn();
+  const cacheFresh = groupRender();
+  assert.ok(entriesReads > readsAfterReady, 'a new window revision refolds');
+  assert.ok(textsOf(cacheFresh.tree).includes('缓存后到达'), 'the new revision reaches the merged view');
+  cacheFresh.stop();
   persistentRefs = null;
 }
-console.log('PASS 群聊 tab: two tabs render beside the roster (settings tabs untouched), retain first argument is a SessionId string with source cabinetGroupChat, messages merge in time order with officer portrait/name and body, two tool calls collapse to 「2 个工具」, a failed member degrades to 不可用, the bilingual empty state renders, a tab switch and unmount each release every reference exactly once, the 5s tick folds an appended window, and two text-delta frames concatenate inside one message');
+console.log('PASS 群聊 tab: two tabs render beside the roster (settings tabs untouched), retain first argument is a SessionId string with source cabinetGroupChat, messages merge in time order with officer portrait/name and body, the user\'s own durable prompt renders as 「你」 with no bureau name or portrait while injected user-role rows are filtered, the composer queues prompt(parts,\'queue\') to the Lead session and keeps its draft across re-renders, refuses duplicates while sending and degrades to a disabled hint without a SessionFace, long replies (>12 lines or 600+ chars) fold with 展开/收起 and short ones do not, only the newest 30 rows mount until 显示更早, the fold cache reuses an unchanged window revision instead of re-reading entries, two tool calls collapse to 「2 个工具」, a failed member degrades to 不可用, the bilingual empty state renders, a tab switch and unmount each release every reference exactly once, the 5s tick folds an appended window, and two text-delta frames concatenate inside one message');
