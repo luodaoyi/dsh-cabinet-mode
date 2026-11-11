@@ -1586,22 +1586,25 @@ console.log('PASS 内阁 Bot section removal: no section box, office rows, 现�
     return { tree, stop };
   };
 
-  // 1) Tab render: the new 群聊 tab exists beside the untouched settings tabs,
-  //    the roster tab keeps the existing five-tab settings section intact, and
-  //    the default view still shows the roster (regression red lines).
+  // 1) Right pane: roster only. 群聊 now lives in the 左侧「内阁」整页
+  //    (`activeTab: 'groupchat'`), so the two surfaces no longer show the same
+  //    conversation; the roster keeps the five-tab settings section intact.
   const first = groupRender();
   const tabNodes = findNodes(first.tree, (node) => node.props?.['data-cabinet-panel-tab'] !== undefined);
-  assert.deepEqual(tabNodes.map((node) => node.props['data-cabinet-panel-tab']), ['groupchat', 'roster'], 'the panel adds 群聊 without displacing the roster tab');
-  assert.equal(tabNodes[0].props['data-cabinet-panel-active'], '0', '群聊 starts inactive');
-  assert.equal(tabNodes[1].props['data-cabinet-panel-active'], '1', 'the roster view stays the default');
+  assert.deepEqual(tabNodes.map((node) => node.props['data-cabinet-panel-tab']), ['roster'], 'the right pane keeps the roster tab only');
+  assert.ok(!tabNodes.some((node) => node.props['data-cabinet-panel-tab'] === 'groupchat'), 'the right pane exposes no 群聊 tab');
+  assert.equal(tabNodes[0].props['data-cabinet-panel-active'], '1', 'the roster view stays the default');
+  assert.equal(findNodes(first.tree, (node) => node.props?.['data-cabinet-groupchat'] !== undefined).length, 0, 'the right pane no longer hosts the group chat');
+  assert.equal(findNodes(first.tree, (node) => node.props?.['data-cabinet-groupchat-input'] !== undefined).length, 0, 'the right pane carries no composer');
+  assert.equal(findNodes(first.tree, (node) => node.props?.['data-cabinet-groupchat-row'] !== undefined).length, 0, 'the right pane renders no chat rows');
   assert.ok(findNodes(first.tree, (node) => node.props?.['data-cabinet-node'] !== undefined).length > 0, 'the roster tree still renders on the default tab');
   assert.deepEqual(Array.from(client.SETTINGS_TABS), ['members', 'avatars', 'models', 'prompts', 'plugin'], 'the five settings tabs are untouched');
-  assert.ok(tabNodes.some((node) => node.children.flat().includes(client.zh['panel.tab.groupchat'])), 'the 群聊 tab label is translated');
   first.stop();
   assert.equal(retainCalls.length, 0, 'the roster view retains nothing');
 
-  // 2) Retain first argument is a plain SessionId string (never a wrapper
-  //    object) and the source label is the one this feature registers.
+  // 2) The 群聊 body is the one the 左侧「内阁」整页 mounts (CabinetPage passes
+  //    `activeTab: 'groupchat'` + `hideTabs`). Retain's first argument is a plain
+  //    SessionId string (never a wrapper object) and the source label is ours.
   groupTab = 'groupchat';
   const active = groupRender();
   assert.ok(retainCalls.length >= 2, 'both members are retained while the tab is active, got ' + JSON.stringify(retainCalls.map((call) => call.target)) + ' releases=' + JSON.stringify(releases));
@@ -1993,9 +1996,40 @@ console.log('PASS 内阁 Bot section removal: no section box, office rows, 现�
   assert.ok(entriesReads > readsAfterReady, 'a new window revision refolds');
   assert.ok(textsOf(cacheFresh.tree).includes('缓存后到达'), 'the new revision reaches the merged view');
   cacheFresh.stop();
-  persistentRefs = null;
+
+  // 13) The conversation now lives in the 左侧「内阁」整页: the page path keeps
+  //     the retain/release contract (the right pane no longer hosts 群聊).
+  {
+    groupSlots.length = 0;
+    hookStates.slots.length = 0;
+    persistentRefs = { cursor: 0, slots: groupSlots };
+    recordedEffects.length = 0;
+    const retainsBeforePage = retainCalls.length;
+    const pageList = {
+      ids: ['lead-session'],
+      byId: { 'lead-session': { title: '首辅会话', updatedAt: 9 } },
+      projectionsBySession: { 'lead-session': { values: { agentTeam: { members: [{ name: 'lead', role: 'lead', id: 'lead-session' }], tasks: [] } } } },
+    };
+    const pageProps = { useSessions: (select) => select(pageList), useSessionStatus: (select) => select(new Map()), t: (key) => client.zh[key] || key };
+    const pageRender = () => { resetHookCursor(); return elements(client.CabinetPage(pageProps)); };
+    const pageTree = pageRender();
+    const stopPage = runGroupEffects();
+    settleReady();
+    const pageSettled = pageRender();
+    assert.ok(findNodes(pageSettled, (node) => node.props?.['data-cabinet-page'] !== undefined).length > 0, 'the page renders');
+    assert.ok(findNodes(pageSettled, (node) => node.props?.['data-cabinet-groupchat'] !== undefined).length > 0, 'the page carries the group chat');
+    assert.ok(composerInputOf(pageSettled).length > 0, 'the page carries the composer');
+    assert.ok(sendButtonOf(pageSettled).length > 0, 'the page carries the send button');
+    const pageRetains = retainCalls.slice(retainsBeforePage);
+    assert.ok(pageRetains.length >= 1, 'mounting the page retains its session, got ' + JSON.stringify(pageRetains));
+    assert.ok(pageRetains.every((call) => call.target === 'lead-session' && call.options.source === 'cabinetGroupChat'), 'the page retains the selected SessionId under our source');
+    stopPage();
+    assert.ok(releases.includes('lead-session'), 'unmounting the page releases the retained session, got ' + JSON.stringify(releases.slice(-3)));
+    persistentRefs = null;
+    groupTab = 'roster';
+  }
 }
-console.log('PASS 群聊 tab: two tabs render beside the roster (settings tabs untouched), retain first argument is a SessionId string with source cabinetGroupChat, messages merge in time order with officer portrait/name and body, the user\'s own durable prompt renders as 「你」 with no bureau name or portrait while injected user-role rows are filtered, the composer queues prompt(parts,\'queue\') to the Lead session and keeps its draft across re-renders, refuses duplicates while sending and degrades to a disabled hint without a SessionFace, long replies (>12 lines or 600+ chars) fold with 展开/收起 and short ones do not, only the newest 30 rows mount until 显示更早, the fold cache reuses an unchanged window revision instead of re-reading entries, two tool calls collapse to 「2 个工具」, a failed member degrades to 不可用, the bilingual empty state renders, a tab switch and unmount each release every reference exactly once, the 5s tick folds an appended window, and two text-delta frames concatenate inside one message');
+console.log('PASS 群聊 tab: the right pane keeps the roster only (no 群聊 tab, rows or composer) while the group chat is mounted through the standalone 内阁 page, which retains/releases its selected SessionId, settings tabs untouched, retain first argument is a SessionId string with source cabinetGroupChat, messages merge in time order with officer portrait/name and body, the user\'s own durable prompt renders as 「你」 with no bureau name or portrait while injected user-role rows are filtered, the composer queues prompt(parts,\'queue\') to the Lead session and keeps its draft across re-renders, refuses duplicates while sending and degrades to a disabled hint without a SessionFace, long replies (>12 lines or 600+ chars) fold with 展开/收起 and short ones do not, only the newest 30 rows mount until 显示更早, the fold cache reuses an unchanged window revision instead of re-reading entries, two tool calls collapse to 「2 个工具」, a failed member degrades to 不可用, the bilingual empty state renders, a tab switch and unmount each release every reference exactly once, the 5s tick folds an appended window, and two text-delta frames concatenate inside one message');
 
 // ── task-47: markdown subset, model catalog states, standalone 内阁 page ──
 {
@@ -2042,6 +2076,24 @@ console.log('PASS 群聊 tab: two tabs render beside the roster (settings tabs u
   assert.equal(failed.kind, 'failures');
   assert.ok(failed.text.includes('boom'), 'a catalog failure echoes its message');
   assert.equal(client.modelCatalogNotice(null, (key) => key).kind, 'error', 'a missing remote is an explicit error');
+  // The old 「仅展示、未生效」 claim was false: the plugin host applies the saved
+  // member model (index.js:310-545, agent.model.select at :486). No copy may
+  // repeat it, the applied note must be present, and the fail-closed risk is
+  // stated rather than hidden.
+  assert.ok(!source.includes('未生效'), 'no source copy claims the saved model is not applied');
+  assert.ok(!source.includes('data-cabinet-model-effect'), 'the old none-effect test hook is gone');
+  assert.ok(source.includes("'data-cabinet-model-active': '1'") && source.includes("'data-cabinet-model-risk': 'fail-closed'"), 'the picker exposes applied + fail-closed hooks');
+  assert.ok(client.zh['member.model.effectActive'].includes('生效'), 'the model note says the choice takes effect');
+  assert.ok(client.zh['member.model.failClosed'].includes('fail-closed'), 'the fail-closed failure mode is spelled out');
+  const renderModelTab = mountSettings({ t: (key) => client.zh[key] || key });
+  let settingsNodes = renderModelTab();
+  tabButton(settingsNodes, 'models').props.onClick();
+  settingsNodes = renderModelTab();
+  const appliedNode = settingsNodes.find((node) => node.props?.['data-cabinet-model-active'] === '1');
+  const riskNode = settingsNodes.find((node) => node.props?.['data-cabinet-model-risk'] === 'fail-closed');
+  assert.ok(appliedNode && appliedNode.children.flat().join('').includes('生效'), 'the settings UI states the choice takes effect');
+  assert.ok(riskNode && riskNode.children.flat().join('').includes('fail-closed'), 'the settings UI states the fail-closed risk');
+  assert.equal(settingsNodes.filter((node) => node.children.flat().join('').includes('未生效')).length, 0, 'no settings copy repeats the false claim');
   assert.equal(JSON.stringify(client.modelSelectionOf({ s1: { values: { modelSelection: { lastUsed: { provider: 'p', model: 'a' }, next: { provider: 'p', model: 'b' } } } } }, 's1')), JSON.stringify({ next: 'p/b', last: 'p/a' }), 'current model reads the modelSelection projection, not the catalog default');
 
   // Standalone 内阁 page: own session picker, agentTeam session preferred.
@@ -2100,4 +2152,4 @@ console.log('PASS 群聊 tab: two tabs render beside the roster (settings tabs u
   assert.ok(!names.includes('settings.section'), 'the old settings members section is gone (no second entry)');
   assert.equal(typeof registrations.find((entry) => entry.name === 'sidebar.panellist').component, 'function', 'the panellist registers an icon component');
 }
-console.log('PASS 第二批：markdown 子集（标题/列表/代码块/行内代码/粗体/链接/裸文本 + javascript: 拒绝）、模型目录真实 groups 与「本机无 adapter」显式提示、当前模型读 modelSelection 投影、独立内阁整页自带会话选择器（agentTeam 优先、会话内记忆）、sidebar.panellist + main 注册且设置页旧 members section 已清理');
+console.log('PASS 第二批：markdown 子集（标题/列表/代码块/行内代码/粗体/链接/裸文本 + javascript: 拒绝）、模型目录真实 groups 与「本机无 adapter」显式提示、当前模型读 modelSelection 投影、模型保存后生效说明与 fail-closed 风险提示（且全源无「未生效」字样）、独立内阁整页自带会话选择器（agentTeam 优先、会话内记忆）、sidebar.panellist + main 注册且设置页旧 members section 已清理');

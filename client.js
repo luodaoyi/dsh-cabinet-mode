@@ -2665,7 +2665,10 @@ window.__ModuleLoader__.load({
 		const GROUP_UNAVAILABLE = 'cabinet-groupchat:unavailable';
 		// Panel view tabs, in display order. The five settings tabs
 		// (SETTINGS_TABS) live in the settings section and are untouched.
-		const PANEL_TABS = ['groupchat', 'roster'];
+		// The right-hand pane keeps the roster only: 群聊 lives in the standalone
+		// 内阁 page (`activeTab: 'groupchat'` pins it there), so the two surfaces no
+		// longer show the same conversation side by side.
+		const PANEL_TABS = ['roster'];
 		/** One readable text slice of a message's content blocks. */
 		function groupChatText(content) {
 			if (!Array.isArray(content)) return '';
@@ -5650,14 +5653,24 @@ window.__ModuleLoader__.load({
 								'data-cabinet-model-current': key,
 								style: { fontSize: 11, color: INK3, marginTop: 4 }
 							}, t('member.model.current') + ' ' + currentText),
-							// The honest effect line: DSH has no per-member consumer and
-							// selectModel refuses subagent-origin sessions, so this picker
-							// is display-only until the host grows such a consumer.
+							// This picker is wired to a real consumer: the host half of this
+							// plugin (`attachMemberModel`, index.js:310-545) reads the saved
+							// member model and calls `agent.model.select` (:486), so the
+							// choice applies to that member's later turns. Its failure mode is
+							// fail-closed — a host without the plugin-record API makes the
+							// override throw at assemble time (:457 → :495-496 → :511) — and
+							// the note below says so instead of promising a silent no-op.
 							h('div', {
 								key: 'effect',
-								'data-cabinet-model-effect': 'none',
+								'data-cabinet-model-active': '1',
 								style: { fontSize: 11, color: INK3, marginTop: 2, lineHeight: 1.5 }
-							}, t('member.model.effectNone')),
+							}, t('member.model.effectActive')),
+							h('div', {
+								key: 'risk',
+								role: 'note',
+								'data-cabinet-model-risk': 'fail-closed',
+								style: { fontSize: 11, color: INK3, marginTop: 2, lineHeight: 1.5 }
+							}, t('member.model.failClosed')),
 							h('div', { key: 'mhint', style: { fontSize: 11, color: INK3, marginTop: 4 } }, t('member.model.hint'))
 						];
 					}()) : null,
@@ -5826,7 +5839,8 @@ window.__ModuleLoader__.load({
 			'member.model.noProviderWithFailure': '未检测到已注册的模型 provider（本机无 adapter）；加载失败：{error}',
 			'member.model.current': '当前模型：',
 			'member.model.currentUnknown': '未知（modelSelection 投影未提供）',
-			'member.model.effectNone': '仅展示、未生效：DSH 没有 per-member 模型消费点，selectModel 也拒绝 subagent 会话；要换模型请在成员会话内使用 /model。',
+			'member.model.effectActive': '保存后对该成员后续回合生效：本插件宿主侧按成员注入模型路由（attachMemberModel → agent.model.select）。',
+			'member.model.failClosed': '已知风险：若宿主缺少 plugin-record 能力，保存的覆盖会 fail-closed——该成员后续回合直接报错，而不是静默不生效。',
 			'settings.tab.members': '成员',
 			'settings.tab.avatars': '头像',
 			'settings.tab.models': '模型',
@@ -5853,7 +5867,7 @@ window.__ModuleLoader__.load({
 			'member.model.partial': '部分提供方加载失败；现有选择保留。可刷新重试。',
 			'member.error.model': '模型必须为 provider/id，最长 200 字符，不能含控制字符。',
 			'member.model.unavailable': '模型列表暂不可用：请手动输入 provider/id。',
-			'member.model.hint': '选择会写入内阁设置；DSH 当前没有 per-member 消费点，因此保存后不会改变该成员后续请求所用模型。',
+			'member.model.hint': '选择会写入内阁设置；清空后由首辅配置或 DSH 默认模型决定该成员。',
 			'member.error.type': '格式不支持：只接受 PNG / JPEG / WebP',
 			'member.error.size': '文件过大：源文件不超过 2MB',
 			'member.error.decode': '图片读取失败，请换一张',
@@ -5955,7 +5969,8 @@ window.__ModuleLoader__.load({
 			'member.model.noProviderWithFailure': 'No registered model provider detected (no adapter on this host); load failures: {error}',
 			'member.model.current': 'Current model: ',
 			'member.model.currentUnknown': 'unknown (modelSelection projection absent)',
-			'member.model.effectNone': 'Display only, not applied: DSH has no per-member model consumer and selectModel rejects subagent sessions; switch models inside the member session with /model.',
+			'member.model.effectActive': 'Applies to this member\'s later turns: the plugin host injects the member model route (attachMemberModel → agent.model.select).',
+			'member.model.failClosed': 'Known risk: if the host lacks the plugin-record capability, the saved override fails closed — that member\'s later turn errors out instead of silently ignoring it.',
 			'settings.tab.members': 'Members',
 			'settings.tab.avatars': 'Avatars',
 			'settings.tab.models': 'Models',
@@ -5982,7 +5997,7 @@ window.__ModuleLoader__.load({
 			'member.model.partial': 'Some providers failed to load; saved choices are retained. Refresh to retry.',
 			'member.error.model': 'Use provider/id, at most 200 characters, without control characters.',
 			'member.model.unavailable': 'Model list unavailable: type provider/id manually.',
-			'member.model.hint': 'The choice is stored in the cabinet settings; DSH has no per-member consumer today, so saving does not change which model the member\'s later requests use.',
+			'member.model.hint': 'The choice is stored in the cabinet settings; clearing it returns the member to the Lead config or the DSH default model.',
 			'member.error.type': 'Unsupported format: PNG / JPEG / WebP only',
 			'member.error.size': 'File too large: source must be at most 2MB',
 			'member.error.decode': 'Could not read the image, try another file',
