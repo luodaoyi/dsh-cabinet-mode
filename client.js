@@ -5144,7 +5144,7 @@ window.__ModuleLoader__.load({
 				const composer = h('div', {
 					key: 'composer',
 					'data-cabinet-groupchat-composer': '1',
-					style: { display: 'flex', flexDirection: 'column', gap: 4, marginTop: 8, paddingTop: 8, borderTop: '1px solid var(--dsw-alias-border-l3, light-dark(rgba(0,0,0,.14), rgba(255,255,255,.18)))' }
+					style: { display: 'flex', flexDirection: 'column', gap: 4, marginTop: 8, paddingTop: 8, flex: 'none', borderTop: '1px solid var(--dsw-alias-border-l3, light-dark(rgba(0,0,0,.14), rgba(255,255,255,.18)))' }
 				}, [
 					h('div', { key: 'line', style: { display: 'flex', gap: 6, alignItems: 'center' } }, [
 						h('input', {
@@ -5244,7 +5244,9 @@ window.__ModuleLoader__.load({
 						followBottomRef.current = next;
 						setFollowing(next);
 					},
-					style: { display: 'flex', flexDirection: 'column', gap: 8, overflowY: 'auto', maxHeight: '100%', minHeight: 0 }
+					// flex:1 1 auto + minHeight:0：吃掉右栏剩余高度并允许内部滚动；
+					// 高度由父 flex 列决定，不再依赖 auto 高度的百分比。
+					style: { display: 'flex', flexDirection: 'column', gap: 8, overflowY: 'auto', flex: '1 1 auto', minHeight: 0 }
 				}, [
 					hidden > 0
 						? h('button', {
@@ -5265,7 +5267,7 @@ window.__ModuleLoader__.load({
 							role: 'status',
 							// 撑满消息区剩余高度后在可用高度内垂直居中：只做 minHeight:200
 							// 会在 800px 高的栏里贴顶、下方继续空白（左都御史实测余 766px）。
-							style: { display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8, flex: '1 1 auto', minHeight: '100%', boxSizing: 'border-box', padding: '32px 20px', textAlign: 'center', fontSize: 12, color: INK2, lineHeight: 1.6 }
+							style: { display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8, flex: '1 1 auto', alignSelf: 'stretch', minHeight: '100%', boxSizing: 'border-box', padding: '32px 20px', textAlign: 'center', fontSize: 12, color: INK2, lineHeight: 1.6 }
 						}, [
 							h('div', { key: 'icon', 'data-cabinet-groupchat-empty-icon': '1', 'aria-hidden': 'true', style: { fontSize: 22, opacity: 0.6 } }, '▤'),
 							h('div', { key: 'text', 'data-cabinet-groupchat-empty-text': '1', style: { maxWidth: 360 } }, tt('groupchat.empty'))
@@ -5283,7 +5285,17 @@ window.__ModuleLoader__.load({
 						})),
 					composer
 				]));
-				return h('div', { ref: panelRef, style: PANEL }, body);
+				// 群聊分支：面板根必须是「撑满右栏的 flex 列」，气泡容器才能用
+				// flex:1 吃到剩余高度。只给空态写 minHeight:'100%' 是无效的——
+				// 它的父盒高度由内容决定（真机实测 216px），100% 解析不出可用高度，
+				// 于是空态贴顶、下方余 865px 空白。
+				// overflow:hidden 让滚动只由气泡容器负责，不出现第二个滚动容器。
+				return h('div', {
+					ref: panelRef,
+					// 稳定 hook：断言群聊面板根确实是撑满右栏的 flex 列。
+					'data-cabinet-groupchat-pane': '1',
+					style: { ...PANEL, display: 'flex', flexDirection: 'column', overflow: 'hidden' }
+				}, body);
 			}
 			if (!team) {
 				body.push(h('div', {

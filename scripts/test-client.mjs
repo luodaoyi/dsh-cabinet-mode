@@ -1846,9 +1846,35 @@ console.log('PASS 内阁 Bot section removal: no section box, office rows, 现�
     assert.equal(emptyNode.props.style.justifyContent, 'center', 'the empty state is vertically centered (' + tag + ')');
     assert.equal(emptyNode.props.style.textAlign, 'center', 'the empty state text is centered (' + tag + ')');
     // 4) 空态要撑满可用高度并双向居中（不是固定 200px 小高度贴在顶上）。
+    //    真机实测：父盒只有 216px、空态 topGap 86 / bottomGap 865 ⇒「只给自己写
+    //    minHeight:100%」无效，必须父盒撑满 + 自己 flex 撑满，两层都要断言。
     assert.equal(emptyNode.props.style.minHeight, '100%', 'the empty state fills the available height instead of a fixed small box (' + tag + ')');
     assert.equal(emptyNode.props.style.flex, '1 1 auto', 'the empty state grows into the remaining flex space (' + tag + ')');
     assert.equal(typeof emptyNode.props.style.minHeight, 'string', 'the empty state height is a fill declaration, not a fixed pixel number (' + tag + ')');
+    // 父容器：撑满右栏的 flex 列（display:flex + column + 撑满 + minHeight:0），
+    // 并且关掉自己的滚动（overflow:hidden），滚动只由气泡容器负责。
+    const scrollHost = emptyView.tree.find((node) => node.props?.['data-cabinet-groupchat-scroll'] !== undefined);
+    assert.ok(scrollHost, 'the bubble container exists (' + tag + ')');
+    assert.equal(scrollHost.props.style.flex, '1 1 auto', 'the bubble container grows into the remaining pane height (' + tag + ')');
+    assert.equal(scrollHost.props.style.minHeight, 0, 'the bubble container can shrink below content height (minHeight:0) (' + tag + ')');
+    assert.equal(scrollHost.props.style.overflowY, 'auto', 'the bubble container owns the chat scrolling (' + tag + ')');
+    // 承载面板：由它提供「撑满右栏的 flex 列」，滚动交给气泡容器。
+    // （测试树是扁平节点数组，没有父链，所以靠面板根上的稳定 hook 断言。）
+    const pane = emptyView.tree.find((node) => node.props?.['data-cabinet-groupchat-pane'] !== undefined);
+    assert.ok(pane, 'the group-chat pane root is marked (' + tag + ')');
+    assert.equal(pane.props.style.display, 'flex', 'the pane hosting the bubbles is a flex box (' + tag + ')');
+    assert.equal(pane.props.style.flexDirection, 'column', 'the hosting pane is a flex column so flex:1 means "remaining height" (' + tag + ')');
+    assert.equal(pane.props.style.overflow, 'hidden', 'the hosting pane never becomes a second scroll container (' + tag + ')');
+    // 全树只有一个滚动容器：overflow:auto / overflowY:auto 的节点只应是气泡容器。
+    // 扁平数组里同一节点可能被重复收集，按对象引用去重后再数。
+    const scrollers = new Set();
+    for (const node of emptyView.tree) {
+      if (!node || typeof node !== 'object') continue;
+      const st = node.props && node.props.style ? node.props.style : {};
+      if (st.overflow === 'auto' || st.overflowY === 'auto') scrollers.add(node);
+    }
+    assert.equal(scrollers.size, 1, 'exactly one scroll container exists (no nested scrollbars), got ' + String(scrollers.size) + ' (' + tag + ')');
+    assert.equal([...scrollers][0], scrollHost, 'that single scroll container is the bubble container itself (' + tag + ')');
     // 有图标 + 有说明文案，文案里含可操作提示。
     const iconNode = findNodes([emptyNode], (node) => node.props?.['data-cabinet-groupchat-empty-icon'] !== undefined)[0];
     const textNode = findNodes([emptyNode], (node) => node.props?.['data-cabinet-groupchat-empty-text'] !== undefined)[0];
