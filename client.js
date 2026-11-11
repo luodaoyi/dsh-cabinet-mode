@@ -2690,6 +2690,10 @@ window.__ModuleLoader__.load({
 		// 宿主 Workspace 服务（分组数据源）；缺席时左列退化为单一兜底组。
 		let cabinetWorkspaces = null;
 		const cabinetWorkspacesListeners = new Set();
+		// 宿主布局服务（原生右栏轨道）：分栏按钮驱动 openRightbar/closeRightbar。
+		// ILayout（dsh-client-ui-layout types/client/service.d.ts:24-50）没有
+		// rightbar 开合状态的 getter，所以按钮状态是乐观状态（本地 state 跟踪）。
+		let cabinetLayout = null;
 		/**
 		 * Bounded retry/re-render cadence for member usage while somebody runs.
 		 *
@@ -6171,6 +6175,20 @@ window.__ModuleLoader__.load({
 			// `focus` 状态，点左列只改 focus、下拉仍显示旧 chosen —— 真机里
 			// 左列已选中「内阁模式问题修复」而下拉还是「群聊每日总结定时任务」。
 			const [groupSnapshot, setGroupSnapshot] = React.useState(null);
+			// 分栏：直接调宿主原生右栏（ctx.layout.openRightbar(true,false) /
+			// closeRightbar()），中心列由 AppFrame 让出轨道，不自画假分栏、
+			// 不用负边距去挤。状态是**乐观状态**——ILayout 没有 rightbar
+			// 开合的 getter，这里记录我们最近一次的开关意图。
+			const [splitOpen, setSplitOpen] = React.useState(false);
+			const toggleSplit = () => {
+				const next = !splitOpen;
+				setSplitOpen(next);
+				try {
+					if (cabinetLayout === null) return;
+					if (next) cabinetLayout.openRightbar(true, false);
+					else cabinetLayout.closeRightbar();
+				} catch (error) { /* 布局服务缺席/拒绝时保持乐观状态，不打断页面 */ }
+			};
 			// Workspace 分组快照：模块级服务 + 订阅（服务可能晚到/更换）。
 			const [liveWorkspaceSnapshot, setLiveWorkspaceSnapshot] = React.useState(() => (cabinetWorkspaces && typeof cabinetWorkspaces.list.getSnapshot === 'function' ? cabinetWorkspaces.list.getSnapshot() : null));
 			React.useEffect(() => {
@@ -6251,7 +6269,20 @@ window.__ModuleLoader__.load({
 					style: { ...CABINET_SELECT_STYLE, maxWidth: 320, fontSize: 12, padding: '3px 6px', borderRadius: 6 },
 					onChange: (event) => setChosen(event !== null && event !== undefined && event.target !== null && event.target !== undefined ? String(event.target.value ?? '') : '')
 				}, choices.map((choice) => h('option', { key: choice.id, value: choice.id, style: CABINET_OPTION_STYLE }, (choice.hasTeam ? '★ ' : '') + choice.title))),
-				choices.length === 0 ? h('span', { key: 'empty', 'data-cabinet-page-session-empty': '1', style: { fontSize: 11, color: INK3 } }, tt('page.session.empty')) : null
+				choices.length === 0 ? h('span', { key: 'empty', 'data-cabinet-page-session-empty': '1', style: { fontSize: 11, color: INK3 } }, tt('page.session.empty')) : null,
+				// 分栏按钮（顶部工具条）：glyph 随状态变化；标题用字面量而非 locale
+				// 键（红线：locale 只改既有键，本按钮不动 locale 字典）。
+				h('button', {
+					key: 'split',
+					type: 'button',
+					'data-cabinet-split-toggle': '1',
+					'data-cabinet-split-state': splitOpen ? '1' : '0',
+					'aria-pressed': splitOpen ? 'true' : 'false',
+					title: splitOpen ? '分栏：关闭右侧原生栏' : '分栏：打开右侧原生栏',
+					'aria-label': splitOpen ? '关闭右侧原生栏' : '打开右侧原生栏',
+					onClick: toggleSplit,
+					style: { display: 'flex', alignItems: 'center', justifyContent: 'center', width: 26, height: 24, marginLeft: 'auto', flex: 'none', border: '1px solid var(--dsw-alias-border-l3, rgba(127,127,127,.4))', borderRadius: 6, background: splitOpen ? 'rgba(79,140,255,.14)' : 'transparent', color: INK2, cursor: 'pointer', fontSize: 13, padding: 0 }
+				}, splitOpen ? '▦' : '◫')
 			]);
 			// 会话列表的数据：优先用面板折叠后的行（摘要/时间），成员表退化为
 			// team 投影。未读没有宿主来源，这里不编造任何未读点。
@@ -6439,7 +6470,9 @@ window.__ModuleLoader__.load({
 				h('div', {
 					key: 'side',
 					'data-cabinet-page-side': '1',
-					style: { width: 300, flex: 'none', minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'auto', borderRight: '1px solid rgba(127,127,127,.25)', padding: '0 10px 10px' }
+					// 右栏打开时中心列让出轨道：左列固定 300px 但允许收缩到 240px 以下
+					// 不强撑（minWidth 0 交给 flex），主列 minWidth:0 保证不横向溢出。
+					style: { width: 300, flex: 'none', minHeight: 0, minWidth: 0, display: 'flex', flexDirection: 'column', overflow: 'auto', borderRight: '1px solid rgba(127,127,127,.25)', padding: '0 10px 10px' }
 				}, sideBody),
 				h('div', {
 					key: 'main',
@@ -7056,6 +7089,16 @@ window.__ModuleLoader__.load({
 			// every card exactly as it was (cards then print their em dash).
 			// Optional: the Workspace list for the left-column grouping. A host
 			// without it leaves every session in the Ungrouped bucket (never throws).
+			// Optional: the host layout face for the native right column. A host
+			// without it leaves the split button inert (no exception, no fake pane).
+			ctx.inject(['layout'], (scope) => {
+				const layout = scope.layout;
+				if (!layout || typeof layout.openRightbar !== 'function' || typeof layout.closeRightbar !== 'function') return;
+				scope.effect(() => {
+					cabinetLayout = layout;
+					return () => { if (cabinetLayout === layout) cabinetLayout = null; };
+				}, 'cabinet-ui: layout split');
+			});
 			ctx.inject(['workspaces'], (scope) => {
 				const workspaces = scope.workspaces;
 				if (!workspaces || !workspaces.list || typeof workspaces.list.getSnapshot !== 'function') return;

@@ -2826,6 +2826,7 @@ console.log('PASS 群聊 tab: the right pane keeps the roster only (no 群聊 ta
   const settingsEntry = page.find((node) => node.props?.['data-cabinet-conversation-settings'] !== undefined);
   // 2) 设置入口在左列顶部吸顶（会话多时不用滚到底），且 DOM 顺序在列表之前。
   assert.equal(settingsEntry.props.style.position, 'sticky', 'the settings entry is sticky so it stays visible, got ' + JSON.stringify(settingsEntry.props.style.position));
+
   assert.equal(settingsEntry.props.style.top, 0, 'it sticks to the top of the left column');
   const entryAt = page.findIndex((node) => node.props?.['data-cabinet-conversation-settings'] !== undefined);
   const listAt = page.findIndex((node) => node.props?.['data-cabinet-conversations'] !== undefined);
@@ -3038,15 +3039,58 @@ assert.ok(!/background:\s*'(#fff|white)'/.test(source), 'no bare white backgroun
     };
     // 原生会话打开通道（uiWorkspace.openSession）由 apply 注入；这里记录调用。
     const openedSessions = [];
+    const rightbarCalls = [];
     try {
       pageClient.apply({
         effect: (fn) => { try { const cleanup = fn(); return typeof cleanup === 'function' ? cleanup : () => {}; } catch (error) { return () => {}; } },
         locale: { register: () => {}, bind: () => (key) => pageClient.zh[key] || key },
         inject: (names, callback) => {
           if (Array.isArray(names) && names.includes('uiWorkspace')) callback({ uiWorkspace: { openSession: (target) => openedSessions.push(target) }, effect: (fn) => { fn(); return () => {}; } });
+          if (Array.isArray(names) && names.includes('layout')) callback({ layout: { openRightbar: (track, fullscreen) => rightbarCalls.push(['open', track, fullscreen]), closeRightbar: () => rightbarCalls.push(['close']) }, effect: (fn) => { fn(); return () => {}; } });
         },
       });
     } catch (error) { /* optional services may be missing in this stub */ }
+
+    // ---- 分栏：顶部工具条的分栏按钮驱动宿主原生右栏（openRightbar/closeRightbar）----
+  {
+    // 注意：必须用 pageClient 的树——右栏 mock 只注入到 pageClient.apply；
+    // `page` 是另一个模块实例（client）渲染的，点它的按钮拿不到 layout 服务。
+    const treeStart = elements(pageClient.CabinetPage(teamProps));
+    const splitBtn = treeStart.find((node) => node.props?.['data-cabinet-split-toggle'] !== undefined);
+    assert.ok(splitBtn, 'the split toggle exists in the page toolbar');
+    assert.equal(splitBtn.props['data-cabinet-split-state'], '0', 'it starts closed');
+    const glyphOf = (node) => node.children.flat().filter((item) => typeof item === 'string').join('');
+    const closedGlyph = glyphOf(splitBtn);
+    splitBtn.props.onClick();
+    resetHookCursor();
+    const treeOpen = elements(pageClient.CabinetPage(teamProps));
+    const splitOpen = treeOpen.find((node) => node.props?.['data-cabinet-split-toggle'] !== undefined);
+    assert.ok(splitOpen, 'the split toggle survives the re-render');
+    assert.equal(splitOpen.props['data-cabinet-split-state'], '1', 'state flips to open after the first click');
+    assert.equal(splitOpen.props['aria-pressed'], 'true', 'the button reports pressed');
+    const openGlyph = glyphOf(splitOpen);
+    assert.notEqual(openGlyph, closedGlyph, 'the glyph changes with state, closed=' + closedGlyph + ' open=' + openGlyph);
+    assert.deepEqual(rightbarCalls, [['open', true, false]], 'the native rightbar is opened with (true, false)');
+    // 主列必须让出轨道而不塌：minWidth:0 + flex:1（不靠负边距硬挤）。
+    const mainCol = treeOpen.find((node) => node.props?.['data-cabinet-page-main'] !== undefined);
+    assert.ok(mainCol, 'the centre column keeps its identity while split');
+    assert.equal(mainCol.props.style.minWidth, 0, 'the centre column may shrink when the rightbar takes a track');
+    assert.ok(!JSON.stringify(mainCol.props.style).includes('-'), 'no negative margin tricks in the centre column');
+    // 再点一次：关闭。
+    splitOpen.props.onClick();
+    resetHookCursor();
+    const treeClosed = elements(pageClient.CabinetPage(teamProps));
+    const splitClosed = treeClosed.find((node) => node.props?.['data-cabinet-split-toggle'] !== undefined);
+    assert.equal(splitClosed.props['data-cabinet-split-state'], '0', 'state flips back to closed');
+    assert.equal(splitClosed.props['aria-pressed'], 'false', 'the button reports unpressed');
+    const backGlyph = glyphOf(splitClosed);
+    assert.equal(backGlyph, closedGlyph, 'the glyph returns to the closed one');
+    assert.deepEqual(rightbarCalls, [['open', true, false], ['close']], 'closeRightbar() is called exactly once on the second click');
+    // 既有钩子不丢。
+    assert.ok(treeClosed.find((node) => node.props?.['data-cabinet-page-session'] !== undefined), 'the session picker hook survives');
+    assert.ok(treeClosed.find((node) => node.props?.['data-cabinet-page-side'] !== undefined), 'the side column hook survives');
+    assert.ok(treeClosed.find((node) => node.props?.['data-cabinet-page-main'] !== undefined), 'the main column hook survives');
+  }
     resetHookCursor();
     const collapsedTree0 = elements(pageClient.CabinetPage(teamProps));
     // 默认全折叠：首屏只有组标题与计数，没有任何会话行。
