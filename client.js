@@ -6184,21 +6184,32 @@ window.__ModuleLoader__.load({
 			// 不用负边距去挤。状态是**乐观状态**——ILayout 没有 rightbar
 			// 开合的 getter，这里记录我们最近一次的开关意图。
 			const [splitOpen, setSplitOpen] = React.useState(false);
+			// 降级标记：openTab 失败（宿主 require() 要求屏上会话，见
+			// sidebar-right :2244/:2235）或 sidebarRight 服务缺席时为 true——
+			// 此时轨道能开但「开始」引导页带不出来，按钮如实提示而不是黑箱空面板。
+			const [splitDegraded, setSplitDegraded] = React.useState(false);
 			const toggleSplit = () => {
 				const next = !splitOpen;
 				setSplitOpen(next);
 				try {
 					if (next) {
 						// 先走原生内容通道：guide 页自带轨道展开（openContent 的
-						// planSetExpanded(true)，sidebar-right :1117）。
+						// planSetExpanded(true)，sidebar-right :1117）。失败（无屏上
+						// 会话时 require() 必抛）不无脑假装成功：记降级、开轨道，
+						// 并让按钮标题说明「引导页需要屏上会话」。
+						let openedGuide = false;
 						if (cabinetSidebarRight !== null && typeof cabinetSidebarRight.openTab === 'function') {
 							try {
 								cabinetSidebarRight.openTab('guide');
-								return;
-							} catch (error) { /* 无 on-screen Session 等：落到纯轨道 */ }
+								openedGuide = true;
+							} catch (error) { openedGuide = false; }
 						}
-						if (cabinetLayout !== null) cabinetLayout.openRightbar(true, false);
-					} else if (cabinetLayout !== null) cabinetLayout.closeRightbar();
+						setSplitDegraded(!openedGuide);
+						if (!openedGuide && cabinetLayout !== null) cabinetLayout.openRightbar(true, false);
+					} else {
+						setSplitDegraded(false);
+						if (cabinetLayout !== null) cabinetLayout.closeRightbar();
+					}
 				} catch (error) { /* 服务缺席/拒绝时保持乐观状态，不打断页面 */ }
 			};
 			// Workspace 分组快照：模块级服务 + 订阅（服务可能晚到/更换）。
@@ -6289,9 +6300,14 @@ window.__ModuleLoader__.load({
 					type: 'button',
 					'data-cabinet-split-toggle': '1',
 					'data-cabinet-split-state': splitOpen ? '1' : '0',
+					'data-cabinet-split-degraded': splitOpen && splitDegraded ? '1' : '0',
 					'aria-pressed': splitOpen ? 'true' : 'false',
-					title: splitOpen ? '分栏：关闭右侧原生栏' : '分栏：打开右侧原生栏',
-					'aria-label': splitOpen ? '关闭右侧原生栏' : '打开右侧原生栏',
+					title: splitOpen
+						? (splitDegraded ? '分栏：轨道已开，但「开始」引导页需要一个屏上会话才能显示' : '分栏：关闭右侧原生栏')
+						: '分栏：打开右侧原生栏',
+					'aria-label': splitOpen
+						? (splitDegraded ? '关闭右侧原生栏（引导页需屏上会话）' : '关闭右侧原生栏')
+						: '打开右侧原生栏',
 					onClick: toggleSplit,
 					style: { display: 'flex', alignItems: 'center', justifyContent: 'center', width: 26, height: 24, marginLeft: 'auto', flex: 'none', border: '1px solid var(--dsw-alias-border-l3, rgba(127,127,127,.4))', borderRadius: 6, background: splitOpen ? 'rgba(79,140,255,.14)' : 'transparent', color: INK2, cursor: 'pointer', fontSize: 13, padding: 0 }
 				}, splitOpen ? '▦' : '◫')

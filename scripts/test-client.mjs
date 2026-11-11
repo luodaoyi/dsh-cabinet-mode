@@ -3075,6 +3075,7 @@ assert.ok(!/background:\s*'(#fff|white)'/.test(source), 'no bare white backgroun
     // 成功路径：原生内容通道 openTab('guide') 才带出「开始」引导页；轨道由其
     // openContent→planSetExpanded(true) 自带展开，所以这里**不再**调 openRightbar。
     assert.deepEqual(sidebarCalls, [['openTab', 'guide', null]], "openTab('guide') is called exactly once with no options");
+    assert.equal(splitOpen.props['data-cabinet-split-degraded'], '0', 'a successful guide open is not marked degraded');
     assert.deepEqual(rightbarCalls, [], 'the success path relies on the guide\'s own expansion, no redundant openRightbar');
     // 主列必须让出轨道而不塌：minWidth:0 + flex:1（不靠负边距硬挤）。
     const mainCol = treeOpen.find((node) => node.props?.['data-cabinet-page-main'] !== undefined);
@@ -3087,6 +3088,7 @@ assert.ok(!/background:\s*'(#fff|white)'/.test(source), 'no bare white backgroun
     const treeClosed = elements(pageClient.CabinetPage(teamProps));
     const splitClosed = treeClosed.find((node) => node.props?.['data-cabinet-split-toggle'] !== undefined);
     assert.equal(splitClosed.props['data-cabinet-split-state'], '0', 'state flips back to closed');
+    assert.equal(splitClosed.props['data-cabinet-split-degraded'], '0', 'the degraded mark resets when the track closes');
     assert.equal(splitClosed.props['aria-pressed'], 'false', 'the button reports unpressed');
     const backGlyph = glyphOf(splitClosed);
     assert.equal(backGlyph, closedGlyph, 'the glyph returns to the closed one');
@@ -3127,13 +3129,52 @@ assert.ok(!/background:\s*'(#fff|white)'/.test(source), 'no bare white backgroun
       const plainOpen = elements(plainClient.CabinetPage(teamProps));
       const plainOpenBtn = plainOpen.find((node) => node.props?.['data-cabinet-split-toggle'] !== undefined);
       assert.equal(plainOpenBtn.props['data-cabinet-split-state'], '1', 'the state still flips without the service');
+      assert.equal(plainOpenBtn.props['data-cabinet-split-degraded'], '1', 'without the sidebarRight service the open state is honestly marked degraded');
+      assert.ok(String(plainOpenBtn.props.title).includes('屏上会话'), 'the degraded title tells the user the guide needs an on-screen session, got ' + plainOpenBtn.props.title);
       assert.deepEqual(plainRightbar, [['open', true, false]], 'the fallback opens the plain track with (true, false)');
       plainOpenBtn.props.onClick();
       resetHookCursor();
       const plainClosed = elements(plainClient.CabinetPage(teamProps));
       const plainClosedBtn = plainClosed.find((node) => node.props?.['data-cabinet-split-toggle'] !== undefined);
       assert.equal(plainClosedBtn.props['data-cabinet-split-state'], '0', 'the fallback close flips back to closed');
+      assert.equal(plainClosedBtn.props['data-cabinet-split-degraded'], '0', 'the degraded mark resets after the fallback close');
       assert.deepEqual(plainRightbar, [['open', true, false], ['close']], 'the fallback close calls closeRightbar exactly once');
+    }
+
+    // ---- openTab 抛错分支：宿主 require() 要求屏上会话（sidebar-right :2244/:2235）----
+    // 服务在、但 openTab 抛「no session surface is mounted」时：状态照翻、
+    // degraded='1'、轨道照开——不假装装上了。
+    {
+      let throwClient = null;
+      runInNewContext(source.replace(exportPoint, 'return { apply, CabinetPage, zh };'), {
+        window: { __ModuleLoader__: { load: ({ factory }) => {
+          throwClient = factory((name) => {
+            if (name === '@deepseek-ai/dsh-client-ui-primitives') throw new Error('primitives not seeded');
+            return React;
+          });
+        } } },
+        console,
+      });
+      const throwRightbar = [];
+      throwClient.apply({
+        effect: (fn) => { try { const cleanup = fn(); return typeof cleanup === 'function' ? cleanup : () => {}; } catch (error) { return () => {}; } },
+        locale: { register: () => {}, bind: () => (key) => throwClient.zh[key] || key },
+        inject: (names, callback) => {
+          if (Array.isArray(names) && names.includes('layout')) callback({ layout: { openRightbar: (track, fullscreen) => throwRightbar.push(['open', track, fullscreen]), closeRightbar: () => throwRightbar.push(['close']) }, effect: (fn) => { fn(); return () => {}; } });
+          if (Array.isArray(names) && names.includes('sidebarRight')) callback({ sidebarRight: { openTab: () => { throw new Error('sidebarRight: no session surface is mounted'); } }, effect: (fn) => { fn(); return () => {}; } });
+        },
+      });
+      resetHookCursor();
+      const throwStart = elements(throwClient.CabinetPage(teamProps));
+      const throwBtn = throwStart.find((node) => node.props?.['data-cabinet-split-toggle'] !== undefined);
+      throwBtn.props.onClick();
+      resetHookCursor();
+      const throwOpen = elements(throwClient.CabinetPage(teamProps));
+      const throwOpenBtn = throwOpen.find((node) => node.props?.['data-cabinet-split-toggle'] !== undefined);
+      assert.equal(throwOpenBtn.props['data-cabinet-split-state'], '1', 'the state still flips when openTab throws');
+      assert.equal(throwOpenBtn.props['data-cabinet-split-degraded'], '1', 'an openTab throw marks the state degraded');
+      assert.ok(String(throwOpenBtn.props.title).includes('屏上会话'), 'the thrown-open title explains the on-screen session requirement');
+      assert.deepEqual(throwRightbar, [['open', true, false]], 'the track still opens after the throw');
     }
   }
     resetHookCursor();
