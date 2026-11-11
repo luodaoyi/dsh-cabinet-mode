@@ -65,7 +65,7 @@ React.useRef = (initial) => {
 };
 
 
-const exportList = 'return { inject, apply, avatarFor, displayName, CabinetPanel, MemberCard, TaskLine, TaskEdgeLayer, buildTaskEdges, taskEdgesEqual, zh, en, BUREAUX, AVATARS, setMemberConfig, memberLabel, configuredAvatar, configuredPrompt, factoryPromptFor, DEFAULT_MEMBER_PROMPTS, DEFAULT_LEAD_PROMPT, CabinetMemberSettings, MemoryPluginCard, memoryPluginInstalledOf, SETTINGS_TABS, formatTokenCount, formatElapsed, tokenTotalOf, usageFor, planProjectionRequests, teamUsageOf, groupChatFold, markdownBlocksOf, inlineMarkdownTokens, markdownLinkHref, modelOptionsOf, modelCatalogNotice, modelSelectionOf, cabinetSessionChoices, defaultCabinetSession, CabinetMarkdown, CabinetPage, CabinetPanelIcon, GroupChatRow, cabinetChatViewRows, chatStampNeeded, nearChatBottom, scrollChatToBottom, scrollFollowingTail, cabinetScopeRows, openCabinetSession };';
+const exportList = 'return { inject, apply, avatarFor, displayName, CabinetPanel, MemberCard, TaskLine, TaskEdgeLayer, buildTaskEdges, taskEdgesEqual, zh, en, BUREAUX, AVATARS, setMemberConfig, memberLabel, configuredAvatar, configuredPrompt, factoryPromptFor, DEFAULT_MEMBER_PROMPTS, DEFAULT_LEAD_PROMPT, CabinetMemberSettings, MemoryPluginCard, memoryPluginInstalledOf, SETTINGS_TABS, formatTokenCount, formatElapsed, tokenTotalOf, usageFor, planProjectionRequests, teamUsageOf, groupChatFold, markdownBlocksOf, inlineMarkdownTokens, markdownLinkHref, modelOptionsOf, modelCatalogNotice, modelSelectionOf, cabinetSessionChoices, defaultCabinetSession, CabinetMarkdown, CabinetPage, CabinetPanelIcon, GroupChatRow, STYLE_CSS, cabinetGroupMemberStates, mergeGroupChat, cabinetChatViewRows, chatStampNeeded, nearChatBottom, scrollChatToBottom, scrollFollowingTail, cabinetScopeRows, openCabinetSession };';
 runInNewContext(source.replace(exportPoint, exportList), {
   setTimeout: (fn, ms) => setTimeout(fn, ms === 120000 ? 20 : ms), clearTimeout,
   Date: RealmDate,
@@ -2012,11 +2012,15 @@ console.log('PASS 内阁 Bot section removal: no section box, office rows, 现�
     const otherBubble = otherRow.find((node) => node.props?.['data-cabinet-bubble'] === 'other');
     const selfBubble = selfRow.find((node) => node.props?.['data-cabinet-bubble'] === 'self');
     assert.ok(otherBubble && selfBubble, 'both bubble kinds render (data-cabinet-bubble self|other)');
+    const chatCss = Array.isArray(client.STYLE_CSS) ? client.STYLE_CSS.join('\n') : String(client.STYLE_CSS || '');
     assert.equal(otherBubble.props.style.maxWidth, '70%', 'the other bubble caps its width near 70%');
-    assert.ok(String(otherBubble.props.style.borderRadius).includes('10px'), 'the other bubble is rounded');
-    assert.ok(String(otherBubble.props.style.padding).includes('7px'), 'the other bubble carries inner padding');
-    assert.ok(String(selfBubble.props.style.background).includes('95EC69'), 'the self bubble uses the WeChat green');
-    assert.ok(String(otherBubble.props.style.borderRadius).includes('10px'), 'bubble corners are rounded');
+    assert.ok(String(otherBubble.props.className).includes('cabinet-chat-other'), 'the other bubble takes the themed other-bubble class');
+    assert.ok(String(selfBubble.props.className).includes('cabinet-chat-self'), 'the self bubble takes the themed self-bubble class');
+    assert.ok(/border-radius:2px 10px 10px 10px/.test(chatCss), 'the other bubble is rounded');
+    assert.ok(/padding:6px 10px/.test(chatCss), 'the bubble carries a compact inner padding');
+    assert.ok(/95EC69/.test(chatCss), 'the self bubble uses the WeChat green (light scheme)');
+    assert.ok(/light-dark\(#95EC69, #2c5a2f\)/.test(chatCss) && /light-dark\(#0f1115, #eaf6e8\)/.test(chatCss), 'bubble background and text are a light-dark pair, never a fixed white with theme text');
+    assert.ok(String(selfBubble.props.style.color).includes('light-dark'), 'the self bubble pins a paired text colour inline');
     assert.ok(otherRow.some((node) => node.type === 'img'), 'the other row keeps a portrait beside the bubble');
     assert.equal(selfRow.filter((node) => node.type === 'img').length, 0, 'the self row has no portrait');
     assert.equal(selfRow.find((node) => node.props?.['data-cabinet-groupchat-row'] === 'user').props.style.alignItems, 'flex-end', 'the self row is right-aligned');
@@ -2362,6 +2366,55 @@ console.log('PASS 群聊 tab: the right pane keeps the roster only (no 群聊 ta
   assert.equal(picked.find((node) => node.props?.['data-cabinet-page-session'] !== undefined).props.value, 's-new', 'a manual pick is remembered in session-local state');
   persistentRefs = null;
 
+  // 第七批 B/C：成员消息全部可见 + 气泡配色与间距。
+  {
+    const tt = (key) => client.zh[key] || key;
+    const eventText = (text, time) => [{ type: 'event', event: { type: 'assistant/message', seq: 1, time, data: { message: { role: 'assistant', content: [{ type: 'text', text }] } } } }];
+    // 四个成员各一条 durable 消息：合并流里必须都能看到。
+    const four = ['lead', 'hanlin', 'gongbu', 'dalisi'].map((name, index) => ({
+      name,
+      rows: client.groupChatFold(eventText(name + ' 发言', 1000 + index)).rows,
+    }));
+    const merged = client.mergeGroupChat(four.flatMap((entry) => entry.rows));
+    assert.equal(merged.length, 4, 'four members fold into four rows, got ' + merged.length);
+    for (const entry of four) {
+      assert.ok(merged.some((row) => row.text.includes(entry.name + ' 发言')), entry.name + ' keeps its message in the merged stream');
+    }
+    // scope 过滤（页面传空 focus 时=合并流；按 id/名字兜底，绝不误吞行）。
+    const scopeFixture = [
+      { kind: 'assistant', text: 'a', memberName: 'works', member: { id: 'm-works' } },
+      { kind: 'assistant', text: 'b', memberName: 'lead', member: { id: 's-lead' } },
+      { kind: 'assistant', text: 'c', memberName: 'gongbu' },
+      { kind: 'user', text: 'mine' }
+    ];
+    assert.equal(JSON.stringify(client.cabinetScopeRows(scopeFixture, 'm-works', 's-lead').map((row) => row.text)), JSON.stringify(['a']), 'a member conversation shows only that member rows');
+    assert.equal(JSON.stringify(client.cabinetScopeRows(scopeFixture, 's-lead', 's-lead').map((row) => row.text)), JSON.stringify(['b', 'mine']), 'the Lead conversation owns the user line too');
+    assert.equal(JSON.stringify(client.cabinetScopeRows(scopeFixture, 'gongbu-id', 's-lead', 'gongbu').map((row) => row.text)), JSON.stringify(['c']), 'a row without a member object falls back to its member name instead of being dropped');
+    assert.equal(client.cabinetScopeRows(scopeFixture, '', 's-lead').length, 4, '全部/群聊 keeps the merged stream intact');
+    // 成员通道状态：ok / pending / error 一个都不许缺，缺通道的不静默消失。
+    const states = client.cabinetGroupMemberStates(
+      [{ id: 'a', name: 'lead' }, { id: 'b', name: 'hanlin' }, { id: 'c', name: 'gongbu' }, { id: 'd', name: 'dalisi' }],
+      (id) => (id === 'a' ? { fold: { rows: [] }, error: null } : id === 'b' ? { fold: null, error: null } : id === 'c' ? { fold: null, error: 'boom' } : undefined)
+    );
+    assert.equal(JSON.stringify(states.map((entry) => entry.id + ':' + entry.state)), JSON.stringify(['a:ok', 'b:pending', 'c:error', 'd:pending']), 'every in-register member carries an explicit channel state');
+    assert.ok(source.includes('data-cabinet-groupchat-members') && source.includes("kind: 'pending'"), 'the panel exposes the per-member state and renders 等待中 rows for members without a window');
+    assert.ok(String(client.zh['groupchat.pending']).includes('等待中'), 'the pending row text says the member session is still loading');
+    // C) 样式：主题成对配色、首尾 margin 归零、工具行紧凑单行。
+    const css = Array.isArray(client.STYLE_CSS) ? client.STYLE_CSS.join('\n') : String(client.STYLE_CSS || '');
+    assert.ok(/\.cabinet-bubble-body > :first-child\{margin-top:0 !important\}/.test(css), 'the first block inside a bubble loses its top margin');
+    assert.ok(/\.cabinet-bubble-body > :last-child\{margin-bottom:0 !important\}/.test(css), 'the last block inside a bubble loses its bottom margin');
+    assert.ok(/\.cabinet-bubble-body p\{margin:0 !important\}/.test(css), 'markdown paragraphs carry no vertical margin inside a bubble');
+    assert.ok(/\.cabinet-chat-bubble\.cabinet-chat-other\{[^}]*color:var\(--dsw-alias-label-primary/.test(css), 'the light bubble uses the theme label colour');
+    assert.ok(/\.cabinet-chat-bubble\.cabinet-chat-self\{[^}]*light-dark\(#95EC69, #2c5a2f\)[^}]*light-dark\(#0f1115, #eaf6e8\)/.test(css), 'the self bubble pairs its background and text colours in both schemes');
+    const styledRow = elements(client.GroupChatRow({ row: { kind: 'assistant', text: '带工具', time: 1, seq: 1, tools: [{ name: 'read', args: 'a.js' }] }, member: { name: 'works', id: 'm-works' }, t: tt }));
+    const toolButton = styledRow.find((node) => node.props?.['data-cabinet-groupchat-tools'] !== undefined);
+    assert.equal(toolButton.props['data-cabinet-tool-compact'], '1', 'the tool fold is a compact single-line control');
+    assert.equal(toolButton.props.style.height, 18, 'the tool line is 18px tall, not a block');
+    assert.equal(toolButton.props.style.whiteSpace, 'nowrap', 'the tool line does not wrap into a block');
+    const otherStyled = styledRow.find((node) => node.props?.['data-cabinet-bubble'] === 'other');
+    assert.ok(String(otherStyled.props.style.color).includes('label-primary') || String(otherStyled.props.style.color).includes('light-dark'), 'the bubble text colour is explicit, never transparent/inherit');
+  }
+
   // 第六批 A/B：左列会话列表 + 点消息进成员完整会话。
   {
     // 用独立实例渲染整页，避免前序 block 的模块状态/快照串味。
@@ -2390,31 +2443,57 @@ console.log('PASS 群聊 tab: the right pane keeps the roster only (no 群聊 ta
     };
     const teamProps = { useSessions: (select) => select(teamList), useSessionStatus: (select) => select(new Map()), t: (key) => pageClient.zh[key] || key };
     const items = (tree) => tree.filter((node) => node.props?.['data-cabinet-conversation-item'] !== undefined);
+    // 原生会话打开通道（uiWorkspace.openSession）由 apply 注入；这里记录调用。
+    const openedSessions = [];
+    try {
+      pageClient.apply({
+        effect: (fn) => { try { const cleanup = fn(); return typeof cleanup === 'function' ? cleanup : () => {}; } catch (error) { return () => {}; } },
+        locale: { register: () => {}, bind: () => (key) => pageClient.zh[key] || key },
+        inject: (names, callback) => {
+          if (Array.isArray(names) && names.includes('uiWorkspace')) callback({ uiWorkspace: { openSession: (target) => openedSessions.push(target) }, effect: (fn) => { fn(); return () => {}; } });
+        },
+      });
+    } catch (error) { /* optional services may be missing in this stub */ }
     resetHookCursor();
     const tree0 = elements(pageClient.CabinetPage(teamProps));
     const itemIds = items(tree0).map((node) => node.props['data-cabinet-conversation-id']);
-    assert.deepEqual(itemIds, ['all', 's-lead', 'm-works'], 'the left column lists 全部/群聊, the Lead and every in-register officer, got ' + JSON.stringify(itemIds) + ' pick=' + (tree0.find((n)=>n.props?.['data-cabinet-page-session'])||{}).props?.value + ' pages=' + tree0.filter((n)=>n.props?.['data-cabinet-page']!==undefined).length + ' zhkey=' + pageClient.zh['conversation.all']);
-    assert.deepEqual(items(tree0).map((node) => node.props['data-cabinet-conversation-name']), [pageClient.zh['conversation.all'], pageClient.memberLabel('lead'), pageClient.memberLabel('works')], 'each conversation carries the office name');
+    assert.deepEqual(itemIds, ['all', 's-lead'], 'the left column lists 全部/群聊 plus every DSH session from the sessions snapshot, got ' + JSON.stringify(itemIds));
     assert.equal(items(tree0)[0].props['data-cabinet-conversation-selected'], '1', '全部/群聊 is the default selection');
-    assert.ok(tree0.filter((node) => node.props?.['data-cabinet-conversation-summary'] !== undefined).length >= 3, 'each conversation carries a summary slot');
+    assert.ok(items(tree0).some((node) => String(node.props['data-cabinet-conversation-name']).includes('首辅会话')), 'a session row shows its snapshot title');
     assert.ok(tree0.some((node) => node.props?.['data-cabinet-groupchat'] !== undefined), 'the merged group chat is still reachable through the page');
-    items(tree0).find((node) => node.props['data-cabinet-conversation-id'] === 'm-works').props.onClick();
+    // 点任意会话 = 进原生视图（不是在本页过滤）：调用 openSession(该会话 id)。
+    openedSessions.length = 0;
+    items(tree0).find((node) => node.props['data-cabinet-conversation-id'] === 's-lead').props.onClick();
+    assert.deepEqual(openedSessions, ['s-lead'], 'clicking a session opens that DSH session through uiWorkspace.openSession, got ' + JSON.stringify(openedSessions));
     resetHookCursor();
     const tree1 = elements(pageClient.CabinetPage(teamProps));
-    assert.equal(items(tree1).find((node) => node.props['data-cabinet-conversation-id'] === 'm-works').props['data-cabinet-conversation-selected'], '1', 'clicking a conversation selects it');
-    assert.equal(items(tree1).find((node) => node.props['data-cabinet-conversation-id'] === 'all').props['data-cabinet-conversation-selected'], '0', 'the previous selection is cleared');
-    items(tree1).find((node) => node.props['data-cabinet-conversation-id'] === 'all').props.onClick();
+    assert.equal(items(tree1)[0].props['data-cabinet-conversation-selected'], '1', 'opening a session leaves 群聊 selected, so the merged stream stays on screen');
+    // 排序：多会话按 updatedAt 倒序。
+    const sortedList = {
+      ids: ['s-a', 's-b', 's-c'],
+      byId: { 's-a': { title: 'A', updatedAt: 100 }, 's-b': { title: 'B', updatedAt: 300 }, 's-c': { title: 'C', updatedAt: 200 } },
+      projectionsBySession: { 's-b': { values: { agentTeam: { members: [{ name: 'lead', role: 'lead', id: 's-b' }], tasks: [] } } } }
+    };
+    assert.equal(JSON.stringify(client.cabinetSessionChoices(sortedList).map((choice) => choice.id)), JSON.stringify(['s-a', 's-b', 's-c']), 'the snapshot keeps its own order (useSessions is the source)');
+    const sortedIds = client.cabinetSessionChoices(sortedList).slice().sort((a, b) => (b.updatedAt - a.updatedAt) || (a.id < b.id ? -1 : 1)).map((choice) => choice.id);
+    assert.equal(JSON.stringify(sortedIds), JSON.stringify(['s-b', 's-c', 's-a']), 'the left column sorts sessions by updatedAt descending');
+    // 通道缺失：提示而不是死链/异常。
+    let noChannelClient = null;
+    runInNewContext(source.replace(exportPoint, 'return { apply, CabinetPage, GroupChatRow, zh, memberLabel, cabinetScopeRows, openCabinetSession };'), {
+      window: { __ModuleLoader__: { load: ({ factory }) => {
+        noChannelClient = factory((name) => { if (name === '@deepseek-ai/dsh-client-ui-primitives') throw new Error('primitives not seeded'); return React; });
+      } } },
+      console,
+    });
+    persistentRefs = { cursor: 0, slots: [] };
+    hookStates.slots.length = 0;
+    const noChannelProps = { useSessions: (select) => select(teamList), useSessionStatus: (select) => select(new Map()), t: (key) => noChannelClient.zh[key] || key };
     resetHookCursor();
-    const tree2 = elements(pageClient.CabinetPage(teamProps));
-    assert.equal(items(tree2)[0].props['data-cabinet-conversation-selected'], '1', '全部/群聊 can always be re-selected');
-    const scopeFixture = [
-      { kind: 'assistant', text: 'a', memberName: 'works', member: { id: 'm-works' } },
-      { kind: 'assistant', text: 'b', memberName: 'lead', member: { id: 's-lead' } },
-      { kind: 'user', text: 'mine' }
-    ];
-    assert.deepEqual(pageClient.cabinetScopeRows(scopeFixture, 'm-works', 's-lead').map((row) => row.text), ['a'], 'a member conversation shows only that member rows');
-    assert.deepEqual(pageClient.cabinetScopeRows(scopeFixture, 's-lead', 's-lead').map((row) => row.text), ['b', 'mine'], 'the Lead conversation owns the user line too');
-    assert.equal(pageClient.cabinetScopeRows(scopeFixture, '', 's-lead').length, 3, '全部/群聊 keeps the merged stream intact');
+    const noChannelTree = elements(noChannelClient.CabinetPage(noChannelProps));
+    noChannelTree.filter((node) => node.props?.['data-cabinet-conversation-item'] !== undefined).find((node) => node.props['data-cabinet-conversation-id'] === 's-lead').props.onClick();
+    resetHookCursor();
+    const noChannelAfter = elements(noChannelClient.CabinetPage(noChannelProps));
+    assert.equal(noChannelAfter.filter((node) => node.props?.['data-cabinet-open-unavailable'] !== undefined).length, 1, 'without a workspace opener the click shows an explicit hint instead of a dead link');
     persistentRefs = null;
 
     // B) 点消息进完整会话：复用既有 uiWorkspace 下钻通道。
@@ -2449,22 +2528,11 @@ console.log('PASS 群聊 tab: the right pane keeps the roster only (no 群聊 ta
     }));
     assert.equal(anonRow.filter((node) => node.props?.['data-cabinet-open-session'] !== undefined).length, 0, 'without a session id there is no hot zone at all');
     // 通道本身：成员走 childSessionId + continuable，首辅走 plain 字符串；无服务时不抛异常。
-    assert.equal(pageClient.openCabinetSession('m-works', 's-lead'), false, 'without a uiWorkspace service the channel degrades to false, not an exception');
-    const opened = [];
-    try {
-      pageClient.apply({
-        effect: (fn) => { try { const cleanup = fn(); return typeof cleanup === 'function' ? cleanup : () => {}; } catch (error) { return () => {}; } },
-        locale: { register: () => {}, bind: () => (key) => pageClient.zh[key] || key },
-        inject: (names, callback) => {
-          if (Array.isArray(names) && names.includes('uiWorkspace')) callback({ uiWorkspace: { openSession: (target) => opened.push(target) }, effect: (fn) => { fn(); return () => {}; } });
-        },
-      });
-    } catch (error) { globalThis.__applyError = String(error && error.message ? error.message : error); }
+    assert.equal(noChannelClient.openCabinetSession('m-works', 's-lead'), false, 'without a uiWorkspace service the channel degrades to false, not an exception');
     assert.equal(pageClient.openCabinetSession('m-works', 's-lead'), true, 'the member drill-down succeeds through the injected workspace');
-    assert.equal(JSON.stringify(opened[0]), JSON.stringify({ parentSessionId: 's-lead', childSessionId: 'm-works', mode: 'continuable' }), 'the same payload the native roster uses for a teammate');
-    opened.length = 0;
+    assert.equal(JSON.stringify(openedSessions[openedSessions.length - 1]), JSON.stringify({ parentSessionId: 's-lead', childSessionId: 'm-works', mode: 'continuable' }), 'the same payload the native roster uses for a teammate');
     assert.equal(pageClient.openCabinetSession('s-lead', 's-lead'), true, 'the Lead session takes the plain-string branch');
-    assert.equal(opened[0], 's-lead', 'the Lead opens its own session id directly');
+    assert.equal(openedSessions[openedSessions.length - 1], 's-lead', 'the Lead opens its own session id directly');
     assert.equal(pageClient.openCabinetSession('', 's-lead'), false, 'a missing session id degrades to false instead of throwing');
   }
 
@@ -2500,6 +2568,7 @@ console.log('PASS 群聊 tab: the right pane keeps the roster only (no 群聊 ta
   assert.ok(!names.includes('settings.section'), 'the old settings members section is gone (no second entry)');
   assert.equal(typeof registrations.find((entry) => entry.name === 'sidebar.panellist').component, 'function', 'the panellist registers an icon component');
 }
-console.log('PASS 第六批：左列改会话列表（全部/群聊 + 首辅 + 在册阁臣，头像/官职名/摘要/时间槽，默认选中全部，点击切换选中且群聊合并流仍可达）、成员设置收成左列单入口（默认不占位，点开替换左列、关闭回列表）、点消息头/头像经既有 uiWorkspace 通道（openCabinetSession → childSessionId + continuable / 首辅 plain id）进成员完整会话，无 id 或成员失败时退化为不可点并给提示，无服务时返回 false 不抛异常');
+console.log('PASS 第七批：左列改为全部 DSH 会话（useSessions 快照、按 updatedAt 倒序、标题/时间/内阁群聊标记，点击经 uiWorkspace.openSession 进原生会话视图，无通道时显式提示）、群聊成员可见性（四成员各一条 durable 消息都进合并流，成员通道 ok/pending/error 状态挂容器，未就绪成员渲染等待中行而非静默消失，scope 过滤按 memberName 兜底）、气泡样式（light-dark 成对配色、首末 margin 归零、段落 margin 0、工具行 18px 单行紧凑）');
+console.log('PASS 第六批：左列改会话列表（全部/群聊 + 全部 DSH 会话按 updatedAt 倒序，标题/时间/内阁群聊标记，默认选中全部，点击经 uiWorkspace.openSession 进原生会话视图、无通道显式提示）、成员设置收成左列单入口（默认不占位，点开替换左列、关闭回列表）、点消息头/头像经既有 uiWorkspace 通道（openCabinetSession → childSessionId + continuable / 首辅 plain id）进成员完整会话，无 id 或成员失败时退化为不可点并给提示，无服务时返回 false 不抛异常');
 console.log('PASS 第五批：微信式气泡（别人左侧浅色/自己右侧 #95EC69 绿、圆角内边距、maxWidth 70%、头像 28px、气泡内 markdown 与工具折叠仍在）、时间戳与连续同人聚合（首行与 ≥5 分钟/跨天显示、同人紧凑省名）、进入即贴底（ref 挂载滚到底、贴底跟随状态 data-cabinet-groupchat-follow 随滚动切换、纯函数无定时器）、@成员派活（输入 @ 弹首辅与阁臣候选、插入可解析 @官职名 标记、目标与正文分离、投递到成员会话、无成员通道时显式降级为发首辅并保留 @标记且 UI 说明）');
 console.log('PASS 第二批：markdown 双路径（宿主 MarkdownText 可解析时用组件、seed 缺失或 require 抛错时降级自绘且不炸插件；子集标题/列表/代码块/行内代码/粗体/链接/裸文本 + 无 innerHTML + javascript:/file: 拒绝）、模型目录真实 groups 与「本机无 adapter」显式提示、当前模型读 modelSelection 投影、模型保存后生效说明与 fail-closed 风险提示（且全源无「未生效」字样）、独立内阁整页自带会话选择器（agentTeam 优先、会话内记忆）、sidebar.panellist + main 注册且设置页旧 members section 已清理');

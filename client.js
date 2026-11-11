@@ -2398,6 +2398,18 @@ window.__ModuleLoader__.load({
 			// running avatar: gentle breathe (panel only)
 			'@keyframes cabinetBreathe{0%,100%{transform:scale(1)}50%{transform:scale(1.05)}}',
 			'.cabinet-live-breathe{animation:cabinetBreathe 1.8s ease-in-out infinite}',
+			// 群聊气泡：主题成对配色 + 清掉 markdown 首尾 margin + 工具行压成单行。
+			'.cabinet-chat-bubble{max-width:70%;box-sizing:border-box;min-width:0;padding:6px 10px;display:flex;flex-direction:column;gap:2px;box-shadow:0 1px 2px rgba(0,0,0,.06)}',
+			'.cabinet-chat-bubble.cabinet-chat-self{background:var(--dsw-alias-bubble-self, light-dark(#95EC69, #2c5a2f));color:var(--dsw-alias-bubble-self-ink, light-dark(#0f1115, #eaf6e8));border:1px solid light-dark(rgba(46,125,50,.18), rgba(149,236,105,.18));border-radius:10px 2px 10px 10px}',
+			'.cabinet-chat-bubble.cabinet-chat-other{background:var(--dsw-alias-bg-l2, light-dark(#f5f6f7, #26292d));color:var(--dsw-alias-label-primary, light-dark(#0f1115, #f9fafb));border:1px solid light-dark(rgba(0,0,0,.06), rgba(255,255,255,.08));border-radius:2px 10px 10px 10px}',
+			'.cabinet-bubble-body{min-width:0;overflow-wrap:anywhere}',
+			'.cabinet-bubble-body > :first-child{margin-top:0 !important}',
+			'.cabinet-bubble-body > :last-child{margin-bottom:0 !important}',
+			'.cabinet-bubble-body p{margin:0 !important}',
+			'.cabinet-bubble-body ul,.cabinet-bubble-body ol{margin:2px 0 !important;padding-left:18px}',
+			'.cabinet-bubble-body pre{margin:3px 0 !important;max-height:200px;overflow:auto}',
+			'.cabinet-tool-line{display:flex;align-items:center;gap:4px;max-width:100%;height:18px;padding:0 6px;font-size:10.5px;line-height:18px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border-radius:5px;background:light-dark(rgba(0,0,0,.04), rgba(255,255,255,.08));border:0;cursor:pointer;color:inherit}',
+			'.cabinet-tool-list{margin:2px 0 0;padding-left:16px;max-height:120px;overflow:auto;font-size:10.5px}',
 			// running member row: tint + light sweep
 			'@keyframes cabinetSweep{0%{background-position:130% 0}100%{background-position:-130% 0}}',
 			'.cabinet-row-live{background-color:rgba(34,197,94,.12);background-image:linear-gradient(100deg,rgba(255,255,255,0) 32%,rgba(255,255,255,.38) 50%,rgba(255,255,255,0) 68%);background-size:220% 100%;background-position:130% 0;animation:cabinetSweep 2.4s ease-in-out infinite}',
@@ -4418,15 +4430,29 @@ window.__ModuleLoader__.load({
 				return true;
 			} catch (error) { return false; }
 		}
+		/** 每个在册成员的通道状态：ok / pending（还没拿到窗口）/ error（不可用）。 */
+		function cabinetGroupMemberStates(members, viewOf) {
+			const list = Array.isArray(members) ? members : [];
+			return list.filter((member) => member !== null && member !== undefined && typeof member.id === 'string' && member.id !== '')
+				.map((member) => {
+					let view = null;
+					try { view = typeof viewOf === 'function' ? viewOf(member.id) : null; } catch (error) { view = null; }
+					const error = view !== null && view !== undefined ? view.error : null;
+					const fold = view !== null && view !== undefined ? view.fold : null;
+					return { id: member.id, name: member.name, state: error !== null && error !== undefined ? 'error' : (fold === null || fold === undefined ? 'pending' : 'ok') };
+				});
+		}
 		/** 单会话过滤：'全部/群聊' 传空串；用户发言归首辅会话。 */
-		function cabinetScopeRows(rows, focusId, leadSessionId) {
+		function cabinetScopeRows(rows, focusId, leadSessionId, focusName) {
 			const list = Array.isArray(rows) ? rows : [];
 			if (typeof focusId !== 'string' || focusId === '') return list;
 			return list.filter((row) => {
 				if (row === null || row === undefined || typeof row !== 'object') return false;
 				if (row.kind === 'user') return focusId === leadSessionId;
 				const memberId = row.member && typeof row.member.id === 'string' ? row.member.id : '';
-				return memberId !== '' && memberId === focusId;
+				if (memberId !== '') return memberId === focusId;
+				// 没有 member 对象（如 不可用/等待中 行）时按名字兜底，绝不静默吞行。
+				return typeof focusName === 'string' && focusName !== '' && row.memberName === focusName;
 			});
 		}
 		/** 面板用的分组视图：连续同人紧凑、时间戳按规则显示。 */
@@ -4510,24 +4536,29 @@ window.__ModuleLoader__.load({
 				onClick: () => setExpanded((value) => !value)
 			}, expanded ? tt('groupchat.fold.collapse') : tt('groupchat.fold.expand')) : null;
 			const tools = Array.isArray(row.tools) ? row.tools : [];
-			const toolNode = tools.length === 0 ? null : h('div', { key: 'tools', style: { marginTop: 4 } }, [
+			const toolNode = tools.length === 0 ? null : h('div', { key: 'tools', style: { marginTop: 2, minWidth: 0 } }, [
 				h('button', {
 					key: 'toggle',
 					type: 'button',
+					className: 'cabinet-tool-line',
 					'data-cabinet-groupchat-tools': String(tools.length),
+					'data-cabinet-tool-compact': '1',
 					'aria-expanded': open ? 'true' : 'false',
-					style: { font: 'inherit', fontSize: 11, cursor: 'pointer', padding: '2px 6px', borderRadius: 6, border: '1px solid var(--dsw-alias-border-l3, rgba(127,127,127,.4))', background: 'transparent', color: INK2 },
+					style: { font: 'inherit', fontSize: 10.5, cursor: 'pointer', padding: '0 6px', height: 18, lineHeight: '18px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '100%', borderRadius: 5, border: 0, background: 'light-dark(rgba(0,0,0,.05), rgba(255,255,255,.09))', color: 'inherit', textAlign: 'left' },
 					onClick: () => setOpen((value) => !value)
 				}, open ? tt('groupchat.tools.hide') : tt('groupchat.tools.count').replace('{n}', String(tools.length))),
-				open ? h('ul', { key: 'list', style: { margin: '4px 0 0', paddingLeft: 18, fontSize: 11, color: INK2 } }, tools.map((tool, index) => h('li', {
+				open ? h('ul', { key: 'list', className: 'cabinet-tool-list', style: { margin: '2px 0 0', paddingLeft: 16, maxHeight: 120, overflow: 'auto', fontSize: 10.5, color: 'inherit' } }, tools.map((tool, index) => h('li', {
 					key: tool.callId || index,
 					'data-cabinet-groupchat-tool': '1',
 					style: { wordBreak: 'break-word' }
 				}, (tool.name || 'tool') + (tool.args === '' ? '' : ' ' + tool.args)))) : null
 			]);
 			// 微信式气泡：自己=右侧绿气泡（无头像），别人=左侧浅色气泡（头像在气泡外）。
+			// 气泡底色与文字色成对给：浅底配深字、深底配浅字，全部走 light-dark 回退，
+			// 不再出现「固定白底 + 主题浅字」。padding/圆角在 CSS 里（cabinet-chat-bubble）。
 			const bubble = h('div', {
 				key: 'bubble',
+				className: 'cabinet-chat-bubble ' + (self ? 'cabinet-chat-self' : 'cabinet-chat-other'),
 				'data-cabinet-bubble': self ? 'self' : 'other',
 				'data-cabinet-bubble-compact': compact === true ? '1' : '0',
 				'data-cabinet-bubble-tail': self ? 'right' : 'left',
@@ -4535,17 +4566,10 @@ window.__ModuleLoader__.load({
 				style: {
 					maxWidth: '70%',
 					boxSizing: 'border-box',
-					display: 'flex',
-					flexDirection: 'column',
-					gap: 3,
 					minWidth: 0,
-					padding: '7px 10px',
-					borderRadius: self ? '10px 2px 10px 10px' : '2px 10px 10px 10px',
-					background: self ? 'var(--dsw-alias-bubble-self, #95EC69)' : 'var(--dsw-alias-bubble-other, #FFFFFF)',
-					border: self ? '1px solid rgba(46,125,50,.18)' : '1px solid rgba(127,127,127,.28)',
-					boxShadow: '0 1px 2px rgba(0,0,0,.06)'
+					color: self ? 'light-dark(#0f1115, #eaf6e8)' : INK
 				}
-			}, [header, bodyNode, foldNode, toolNode]);
+			}, [header, h('div', { key: 'bodywrap', className: 'cabinet-bubble-body' }, bodyNode), foldNode, toolNode]);
 			const line = h('div', {
 				key: 'line',
 				style: { display: 'flex', alignItems: 'flex-start', gap: 8, width: '100%', minWidth: 0, justifyContent: self ? 'flex-end' : 'flex-start' }
@@ -4979,18 +5003,30 @@ window.__ModuleLoader__.load({
 				// 单会话视图：'全部/群聊'（focusSessionId 空）看合并流；选了某成员就
 				// 只留该成员的行，用户发言归首辅会话。
 				const focusId = typeof focusSessionId === 'string' ? focusSessionId : '';
-				const scopedGroupRows = cabinetScopeRows(groupRows, focusId, leadSessionId);
+				const focusMember = focusId === '' ? undefined : orderedMembers.find((member) => member && member.id === focusId);
+				const scopedGroupRows = cabinetScopeRows(groupRows, focusId, leadSessionId, focusMember ? focusMember.name : '');
 				const scopedLiveText = focusId === ''
 					? liveText
 					: orderedMembers.filter((member) => member && member.id === focusId).map((member) => group.views(member.id).liveText).filter((text) => text !== '').join('\n');
+				// 每个在册成员的通道状态；没拿到窗口（fold null）的成员给「等待中」行，
+				// 拿不到通道的给「不可用」行——任何成员都不许从合并流里静默消失。
+				const memberStates = cabinetGroupMemberStates(orderedMembers, (id) => group.views(id));
+				const pendingRows = orderedMembers
+					.filter((member) => member !== null && member !== undefined && typeof member.id === 'string' && member.id !== '')
+					.filter((member) => {
+						const view = group.views(member.id);
+						return view.error === null && view.fold === null;
+					})
+					.map((member) => ({ kind: 'pending', time: 0, seq: 0, text: tt('groupchat.pending'), tools: [], memberName: member.name, member }));
 				const rows = scopedGroupRows.length > 0 ? scopedGroupRows : (scopedLiveText === '' ? [] : [{ kind: 'live', time: 0, seq: 0, text: scopedLiveText, tools: [] }]);
+				const displayRows = pendingRows.length === 0 ? rows : rows.concat(pendingRows);
 				// Only the newest page is mounted by default: a long team history
 				// must not cost a full row mount on every frame. 「显示更早」 adds one
 				// page at a time from the already-folded rows (no refold, no re-read).
 				const PAGE_SIZE = 30;
 				const limit = PAGE_SIZE + olderBatches * PAGE_SIZE;
-				const hidden = rows.length > limit ? rows.length - limit : 0;
-				const shown = hidden > 0 ? rows.slice(rows.length - limit) : rows;
+				const hidden = displayRows.length > limit ? displayRows.length - limit : 0;
+				const shown = hidden > 0 ? displayRows.slice(displayRows.length - limit) : displayRows;
 				// Send target: the Lead session this panel already mirrors. The
 				// channel is the retained reference's own SessionFace.prompt
 				// (contract/session.d.ts ISession.prompt); anything missing is a
@@ -5149,6 +5185,7 @@ window.__ModuleLoader__.load({
 					role: 'tabpanel',
 					'data-cabinet-groupchat': '1',
 					'data-cabinet-groupchat-scroll': '1',
+					'data-cabinet-groupchat-members': memberStates.map((entry) => entry.id + ':' + entry.state).join(','),
 					'data-cabinet-groupchat-follow': following ? '1' : '0',
 					// 稳定引用：渲染不重建，只有真实挂载/卸载才调用。
 					ref: scrollRefCallback.current,
@@ -5170,7 +5207,7 @@ window.__ModuleLoader__.load({
 							onClick: () => setOlderBatches((count) => count + 1)
 						}, tt('groupchat.older').replace('{n}', String(hidden)))
 						: null,
-					rows.length === 0
+					shown.length === 0
 						? h('div', { key: 'empty', 'data-cabinet-groupchat-empty': '1', style: { fontSize: 12, color: INK2, lineHeight: 1.6 } }, tt('groupchat.empty'))
 						: cabinetChatViewRows(shown).map((entry, index) => h(GroupChatRow, {
 							key: 'row:' + index,
@@ -5760,6 +5797,8 @@ window.__ModuleLoader__.load({
 			const [chosen, setChosen] = React.useState('');
 			// 左列视图：会话列表 或 成员设置（设置只占左列，绝不与聊天区争主区位）。
 			const [leftMode, setLeftMode] = React.useState('list');
+			// 原生会话打开通道不可用时的提示（不静默失败）。
+			const [openNotice, setOpenNotice] = React.useState('');
 			// 主区查看对象：'all' = 合并群聊流；某成员 id = 只看该会话。
 			const [focus, setFocus] = React.useState('all');
 			const [groupSnapshot, setGroupSnapshot] = React.useState(null);
@@ -5809,21 +5848,31 @@ window.__ModuleLoader__.load({
 				}
 				return undefined;
 			};
-			const conversations = [{ id: 'all', name: '', label: tt('conversation.all'), role: 'all' }]
-				.concat(conversationMembers.map((member) => ({
-					id: member.id,
-					name: member.name,
-					label: memberLabel(member.name) || String(member.name || member.id),
-					role: member.role
+			// 左列 = 全部 DSH 会话（与原生左侧列表同一 useSessions 快照，按最近更新倒序），
+			// 不是当前会话的 agentTeam 成员。点一项 = 进该会话的原生视图。
+			const sessionItems = choices.slice().sort((a, b) => (b.updatedAt - a.updatedAt) || (a.id < b.id ? -1 : 1));
+			const conversations = [{ id: 'all', name: '', label: tt('conversation.all'), role: 'all', native: false, updatedAt: 0, note: '' }]
+				.concat(sessionItems.map((choice) => ({
+					id: choice.id,
+					name: '',
+					label: choice.title || choice.id,
+					role: 'session',
+					native: true,
+					updatedAt: choice.updatedAt,
+					note: choice.hasTeam ? tt('conversation.team') : (choice.running ? tt('status.running') : '')
 				})));
 			const conversationList = h('div', {
 				key: 'conversations',
 				'data-cabinet-conversations': '1',
 				style: { display: 'flex', flexDirection: 'column', gap: 2, padding: '8px 0' }
 			}, conversations.map((entry) => {
-				const last = lastRowFor(entry.id);
-				const summary = last !== undefined && typeof last.text === 'string' ? last.text : '';
-				const stamp = last !== undefined && typeof last.time === 'number' && last.time > 0 ? chatStampText(last.time) : '';
+				const last = entry.native === true ? undefined : lastRowFor(entry.id);
+				const summary = entry.native === true
+					? (entry.note || '')
+					: (last !== undefined && typeof last.text === 'string' ? last.text : '');
+				const stamp = entry.native === true
+					? (typeof entry.updatedAt === 'number' && entry.updatedAt > 0 ? chatStampText(entry.updatedAt) : '')
+					: (last !== undefined && typeof last.time === 'number' && last.time > 0 ? chatStampText(last.time) : '');
 				const active = focus === entry.id;
 				return h('button', {
 					key: entry.id,
@@ -5832,11 +5881,16 @@ window.__ModuleLoader__.load({
 					'data-cabinet-conversation-id': entry.id,
 					'data-cabinet-conversation-name': entry.label,
 					'data-cabinet-conversation-selected': active ? '1' : '0',
-					title: entry.label,
-					onClick: () => { setFocus(entry.id); setLeftMode('list'); },
+					title: entry.native ? entry.label + ' · ' + tt('groupchat.open') : entry.label,
+					onClick: () => {
+						if (entry.native !== true) { setFocus('all'); setLeftMode('list'); setOpenNotice(''); return; }
+						// 与 dsh-context 相同的打开通道：uiWorkspace.openSession(sessionId)。
+						if (openCabinetSession(entry.id, entry.id)) { setOpenNotice(''); return; }
+						setOpenNotice(tt('conversation.openUnavailable'));
+					},
 					style: { display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left', font: 'inherit', padding: '6px 8px', border: 0, borderRadius: 8, background: active ? 'rgba(79,140,255,.14)' : 'transparent', cursor: 'pointer', color: INK }
 				}, [
-					h('span', { key: 'avatar', style: { flex: 'none', width: 28, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 8, background: 'rgba(127,127,127,.16)', fontSize: 13 } }, entry.id === 'all' ? '#' : h(Avatar, { name: entry.name || 'neutral', size: 28 })),
+					h('span', { key: 'avatar', style: { flex: 'none', width: 28, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 8, background: 'rgba(127,127,127,.16)', fontSize: 13 } }, (entry.native === true ? '▤' : '#')),
 					h('span', { key: 'col', style: { display: 'flex', flexDirection: 'column', gap: 1, minWidth: 0, flex: 1 } }, [
 						h('span', { key: 'top', style: { display: 'flex', justifyContent: 'space-between', gap: 6, minWidth: 0 } }, [
 							h('span', { key: 'name', style: { fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, entry.label),
@@ -5862,7 +5916,9 @@ window.__ModuleLoader__.load({
 					'data-cabinet-page-list': '1',
 					'data-cabinet-page-list-open': leftMode === 'settings' ? '0' : '1',
 					style: { display: leftMode === 'settings' ? 'none' : 'flex', flexDirection: 'column', gap: 2, flex: 1, minHeight: 0 }
-				}, [conversationList, settingsEntry]),
+				}, [conversationList,
+					openNotice === '' ? null : h('div', { key: 'open-notice', 'data-cabinet-open-unavailable': '1', role: 'status', style: { fontSize: 10.5, color: INK3, padding: '0 8px 4px', lineHeight: 1.5 } }, openNotice),
+					settingsEntry]),
 				h('div', {
 					key: 'settings',
 					'data-cabinet-page-settings': '1',
@@ -6205,6 +6261,10 @@ window.__ModuleLoader__.load({
 			'groupchat.tools.hide': '收起工具',
 			'groupchat.you': '你',
 			'conversation.all': '全部/群聊',
+			'conversation.sessions': 'DSH 会话',
+			'conversation.team': '内阁群聊',
+			'conversation.openUnavailable': '当前宿主没有可用的会话打开通道（uiWorkspace.openSession），无法跳转原生会话视图。',
+			'groupchat.pending': '该成员会话等待中…',
 			'conversation.settings': '成员设置',
 			'conversation.settings.close': '返回会话',
 			'groupchat.open': '打开该成员的完整 DSH 会话（工具、diff、审批）',
@@ -6348,6 +6408,10 @@ window.__ModuleLoader__.load({
 			'groupchat.tools.hide': 'Hide tools',
 			'groupchat.you': 'You',
 			'conversation.all': 'All / Group chat',
+			'conversation.sessions': 'DSH sessions',
+			'conversation.team': 'Cabinet group',
+			'conversation.openUnavailable': 'This host exposes no session opener (uiWorkspace.openSession), so the native session view cannot be opened.',
+			'groupchat.pending': 'This member session is still loading…',
 			'conversation.settings': 'Member settings',
 			'conversation.settings.close': 'Back to chats',
 			'groupchat.open': 'Open this member\'s full DSH session (tools, diffs, approvals)',
