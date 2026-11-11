@@ -2403,13 +2403,25 @@ window.__ModuleLoader__.load({
 			'.cabinet-chat-bubble.cabinet-chat-self{background:light-dark(#95EC69, #2c5a2f);color:light-dark(#0f1115, #eaf6e8);border:1px solid light-dark(rgba(46,125,50,.18), rgba(149,236,105,.18));border-radius:10px 2px 10px 10px}',
 			'.cabinet-chat-bubble.cabinet-chat-other{background:var(--dsw-alias-bg-layer-1, light-dark(#ffffff, #26292d));color:var(--dsw-alias-label-primary, light-dark(#0f1115, #f9fafb));border:1px solid light-dark(rgba(0,0,0,.06), rgba(255,255,255,.08));border-radius:2px 10px 10px 10px}',
 			'.cabinet-bubble-body{min-width:0;overflow-wrap:anywhere}',
+			// 宿主 MarkdownText 把正文包在它自己的容器里，首末 margin 落在嵌套层
+			// 内层元素上：旧的 `> :first-child` 只够到外层，气泡底部便留出空带。
+			// 这里两层都清，并让空段落/空 div 不占高度。
+			'.cabinet-bubble-body > *{margin-top:0 !important;margin-bottom:0 !important}',
 			'.cabinet-bubble-body > :first-child{margin-top:0 !important}',
 			'.cabinet-bubble-body > :last-child{margin-bottom:0 !important}',
+			'.cabinet-bubble-body > * > :first-child{margin-top:0 !important}',
+			'.cabinet-bubble-body > * > :last-child{margin-bottom:0 !important}',
+			'.cabinet-bubble-body > * > p{margin:0 !important}',
 			'.cabinet-bubble-body p{margin:0 !important}',
 			'.cabinet-bubble-body ul,.cabinet-bubble-body ol{margin:2px 0 !important;padding-left:18px}',
+			'.cabinet-bubble-body li > p{margin:0 !important}',
 			'.cabinet-bubble-body pre{margin:3px 0 !important;max-height:200px;overflow:auto}',
-			'.cabinet-tool-line{display:flex;align-items:center;gap:4px;max-width:100%;height:18px;padding:0 6px;font-size:10.5px;line-height:18px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border-radius:5px;background:light-dark(rgba(0,0,0,.04), rgba(255,255,255,.08));border:0;cursor:pointer;color:inherit}',
+			'.cabinet-bubble-body p:empty,.cabinet-bubble-body > div:empty{display:none}',
+			// 工具行不留占位高度：行高随内容，不再钉死 18px 叠出空带。
+			'.cabinet-tool-line{display:inline-flex;align-items:center;gap:4px;max-width:100%;min-height:0;height:auto;padding:0 6px;font-size:10.5px;line-height:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border-radius:5px;background:light-dark(rgba(0,0,0,.04), rgba(255,255,255,.08));border:0;cursor:pointer;color:inherit;margin:0;vertical-align:top}',
 			'.cabinet-tool-list{margin:2px 0 0;padding-left:16px;max-height:120px;overflow:auto;font-size:10.5px}',
+			'.cabinet-tool-list:empty{display:none}',
+			'.cabinet-chat-bubble > button{align-self:flex-start;margin:0;min-height:0}',
 			// running member row: tint + light sweep
 			'@keyframes cabinetSweep{0%{background-position:130% 0}100%{background-position:-130% 0}}',
 			'.cabinet-row-live{background-color:rgba(34,197,94,.12);background-image:linear-gradient(100deg,rgba(255,255,255,0) 32%,rgba(255,255,255,.38) 50%,rgba(255,255,255,0) 68%);background-size:220% 100%;background-position:130% 0;animation:cabinetSweep 2.4s ease-in-out infinite}',
@@ -4251,7 +4263,10 @@ window.__ModuleLoader__.load({
 			if (!/^https?:\/\//i.test(trimmed)) return null;
 			return trimmed;
 		}
-		const MARKDOWN_INLINE = /`([^`]+)`|\*\*([^*]+)\*\*|\[([^\]]*)\]\(([^)\s]+)\)/g;
+		// `**bold**` 允许内部带单个 `*`（如 `**a *b* c**`）：旧的 `[^*]+` 一遇
+		// 内层星号就整段不匹配，`**` 原样漏进气泡（截图残留的第二种形态）。
+		// 非贪婪、不跨行、不吞成对的 `**`；不成对时按原文保留，绝不吞字。
+		const MARKDOWN_INLINE = /`([^`\n]+)`|\*\*((?:(?!\*\*)[^\n])+?)\*\*|\[([^\]]*)\]\(([^)\s]+)\)/g;
 		/** Split one inline run into text / code / strong / link tokens. */
 		function inlineMarkdownTokens(text) {
 			const source = typeof text === 'string' ? text : '';
@@ -4296,7 +4311,9 @@ window.__ModuleLoader__.load({
 				if (fence !== null) { flushParagraph(); flushList(); code = { lines: [], lang: fence[1] || '' }; continue; }
 				const heading = line.match(/^\s{0,3}(#{1,6})\s+(.*)$/);
 				if (heading !== null) { flushParagraph(); flushList(); blocks.push({ kind: 'heading', level: heading[1].length, text: heading[2] }); continue; }
-				const bullet = line.match(/^\s*[-*]\s+(.*)$/);
+				// `-`/`*` 是标准 Markdown；`•`/`·` 是助手正文常见的圆点列表写法。
+				// 旧正则不认它，整行就当段落原样显示 —— 截图里残留的 `•` 即此。
+				const bullet = line.match(/^\s*(?:[-*•·])\s+(.*)$/);
 				if (bullet !== null) {
 					flushParagraph();
 					if (list === null || list.kind !== 'ul') { flushList(); list = { kind: 'ul', items: [] }; }
@@ -4520,7 +4537,7 @@ window.__ModuleLoader__.load({
 				'data-cabinet-groupchat-long': long ? '1' : '0',
 				'data-cabinet-groupchat-collapsed': folded ? '1' : '0',
 				title: failed ? row.text : undefined,
-				style: { fontSize: 12, color: live ? INK2 : INK, whiteSpace: failed ? 'pre-wrap' : 'normal', wordBreak: 'break-word', lineHeight: 1.55, ...(folded ? { maxHeight: '10.5em', overflow: 'hidden' } : null) }
+				style: { fontSize: 12, color: live ? INK2 : INK, whiteSpace: failed ? 'pre-wrap' : 'normal', wordBreak: 'break-word', lineHeight: 1.55, ...(folded ? { maxHeight: 'calc(1.55em * 10)', overflow: 'hidden' } : null) }
 			}, failed
 				? tt('groupchat.unavailable')
 				// Assistant and user bodies go through the markdown renderer
@@ -4595,7 +4612,7 @@ window.__ModuleLoader__.load({
 				line
 			]);
 		}
-		function CabinetPanel({ sessionId, useSession, useSessions, useSessionStatus, t, activeTab: activeTabProp, hideTabs, focusSessionId, onGroupSnapshot }) {
+		function CabinetPanel({ sessionId, parentSessionIdHint, useSession, useSessions, useSessionStatus, t, activeTab: activeTabProp, hideTabs, focusSessionId, onGroupSnapshot }) {
 			// Re-render when the mirrored member settings change (names/avatars).
 			const [, setMemberRevision] = React.useState(0);
 			React.useEffect(() => subscribeMemberConfig(() => setMemberRevision((revision) => revision + 1)), []);
@@ -4608,7 +4625,12 @@ window.__ModuleLoader__.load({
 			const readStatus = safeHook(useSessionStatus, identityHook);
 
 			// Channel 2: the agentTeam session projection, carried on the Lead session.
-			const parentSessionId = readSession((snapshot) => snapshot?.subagent?.address?.parentSessionId);
+			// 独立页面用恒等 useSession（读不到 snapshot），所以把落盘 session 头的
+			// parentSessionId 作为 hint 传进来：直接打开子会话视图时，成员名册仍能
+			// 绑到父会话，而不是退化成空团队（这正是「主区只有 lead」的成因之一）。
+			const sessionParentId = readSession((snapshot) => snapshot?.subagent?.address?.parentSessionId);
+			const hintParentId = typeof parentSessionIdHint === 'string' && parentSessionIdHint !== '' ? parentSessionIdHint : undefined;
+			const parentSessionId = sessionParentId ?? hintParentId;
 			const leadSessionId = parentSessionId ?? sessionId;
 			const list = readSessions((state) => state);
 			// Channel 1: api-session/status (running) — one subscription for the roster.
@@ -5738,7 +5760,32 @@ window.__ModuleLoader__.load({
 		// agentTeam projection (the 首辅 session), and the page keeps the last
 		// choice in session-local state.
 		const CABINET_PANEL_ID = 'cabinet';
-		/** Session rows a cabinet page can bind to, newest metadata included. */
+		/**
+		 * 左列 = DSH 工作区那层「顶层会话」，与原生工作区会话列表同一批。
+		 * 子 agent 会话（parentSessionId 非空，或 origin === 'subagent'）属于
+		 * 父会话的右侧群聊，一律不进左列——用户两次纠正的正是这一点。
+		 * 契约：dsh-api-session-controller sessions/lineage.d.ts:21,29、
+		 * types.d.ts:169-170（SessionSummary.parentSessionId / origin）；
+		 * 落盘 session 头同名字段实测：子会话带 parentSession + origin:'subagent'，
+		 * 顶层会话两者皆无。
+		 */
+		function cabinetSessionChoiceRow(id, row, projections) {
+			if (typeof id !== 'string' || id === '') return null;
+			if (row === null || typeof row !== 'object') return null;
+			const parentId = typeof row.parentSessionId === 'string' && row.parentSessionId !== '' ? row.parentSessionId : '';
+			if (parentId !== '' || row.origin === 'subagent') return null;
+			const values = projections[id] && typeof projections[id] === 'object' ? projections[id].values : undefined;
+			const title = typeof row.title === 'string' && row.title !== '' ? row.title
+				: (typeof row.displayTitle === 'string' && row.displayTitle !== '' ? row.displayTitle : id);
+			return {
+				id,
+				title,
+				running: row.running === true,
+				updatedAt: typeof row.updatedAt === 'number' ? row.updatedAt : (typeof row.lastMessageAt === 'number' ? row.lastMessageAt : 0),
+				hasTeam: values !== undefined && values !== null && values.agentTeam !== undefined,
+			};
+		}
+		/** 顶层会话行（子 agent 行已剔除）。 */
 		function cabinetSessionChoices(list) {
 			if (list === null || typeof list !== 'object') return [];
 			const byId = list.byId !== null && typeof list.byId === 'object' ? list.byId : undefined;
@@ -5747,30 +5794,19 @@ window.__ModuleLoader__.load({
 			const projections = list.projectionsBySession !== null && typeof list.projectionsBySession === 'object' ? list.projectionsBySession : {};
 			const choices = [];
 			for (const id of ids) {
-				if (typeof id !== 'string' || id === '') continue;
-				const row = byId[id];
-				if (row === null || typeof row !== 'object') continue;
-				const values = projections[id] && typeof projections[id] === 'object' ? projections[id].values : undefined;
-				const title = typeof row.title === 'string' && row.title !== '' ? row.title
-					: (typeof row.displayTitle === 'string' && row.displayTitle !== '' ? row.displayTitle : id);
-				choices.push({
-					id,
-					title,
-					running: row.running === true,
-					updatedAt: typeof row.updatedAt === 'number' ? row.updatedAt : (typeof row.lastMessageAt === 'number' ? row.lastMessageAt : 0),
-					hasTeam: values !== undefined && values !== null && values.agentTeam !== undefined,
-				});
+				const choice = cabinetSessionChoiceRow(id, byId[id], projections);
+				if (choice !== null) choices.push(choice);
 			}
 			return choices;
 		}
-		/** 首辅会话优先（有 agentTeam 投影者），其次最近更新的会话。 */
+		/** 默认选中最近更新的会话（用户已定：不再优先「有 agentTeam」的会话）。 */
 		function defaultCabinetSession(choices) {
-			const pool = choices.filter((choice) => choice.hasTeam);
-			const candidates = pool.length > 0 ? pool : choices;
 			let best = '';
 			let bestAt = -Infinity;
-			for (const choice of candidates) {
-				if (choice.updatedAt > bestAt) { best = choice.id; bestAt = choice.updatedAt; }
+			for (const choice of Array.isArray(choices) ? choices : []) {
+				if (choice === null || typeof choice !== 'object') continue;
+				const at = typeof choice.updatedAt === 'number' ? choice.updatedAt : 0;
+				if (at > bestAt) { best = choice.id; bestAt = at; }
 			}
 			return best;
 		}
@@ -5802,7 +5838,9 @@ window.__ModuleLoader__.load({
 			// 原生会话打开通道不可用时的提示（不静默失败）。
 			const [openNotice, setOpenNotice] = React.useState('');
 			// 主区查看对象：'all' = 合并群聊流；某成员 id = 只看该会话。
-			const [focus, setFocus] = React.useState('all');
+			// 左列没有合成的「全部」项：focus 空串表示「跟随默认选中」，
+			// 选中态由 boundSession 决定（见下）。
+			const [focus, setFocus] = React.useState('');
 			const [groupSnapshot, setGroupSnapshot] = React.useState(null);
 			const selected = chosen !== '' && choices.some((choice) => choice.id === chosen) ? chosen : preferred;
 			const projections = list !== null && typeof list === 'object' && list.projectionsBySession !== null && typeof list.projectionsBySession === 'object' ? list.projectionsBySession : {};
@@ -5850,19 +5888,24 @@ window.__ModuleLoader__.load({
 				}
 				return undefined;
 			};
-			// 左列 = 全部 DSH 会话（与原生左侧列表同一 useSessions 快照，按最近更新倒序），
-			// 不是当前会话的 agentTeam 成员。点一项 = 进该会话的原生视图。
+			// 左列就是工作区会话列表本身：顶层会话按最近更新倒序，无合成项。
+			// 点一项 = 选中该会话，右侧显示它的群聊（首辅 + 该会话各阁臣）。
+			// 右侧主区绑定的会话 = 左列当前选中项（focus 为空时跟默认选中）。
+			// 它的 agentTeam（首辅 + 各阁臣子会话）由 CabinetPanel 读取并合并。
+			const boundSession = focus !== '' && choices.some((choice) => choice.id === focus) ? focus : selected;
+			const byIdRows = list !== null && typeof list === 'object' && list.byId !== null && typeof list.byId === 'object' ? list.byId : {};
+			const boundRow = byIdRows[boundSession];
+			const boundParentId = boundRow !== null && boundRow !== undefined && typeof boundRow.parentSessionId === 'string' ? boundRow.parentSessionId : '';
 			const sessionItems = choices.slice().sort((a, b) => (b.updatedAt - a.updatedAt) || (a.id < b.id ? -1 : 1));
-			const conversations = [{ id: 'all', name: '', label: tt('conversation.all'), role: 'all', native: false, updatedAt: 0, note: '' }]
-				.concat(sessionItems.map((choice) => ({
-					id: choice.id,
-					name: '',
-					label: choice.title || choice.id,
-					role: 'session',
-					native: true,
-					updatedAt: choice.updatedAt,
-					note: choice.hasTeam ? tt('conversation.team') : (choice.running ? tt('status.running') : '')
-				})));
+			const conversations = sessionItems.map((choice) => ({
+				id: choice.id,
+				name: '',
+				label: choice.title || choice.id,
+				role: 'session',
+				native: true,
+				updatedAt: choice.updatedAt,
+				note: choice.hasTeam ? tt('conversation.team') : (choice.running ? tt('status.running') : '')
+			}));
 			const conversationList = h('div', {
 				key: 'conversations',
 				'data-cabinet-conversations': '1',
@@ -5875,7 +5918,8 @@ window.__ModuleLoader__.load({
 				const stamp = entry.native === true
 					? (typeof entry.updatedAt === 'number' && entry.updatedAt > 0 ? chatStampText(entry.updatedAt) : '')
 					: (last !== undefined && typeof last.time === 'number' && last.time > 0 ? chatStampText(last.time) : '');
-				const active = focus === entry.id;
+				// 选中态：显式点过就是该 id；没点过（focus 空）就是默认绑定的会话。
+				const active = focus === entry.id || (focus === '' && entry.id === boundSession);
 				return h('button', {
 					key: entry.id,
 					type: 'button',
@@ -5883,12 +5927,12 @@ window.__ModuleLoader__.load({
 					'data-cabinet-conversation-id': entry.id,
 					'data-cabinet-conversation-name': entry.label,
 					'data-cabinet-conversation-selected': active ? '1' : '0',
-					title: entry.native ? entry.label + ' · ' + tt('groupchat.open') : entry.label,
+					title: entry.label,
 					onClick: () => {
-						if (entry.native !== true) { setFocus('all'); setLeftMode('list'); setOpenNotice(''); return; }
-						// 与 dsh-context 相同的打开通道：uiWorkspace.openSession(sessionId)。
-						if (openCabinetSession(entry.id, entry.id)) { setOpenNotice(''); return; }
-						setOpenNotice(tt('conversation.openUnavailable'));
+						// 选中该会话：右侧主区切到它的群聊，不离开本页。
+						setFocus(entry.id);
+						setLeftMode('list');
+						setOpenNotice('');
 					},
 					style: { display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left', font: 'inherit', padding: '6px 8px', border: 0, borderRadius: 8, background: active ? 'rgba(79,140,255,.14)' : 'transparent', cursor: 'pointer', color: INK }
 				}, [
@@ -5943,18 +5987,20 @@ window.__ModuleLoader__.load({
 					h(CabinetMemberSettings, { key: 'settings', t: tt, selectionOf })
 				])
 			];
-			const body = selected === ''
+			// key 带会话 id：切换会话时重建面板，不复用上一个会话的成员视图。
+			const body = boundSession === ''
 				? h('div', { key: 'note', 'data-cabinet-page-note': '1', style: { fontSize: 12, color: INK2, padding: 12 } }, tt('page.noSession'))
 				: h(CabinetPanel, {
-					key: 'panel',
-					sessionId: selected,
+					key: 'panel:' + boundSession,
+					sessionId: boundSession,
+					parentSessionIdHint: boundParentId,
 					useSession: (select) => select({}),
 					useSessions: readSessions,
 					useSessionStatus: readStatus,
 					t: tt,
 					activeTab: 'groupchat',
 					hideTabs: true,
-					focusSessionId: focus === 'all' ? '' : focus,
+					focusSessionId: '',
 					onGroupSnapshot: (snapshot) => setGroupSnapshot(snapshot)
 				});
 			return h('div', {
