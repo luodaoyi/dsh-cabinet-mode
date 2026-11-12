@@ -2995,7 +2995,26 @@ assert.ok(!/background:\s*'(#fff|white)'/.test(source), 'no bare white backgroun
   {
     // 用独立实例渲染整页，避免前序 block 的模块状态/快照串味。
     let pageClient = null;
-    runInNewContext(source.replace(exportPoint, 'return { apply, CabinetPage, GroupChatRow, zh, memberLabel, cabinetScopeRows, openCabinetSession };'), {
+    // 右栏宽度的测试替身：localStorage（持久化）与 document（拖拽监听挂 document）。
+    const railStore = new Map();
+    const railStorage = {
+      getItem: (key) => (railStore.has(key) ? railStore.get(key) : null),
+      setItem: (key, value) => { railStore.set(key, String(value)); },
+      removeItem: (key) => { railStore.delete(key); },
+    };
+    const railDocListeners = { mousemove: [], mouseup: [] };
+    const railDocument = {
+      body: { style: {} },
+      addEventListener: (type, fn) => { if (Array.isArray(railDocListeners[type])) railDocListeners[type].push(fn); },
+      removeEventListener: (type, fn) => {
+        if (Array.isArray(railDocListeners[type])) railDocListeners[type] = railDocListeners[type].filter((item) => item !== fn);
+      },
+      // injectStyles 认得 document 后会走这两条路：给静默替身，不真插样式。
+      getElementById: () => null,
+      createElement: () => ({ id: '', textContent: '', style: {}, append: () => {} }),
+      head: { append: () => {} },
+    };
+    runInNewContext(source.replace(exportPoint, 'return { apply, CabinetPage, GroupChatRow, zh, memberLabel, cabinetScopeRows, openCabinetSession, STYLE_CSS, clampRailWidth, parseRailWidth, readRailWidth, persistRailWidth, CABINET_RAIL_DEFAULT_WIDTH, CABINET_RAIL_MIN_WIDTH, CABINET_RAIL_MAX_WIDTH, CABINET_RAIL_WIDTH_KEY };'), {
       window: { __ModuleLoader__: { load: ({ factory }) => {
         pageClient = factory((name) => {
           if (name === '@deepseek-ai/dsh-client-ui-primitives') throw new Error('primitives not seeded');
@@ -3004,6 +3023,8 @@ assert.ok(!/background:\s*'(#fff|white)'/.test(source), 'no bare white backgroun
         });
       } } },
       console,
+      localStorage: railStorage,
+      document: railDocument,
     });
     // 状态在 hookStates（useState）里，ref 在 persistentRefs（useRef）里：两者都要清。
     persistentRefs = { cursor: 0, slots: [] };
@@ -3099,7 +3120,7 @@ assert.ok(!/background:\s*'(#fff|white)'/.test(source), 'no bare white backgroun
       assert.ok(mainCol, 'the main column hook survives');
       assert.equal(mainCol.props.style.minWidth, 0, 'the centre column may shrink beside the rail');
       assert.ok(!JSON.stringify(mainCol.props.style).includes('-'), 'no negative margin tricks in the centre column');
-      assert.equal(railNode.props.style.width, 288, 'the rail keeps a fixed width');
+      assert.equal(railNode.props.style.width, 360, 'the rail defaults to 360px (roster grid needs the room); was fixed 288');
       assert.equal(railNode.props.style.flex, 'none', 'the rail never grows');
       assert.ok(railNode.props.style.borderLeft, 'a divider separates the rail from the centre column');
       // 内容 = CabinetPanel roster 视图：名册 tab（hideTabs:false 才有）与名册段文案。
@@ -3147,6 +3168,111 @@ assert.ok(!/background:\s*'(#fff|white)'/.test(source), 'no bare white backgroun
       assert.deepEqual(rightbarCalls, [], 'the toggle never calls openRightbar/closeRightbar, got ' + JSON.stringify(rightbarCalls));
       assert.deepEqual(sidebarCalls, [], 'the toggle never calls sidebarRight.openTab, got ' + JSON.stringify(sidebarCalls));
       assert.ok(!injectLog.some((entry) => entry.includes('"layout"') || entry.includes('"sidebarRight"')), 'the plugin no longer injects the native rightbar services, got ' + JSON.stringify(injectLog));
+    }
+
+    // ---- 右栏宽度：常量、限幅/解析纯函数、localStorage 持久化、拖拽手柄 ----
+    {
+      const WIDTH_KEY = 'dsh-cabinet:rail-width';
+      // 常量：默认 360（roster 两列 grid，288 装不下），限幅 [260, 720]，键名固定。
+      assert.equal(pageClient.CABINET_RAIL_DEFAULT_WIDTH, 360, 'default width is 360');
+      assert.equal(pageClient.CABINET_RAIL_MIN_WIDTH, 260, 'min width is 260');
+      assert.equal(pageClient.CABINET_RAIL_MAX_WIDTH, 720, 'max width is 720');
+      assert.equal(pageClient.CABINET_RAIL_WIDTH_KEY, WIDTH_KEY, 'storage key is dsh-cabinet:rail-width');
+      // clampRailWidth 纯函数单测：越界钳住、合值直通、非数值回默认。
+      assert.equal(pageClient.clampRailWidth(100), 260, '100 clamps up to 260');
+      assert.equal(pageClient.clampRailWidth(9999), 720, '9999 clamps down to 720');
+      assert.equal(pageClient.clampRailWidth(400), 400, '400 stays 400');
+      assert.equal(pageClient.clampRailWidth('abc'), 360, 'a non-number falls back to the default');
+      // parseRailWidth 纯函数单测：合法值生效、非法/缺失回默认、越界存储值钳住。
+      assert.equal(pageClient.parseRailWidth('450'), 450, 'a stored legal width takes effect');
+      assert.equal(pageClient.parseRailWidth(null), 360, 'missing storage falls back to default');
+      assert.equal(pageClient.parseRailWidth(undefined), 360, 'undefined falls back to default');
+      assert.equal(pageClient.parseRailWidth(''), 360, 'empty string falls back to default');
+      assert.equal(pageClient.parseRailWidth('abc'), 360, 'garbage falls back to default');
+      assert.equal(pageClient.parseRailWidth(' 480 '), 480, 'surrounding whitespace is tolerated');
+      assert.equal(pageClient.parseRailWidth('100'), 260, 'an out-of-range stored value clamps, keeping user intent');
+      assert.equal(pageClient.parseRailWidth('9999'), 720, 'an over-range stored value clamps too');
+      // localStorage 读写（railStorage 替身，键共享 pageClient 沙箱里的 globalThis）。
+      railStore.delete(WIDTH_KEY);
+      assert.equal(pageClient.readRailWidth(), 360, 'readRailWidth: missing key → default');
+      railStore.set(WIDTH_KEY, '450');
+      assert.equal(pageClient.readRailWidth(), 450, 'readRailWidth: legal stored value wins');
+      railStore.set(WIDTH_KEY, 'abc');
+      assert.equal(pageClient.readRailWidth(), 360, 'readRailWidth: illegal stored value → default');
+      railStore.delete(WIDTH_KEY);
+      assert.equal(pageClient.persistRailWidth(500), true, 'persistRailWidth succeeds with storage available');
+      assert.equal(railStore.get(WIDTH_KEY), '500', 'persistRailWidth writes the width');
+      pageClient.persistRailWidth(9999);
+      assert.equal(railStore.get(WIDTH_KEY), '720', 'persistRailWidth clamps before writing');
+      // 渲染层：清槽位强制首渲染重读 storage。
+      const widthProps = {
+        useSessions: (select) => select({ ids: ['s-w'], byId: { 's-w': { title: '宽度', updatedAt: ageOf(9) } }, projectionsBySession: {} }),
+        useSessionStatus: (select) => select(new Map()),
+        t: (key) => pageClient.zh[key] || key,
+      };
+      const railOf = (tree) => tree.find((node) => node.props?.['data-cabinet-cabinet-rail'] !== undefined);
+      railStore.delete(WIDTH_KEY);
+      hookStates.slots.length = 0;
+      resetHookCursor();
+      const freshTree = elements(pageClient.CabinetPage(widthProps));
+      assert.equal(railOf(freshTree).props.style.width, 360, 'an empty store renders the 360 default');
+      const freshHandle = freshTree.find((node) => node.props?.['data-cabinet-rail-handle'] !== undefined);
+      assert.ok(freshHandle, 'the drag handle node exists');
+      assert.equal(freshHandle.props.style.width, 6, 'the handle is 6px wide');
+      assert.equal(freshHandle.props.style.cursor, 'col-resize', 'the handle uses the col-resize cursor');
+      assert.equal(typeof freshHandle.props.onMouseDown, 'function', 'the handle has a mousedown handler');
+      const railCss = Array.isArray(pageClient.STYLE_CSS) ? pageClient.STYLE_CSS.join('\n') : String(pageClient.STYLE_CSS || '');
+      assert.ok(railCss.includes('[data-cabinet-rail-handle]:hover'), 'a hover rule highlights the handle');
+      railStore.set(WIDTH_KEY, '450');
+      hookStates.slots.length = 0;
+      resetHookCursor();
+      assert.equal(railOf(elements(pageClient.CabinetPage(widthProps))).props.style.width, 450, 'a stored 450 renders after refresh (slot cleared)');
+      railStore.delete(WIDTH_KEY);
+      hookStates.slots.length = 0;
+      resetHookCursor();
+      // 拖拽：mousedown 注册 document 监听 + body 光标；mousemove 改宽；mouseup 解绑+持久化。
+      const dragTree = elements(pageClient.CabinetPage(widthProps));
+      const dragHandle = dragTree.find((node) => node.props?.['data-cabinet-rail-handle'] !== undefined);
+      railDocListeners.mousemove.length = 0;
+      railDocListeners.mouseup.length = 0;
+      dragHandle.props.onMouseDown({ clientX: 600, preventDefault() {} });
+      assert.equal(railDocListeners.mousemove.length, 1, 'mousemove is bound on document (not on the handle)');
+      assert.equal(railDocListeners.mouseup.length, 1, 'mouseup is bound on document');
+      assert.equal(railDocument.body.style.cursor, 'col-resize', 'body cursor locks during the drag');
+      assert.equal(railDocument.body.style.userSelect, 'none', 'body selection is disabled during the drag');
+      railDocListeners.mousemove[0]({ clientX: 550 });
+      resetHookCursor();
+      const draggedTree = elements(pageClient.CabinetPage(widthProps));
+      assert.equal(railOf(draggedTree).props.style.width, 410, 'dragging left from the left edge widens: 360 - (550-600) = 410');
+      railDocListeners.mouseup[0]();
+      assert.equal(railDocListeners.mousemove.length, 0, 'mouseup unbinds mousemove (no dangling listener)');
+      assert.equal(railDocListeners.mouseup.length, 0, 'mouseup unbinds mouseup');
+      assert.equal(railDocument.body.style.cursor, '', 'body cursor is restored');
+      assert.equal(railDocument.body.style.userSelect, '', 'body selection is restored');
+      assert.equal(railStore.get(WIDTH_KEY), '410', 'mouseup persists the settled width');
+      // 卸载解绑：找到挂 railDragCleanupRef 的 effect，执行其 cleanup 等于组件卸载。
+      // 取最后一条登记（与即将渲染的这棵同批闭包）：recordedEffects 跨块累积，首条是旧渲染的旧 ref。
+      const unmountEntry = recordedEffects.filter((entry) => String(entry.fn).includes('railDragCleanupRef')).pop();
+      assert.ok(unmountEntry, 'the unmount-cleanup effect is registered');
+      resetHookCursor();
+      const unmountTree = elements(pageClient.CabinetPage(widthProps));
+      const unmountHandle = unmountTree.find((node) => node.props?.['data-cabinet-rail-handle'] !== undefined);
+      unmountHandle.props.onMouseDown({ clientX: 600, preventDefault() {} });
+      assert.equal(railDocListeners.mousemove.length, 1, 'listeners attached before the simulated unmount');
+      const unmountCleanup = unmountEntry.fn();
+      assert.equal(typeof unmountCleanup, 'function', 'the effect returns a cleanup');
+      unmountCleanup();
+      assert.equal(railDocListeners.mousemove.length, 0, 'unmount detaches mousemove');
+      assert.equal(railDocListeners.mouseup.length, 0, 'unmount detaches mouseup');
+      assert.equal(railDocument.body.style.cursor, '', 'unmount restores the body cursor');
+      // 反向：整段拖拽从不触碰宿主原生右栏通道。
+      assert.deepEqual(rightbarCalls, [], 'dragging never calls openRightbar/closeRightbar, got ' + JSON.stringify(rightbarCalls));
+      assert.deepEqual(sidebarCalls, [], 'dragging never calls sidebarRight.openTab, got ' + JSON.stringify(sidebarCalls));
+      // 收尾：清 storage、槽位回默认宽 360，保持与前序块一致的落点。
+      railStore.delete(WIDTH_KEY);
+      hookStates.slots.length = 0;
+      resetHookCursor();
+      assert.equal(railOf(elements(pageClient.CabinetPage(widthProps))).props.style.width, 360, 'teardown leaves the default width');
     }
 
     // ---- 联想开关两态：提示词层（index.js memberBlock/leadBlock + client configuredPrompt）----

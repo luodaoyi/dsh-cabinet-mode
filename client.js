@@ -2389,6 +2389,8 @@ window.__ModuleLoader__.load({
 		const STYLE_CSS = [
 			// status dot pulse (panel)
 			'@keyframes cabinetPulse{0%{box-shadow:0 0 0 0 rgba(34,197,94,.55)}70%{box-shadow:0 0 0 7px rgba(34,197,94,0)}100%{box-shadow:0 0 0 0 rgba(34,197,94,0)}}',
+			// 右栏拖拽手柄 hover 高亮（宽度可调，见 CABINET_RAIL_DEFAULT_WIDTH）。
+			'[data-cabinet-rail-handle]:hover{background:rgba(79,140,255,.45)}',
 			// running avatar: rotating conic ring (panel + native roster) and glow
 			'@keyframes cabinetSpin{to{transform:rotate(360deg)}}',
 			'@keyframes cabinetRingGlow{0%,100%{box-shadow:0 0 0 1px rgba(34,197,94,.35)}50%{box-shadow:0 0 0 3px rgba(34,197,94,.6)}}',
@@ -6165,7 +6167,45 @@ window.__ModuleLoader__.load({
 				style: { display: 'block' }
 			}, h('path', { d: 'M4 5h16v4H4zM4 11h7v8H4zM13 11h7v8h-7z', fill: 'currentColor', fillOpacity: active ? 0.95 : 0.7 }));
 		}
-		function CabinetPage(props) {
+		// ---- 右栏宽度（可拖拽）----
+	// 默认 360：CabinetPanel 的 roster 视图是两列 grid，原固定 288px 装不下
+	// （用户实测嫌窄），调到 360 起步；拖拽手柄可改，localStorage 持久化。
+	const CABINET_RAIL_DEFAULT_WIDTH = 360;
+	const CABINET_RAIL_MIN_WIDTH = 260;
+	const CABINET_RAIL_MAX_WIDTH = 720;
+	const CABINET_RAIL_WIDTH_KEY = 'dsh-cabinet:rail-width';
+	/** 宽度钳到 [260, 720]；非数值回默认 360（越界存储值钳住而不是丢弃）。 */
+	function clampRailWidth(value) {
+		const width = typeof value === 'number' && Number.isFinite(value) ? Math.round(value) : CABINET_RAIL_DEFAULT_WIDTH;
+		if (width < CABINET_RAIL_MIN_WIDTH) return CABINET_RAIL_MIN_WIDTH;
+		if (width > CABINET_RAIL_MAX_WIDTH) return CABINET_RAIL_MAX_WIDTH;
+		return width;
+	}
+	/** localStorage 字符串 → 宽度：缺失/非法回默认，合法值钳后生效。 */
+	function parseRailWidth(raw) {
+		if (typeof raw !== 'string' || raw.trim() === '') return CABINET_RAIL_DEFAULT_WIDTH;
+		const value = Number(raw.trim());
+		if (!Number.isFinite(value)) return CABINET_RAIL_DEFAULT_WIDTH;
+		return clampRailWidth(value);
+	}
+	/** 读持久化宽度；隐私模式访问 localStorage 可能抛，全部吞掉回默认。 */
+	function readRailWidth() {
+		try {
+			return parseRailWidth(globalThis.localStorage?.getItem(CABINET_RAIL_WIDTH_KEY));
+		} catch (error) {
+			return CABINET_RAIL_DEFAULT_WIDTH;
+		}
+	}
+	/** 拖拽松手时写入；同样 try/catch（隐私模式 setItem 可能抛）。 */
+	function persistRailWidth(width) {
+		try {
+			globalThis.localStorage?.setItem(CABINET_RAIL_WIDTH_KEY, String(clampRailWidth(width)));
+			return true;
+		} catch (error) {
+			return false;
+		}
+	}
+	function CabinetPage(props) {
 			const tt = typeof props?.t === 'function' ? props.t : memberT;
 			const readSessions = safeHook(props?.useSessions, identityHook);
 			const readStatus = safeHook(props?.useSessionStatus, identityHook);
@@ -6190,6 +6230,56 @@ window.__ModuleLoader__.load({
 			// 即应看见内阁状态，按钮只负责收起（窄屏也靠它让位）。
 			const [splitOpen, setSplitOpen] = React.useState(true);
 			const toggleSplit = () => setSplitOpen((open) => !open);
+			// 右栏宽度：首渲染读 localStorage（读不到/非法回默认 360，见 readRailWidth）。
+			const [railWidth, setRailWidth] = React.useState(() => readRailWidth());
+			// 拖拽中的解绑函数挂 ref：mouseup 与组件卸载共用，杜绝悬挂 document 监听。
+			const railDragCleanupRef = React.useRef(null);
+			React.useEffect(() => () => {
+				if (railDragCleanupRef.current !== null) {
+					railDragCleanupRef.current();
+					railDragCleanupRef.current = null;
+				}
+			}, []);
+			const startRailResize = (event) => {
+				if (event === null || typeof event !== 'object') return;
+				if (typeof event.preventDefault === 'function') event.preventDefault();
+				const startX = typeof event.clientX === 'number' ? event.clientX : 0;
+				const startWidth = railWidth;
+				let lastWidth = startWidth;
+				// 监听挂 document：只挂在手柄上，拖快了 mouseup 就丢了。
+				const doc = typeof document !== 'undefined' && document !== null ? document : null;
+				if (doc === null || typeof doc.addEventListener !== 'function') return;
+				const onMove = (moveEvent) => {
+					const x = moveEvent !== null && typeof moveEvent === 'object' && typeof moveEvent.clientX === 'number' ? moveEvent.clientX : startX;
+					// 手柄在左边界：newWidth = startWidth - (clientX - startX)。
+					lastWidth = clampRailWidth(startWidth - (x - startX));
+					setRailWidth(lastWidth);
+				};
+				const detach = () => {
+					doc.removeEventListener('mousemove', onMove);
+					doc.removeEventListener('mouseup', onUp);
+					const body = typeof doc.body === 'object' && doc.body !== null ? doc.body : null;
+					if (body !== null && typeof body.style === 'object') {
+						body.style.cursor = '';
+						body.style.userSelect = '';
+					}
+					if (railDragCleanupRef.current === detach) railDragCleanupRef.current = null;
+				};
+				const onUp = () => {
+					detach();
+					persistRailWidth(lastWidth);
+				};
+				// 防重入：上一次拖拽若还挂着，先解绑。
+				if (railDragCleanupRef.current !== null) railDragCleanupRef.current();
+				doc.addEventListener('mousemove', onMove);
+				doc.addEventListener('mouseup', onUp);
+				const body = typeof doc.body === 'object' && doc.body !== null ? doc.body : null;
+				if (body !== null && typeof body.style === 'object') {
+					body.style.cursor = 'col-resize';
+					body.style.userSelect = 'none';
+				}
+				railDragCleanupRef.current = detach;
+			};
 			// Workspace 分组快照：模块级服务 + 订阅（服务可能晚到/更换）。
 			const [liveWorkspaceSnapshot, setLiveWorkspaceSnapshot] = React.useState(() => (cabinetWorkspaces && typeof cabinetWorkspaces.list.getSnapshot === 'function' ? cabinetWorkspaces.list.getSnapshot() : null));
 			React.useEffect(() => {
@@ -6498,9 +6588,19 @@ window.__ModuleLoader__.load({
 				'data-cabinet-rail-open': splitOpen ? '1' : '0',
 				// order:2 —— DOM 里排在中列之前（测试 double 按展开顺序分配 hook
 				// 槽位，右栏若排在群聊行之后，行数一变槽位基址就漂移）；flex order
-				// 保证视觉上仍在最右。
-				style: { order: 2, width: 288, flex: 'none', minWidth: 0, minHeight: 0, boxSizing: 'border-box', display: splitOpen ? 'flex' : 'none', flexDirection: 'column', borderLeft: '1px solid rgba(127,127,127,.25)', overflow: 'hidden', padding: '8px 6px 8px' }
-			}, boundSession === ''
+				// 保证视觉上仍在最右。宽度 = 可拖拽 state（默认 360，见常量注释）；
+				// position:relative 给左边缘的拖拽手柄做定位基准。
+				style: { order: 2, position: 'relative', width: railWidth, flex: 'none', minWidth: 0, minHeight: 0, boxSizing: 'border-box', display: splitOpen ? 'flex' : 'none', flexDirection: 'column', borderLeft: '1px solid rgba(127,127,127,.25)', overflow: 'hidden', padding: '8px 6px 8px' }
+			}, [
+				// 拖拽手柄：左边缘 6px 竖条，hover 高亮（规则见 STYLE_CSS）。
+				h('div', {
+				key: 'rail-handle',
+				'data-cabinet-rail-handle': '1',
+				title: '拖拽调整右栏宽度',
+				onMouseDown: startRailResize,
+				style: { position: 'absolute', left: 0, top: 0, bottom: 0, width: 6, cursor: 'col-resize', background: 'transparent', borderRight: '1px solid rgba(127,127,127,.2)' }
+				}),
+				boundSession === ''
 				? h('div', { key: 'note', 'data-cabinet-rail-note': '1', style: { fontSize: 12, color: INK2, padding: 12 } }, tt('page.noSession'))
 				: h(CabinetPanel, {
 					key: 'rail:' + boundSession,
@@ -6514,7 +6614,8 @@ window.__ModuleLoader__.load({
 					hideTabs: false,
 					focusSessionId: '',
 					onGroupSnapshot: () => {}
-				}));
+				})
+			]);
 			return h('div', {
 				'data-cabinet-page': '1',
 				style: { display: 'flex', alignItems: 'stretch', height: '100%', minHeight: 0, boxSizing: 'border-box' }
