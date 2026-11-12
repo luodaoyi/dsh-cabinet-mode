@@ -3300,13 +3300,38 @@ assert.ok(!/background:\s*'(#fff|white)'/.test(source), 'no bare white backgroun
       const ofRail = ofTree.find((node) => node.props?.['data-cabinet-cabinet-rail'] !== undefined);
       assert.equal(ofRail.props.style.minWidth, 0, 'the rail container keeps minWidth:0');
       assert.equal(ofRail.props.style.overflow, 'hidden', 'the rail container clips instead of stretching');
-      const gridNode = ofTree.find((node) => typeof node.props?.style?.gridTemplateColumns === 'string' && node.props.style.gridTemplateColumns.includes('auto-fit'));
+      const gridNode = ofTree.find((node) => typeof node.props?.style?.gridTemplateColumns === 'string' && node.props.style.gridTemplateColumns.includes('auto-fill'));
       assert.ok(gridNode, 'the roster grid renders with members');
-      assert.ok(gridNode.props.style.gridTemplateColumns.includes('minmax(0'), 'roster grid columns are minmax(0,1fr), got ' + gridNode.props.style.gridTemplateColumns);
+      assert.ok(gridNode.props.style.gridTemplateColumns.includes('auto-fill'), 'the roster grid auto-fills columns by container width, got ' + gridNode.props.style.gridTemplateColumns);
+      assert.ok(gridNode.props.style.gridTemplateColumns.includes('minmax(140px'), 'roster grid columns floor at 140px, got ' + gridNode.props.style.gridTemplateColumns);
       const cellNodes = ofTree.filter((node) => node.props?.['data-cabinet-node'] !== undefined);
       assert.ok(cellNodes.length > 0, 'roster grid cells render');
-      for (const cell of cellNodes) assert.equal(cell.props.style?.minWidth, 0, 'every grid cell wrapper carries minWidth:0');
+      for (const cell of cellNodes) assert.equal(cell.props.style?.minWidth, 140, 'every grid cell wrapper carries the 140px card floor');
+      // 成员名必须单行省略——竖排 = whiteSpace 没锁（御史第15轮实测症状）。
+      const nameSpans = ofTree.filter((node) => node.props?.style?.fontSize === 13 && node.props?.style?.fontWeight === 600 && typeof node.props?.title === 'string' && node.props.title.includes('·'));
+      assert.ok(nameSpans.length > 0, 'roster member name spans render');
+      for (const nameSpan of nameSpans) {
+        assert.equal(nameSpan.props.style.whiteSpace, 'nowrap', 'roster member names stay on one line (nowrap), never stacked per character');
+        assert.equal(nameSpan.props.style.overflow, 'hidden', 'roster member names clip');
+        assert.equal(nameSpan.props.style.textOverflow, 'ellipsis', 'roster member names ellipsize');
+      }
+      // 群聊气泡的发送者名（同一 memberLabel，窄栏里同样会竖排）也必须单行省略。
+      const senderSpans = ofTree.filter((node) => node.props?.style?.fontSize === 11.5 && node.props?.style?.fontWeight === 600 && typeof node.props?.title === 'string' && node.props.title.includes('·'));
+      for (const senderSpan of senderSpans) {
+        assert.equal(senderSpan.props.style.whiteSpace, 'nowrap', 'chat sender names stay on one line, got ' + senderSpan.props.title);
+        assert.equal(senderSpan.props.style.textOverflow, 'ellipsis', 'chat sender names ellipsize, got ' + senderSpan.props.title);
+      }
+      // Owner 标签（带成员名的长文本）必须可收缩 + 单行省略，否则窄卡内被固有宽度撑破。
+      const ownerTags = ofTree.filter((node) => node.props?.style?.fontSize === 10 && typeof node.props?.title === 'string' && node.props.title.includes('·'));
+      assert.ok(ownerTags.length > 0, 'the Owner tag carrying a member name renders');
+      for (const ownerTag of ownerTags) {
+        assert.equal(ownerTag.props.style.minWidth, 0, 'the Owner tag can shrink (minWidth:0)');
+        assert.equal(ownerTag.props.style.whiteSpace, 'nowrap', 'the Owner tag stays one line');
+        assert.equal(ownerTag.props.style.textOverflow, 'ellipsis', 'the Owner tag ellipsizes');
+      }
       const ofCss = Array.isArray(pageClient.STYLE_CSS) ? pageClient.STYLE_CSS.join('\n') : String(pageClient.STYLE_CSS || '');
+      // 卡片内部本就允许收缩（配合 140 卡最小宽）。
+      assert.ok(ofCss.includes('.cabinet-card{box-sizing:border-box;display:flex;flex-direction:column;gap:4px;min-width:0'), 'the card interior keeps min-width:0 so content can shrink');
       assert.ok(ofCss.includes('.cabinet-avatar-slot{position:relative;display:inline-flex;flex:none;line-height:0;padding:3px;margin:-3px}'), 'the avatar slot box absorbs the 3px live-ring overhang (padding + negative margin)');
       assert.ok(ofCss.includes('cabinet-ring-live::before{content:"";position:absolute;inset:0'), 'the live ring sits inside the padding box so scrollWidth==clientWidth');
       // 反向：本块渲染同样不碰宿主原生右栏通道。

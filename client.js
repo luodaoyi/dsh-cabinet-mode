@@ -3453,7 +3453,9 @@ window.__ModuleLoader__.load({
 				title,
 				onClick,
 				className: clickable ? 'cabinet-clickable' : undefined,
-				style: { font: 'inherit', border: 0, fontSize: 10, padding: '0 5px', borderRadius: 4, color, background, flex: 'none', cursor: clickable ? 'pointer' : undefined }
+				// minWidth:0 + 单行省略：窄卡里 Owner 标签要能收缩，否则整行被
+				// 「Owner: 翰林院编修 · hanlin…」的固有宽度撑破（第15轮 +170 内溢出）。
+				style: { font: 'inherit', border: 0, fontSize: 10, padding: '0 5px', borderRadius: 4, color, background, flex: '0 1 auto', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', cursor: clickable ? 'pointer' : undefined }
 			}, children);
 		}
 
@@ -4684,7 +4686,7 @@ window.__ModuleLoader__.load({
 				'aria-label': self ? tt('groupchat.you') : undefined,
 				'data-cabinet-groupchat-head': '1',
 				style: { display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, flexWrap: 'wrap', justifyContent: self ? 'flex-end' : 'flex-start' }
-			}, self ? null : h('span', { key: 'name', ...openProps, title: nameTitle, style: { fontSize: 11.5, fontWeight: 600, color: INK, ...(openProps.style || {}) } }, name || tt('groupchat.unknown')));
+			}, self ? null : h('span', { key: 'name', ...openProps, title: nameTitle, style: { fontSize: 11.5, fontWeight: 600, color: INK, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', ...(openProps.style || {}) } }, name || tt('groupchat.unknown')));
 			// A failed member reads 「不可用」 on the line (the spec's wording) while
 			// the channel's own message stays reachable as the hover title.
 			const failed = row.kind === 'error';
@@ -5562,9 +5564,10 @@ window.__ModuleLoader__.load({
 						position: 'relative',
 						zIndex: 1,
 						display: 'grid',
-						// minmax(0,1fr)：列最小宽锁 0，列宽只随容器走，不被卡片内容
-						// 的 min-content 撑开（150px 下实测两列被内容顶出 +59）。
-						gridTemplateColumns: 'repeat(auto-fit,minmax(0,1fr))',
+						// auto-fill + minmax(140px,1fr)：列宽下限 140、按容器宽度
+						// 自动定列数并换行成多行（第15轮实证：min 0 时列数会按项数
+						// 展开——9 成员 9 列×40px 挤成一条横排、名字竖排破版）。
+						gridTemplateColumns: 'repeat(auto-fill,minmax(140px,1fr))',
 						gap: '12px 14px',
 						width: '100%'
 					}
@@ -5616,9 +5619,10 @@ window.__ModuleLoader__.load({
 					return h('div', {
 						key: cell.key,
 						'data-cabinet-node': '1',
-						// grid item 的自动最小尺寸是 min-content（nowrap 文本整行宽度），
-						// 不锁 0 卡片盒就被内容顶宽（实测 203/152）。
-						style: { minWidth: 0 }
+						// 卡片最小宽 140：既盖掉 grid item 的 min-content 自动最小
+						// 尺寸（nowrap 整行文本会把卡顶到 203+），又与列下限 140 对齐；
+						// 卡片内部 .cabinet-card 本就 min-width:0，允许内容收缩省略。
+						style: { minWidth: 140 }
 					}, content);
 				})));
 			}
