@@ -3041,11 +3041,13 @@ assert.ok(!/background:\s*'(#fff|white)'/.test(source), 'no bare white backgroun
     const openedSessions = [];
     const rightbarCalls = [];
     const sidebarCalls = [];
+    const injectLog = [];
     try {
       pageClient.apply({
         effect: (fn) => { try { const cleanup = fn(); return typeof cleanup === 'function' ? cleanup : () => {}; } catch (error) { return () => {}; } },
         locale: { register: () => {}, bind: () => (key) => pageClient.zh[key] || key },
         inject: (names, callback) => {
+          injectLog.push(JSON.stringify(names));
           if (Array.isArray(names) && names.includes('uiWorkspace')) callback({ uiWorkspace: { openSession: (target) => openedSessions.push(target) }, effect: (fn) => { fn(); return () => {}; } });
           if (Array.isArray(names) && names.includes('layout')) callback({ layout: { openRightbar: (track, fullscreen) => rightbarCalls.push(['open', track, fullscreen]), closeRightbar: () => rightbarCalls.push(['close']) }, effect: (fn) => { fn(); return () => {}; } });
           if (Array.isArray(names) && names.includes('sidebarRight')) callback({ sidebarRight: { openTab: (kind, options) => sidebarCalls.push(['openTab', kind, options === undefined ? null : JSON.stringify(options)]), active: () => undefined, close: (tabId) => sidebarCalls.push(['close', tabId]) }, effect: (fn) => { fn(); return () => {}; } });
@@ -3053,130 +3055,137 @@ assert.ok(!/background:\s*'(#fff|white)'/.test(source), 'no bare white backgroun
       });
     } catch (error) { /* optional services may be missing in this stub */ }
 
-    // ---- 分栏：顶部工具条的分栏按钮驱动宿主原生右栏（openRightbar/closeRightbar）----
-  {
-    // 注意：必须用 pageClient 的树——右栏 mock 只注入到 pageClient.apply；
-    // `page` 是另一个模块实例（client）渲染的，点它的按钮拿不到 layout 服务。
-    const treeStart = elements(pageClient.CabinetPage(teamProps));
-    const splitBtn = treeStart.find((node) => node.props?.['data-cabinet-split-toggle'] !== undefined);
-    assert.ok(splitBtn, 'the split toggle exists in the page toolbar');
-    assert.equal(splitBtn.props['data-cabinet-split-state'], '0', 'it starts closed');
-    const glyphOf = (node) => node.children.flat().filter((item) => typeof item === 'string').join('');
-    const closedGlyph = glyphOf(splitBtn);
-    splitBtn.props.onClick();
-    resetHookCursor();
-    const treeOpen = elements(pageClient.CabinetPage(teamProps));
-    const splitOpen = treeOpen.find((node) => node.props?.['data-cabinet-split-toggle'] !== undefined);
-    assert.ok(splitOpen, 'the split toggle survives the re-render');
-    assert.equal(splitOpen.props['data-cabinet-split-state'], '1', 'state flips to open after the first click');
-    assert.equal(splitOpen.props['aria-pressed'], 'true', 'the button reports pressed');
-    const openGlyph = glyphOf(splitOpen);
-    assert.notEqual(openGlyph, closedGlyph, 'the glyph changes with state, closed=' + closedGlyph + ' open=' + openGlyph);
-    // 成功路径：原生内容通道 openTab('guide') 才带出「开始」引导页；轨道由其
-    // openContent→planSetExpanded(true) 自带展开，所以这里**不再**调 openRightbar。
-    assert.deepEqual(sidebarCalls, [['openTab', 'guide', null]], "openTab('guide') is called exactly once with no options");
-    assert.equal(splitOpen.props['data-cabinet-split-degraded'], '0', 'a successful guide open is not marked degraded');
-    assert.deepEqual(rightbarCalls, [], 'the success path relies on the guide\'s own expansion, no redundant openRightbar');
-    // 主列必须让出轨道而不塌：minWidth:0 + flex:1（不靠负边距硬挤）。
-    const mainCol = treeOpen.find((node) => node.props?.['data-cabinet-page-main'] !== undefined);
-    assert.ok(mainCol, 'the centre column keeps its identity while split');
-    assert.equal(mainCol.props.style.minWidth, 0, 'the centre column may shrink when the rightbar takes a track');
-    assert.ok(!JSON.stringify(mainCol.props.style).includes('-'), 'no negative margin tricks in the centre column');
-    // 再点一次：关闭。
-    splitOpen.props.onClick();
-    resetHookCursor();
-    const treeClosed = elements(pageClient.CabinetPage(teamProps));
-    const splitClosed = treeClosed.find((node) => node.props?.['data-cabinet-split-toggle'] !== undefined);
-    assert.equal(splitClosed.props['data-cabinet-split-state'], '0', 'state flips back to closed');
-    assert.equal(splitClosed.props['data-cabinet-split-degraded'], '0', 'the degraded mark resets when the track closes');
-    assert.equal(splitClosed.props['aria-pressed'], 'false', 'the button reports unpressed');
-    const backGlyph = glyphOf(splitClosed);
-    assert.equal(backGlyph, closedGlyph, 'the glyph returns to the closed one');
-    assert.deepEqual(rightbarCalls, [['close']], 'closeRightbar() is called exactly once on the second click');
-    assert.deepEqual(sidebarCalls, [['openTab', 'guide', null]], 'the guide is not re-opened or closed by the close path (track collapse hides it)');
-    // 既有钩子不丢。
-    assert.ok(treeClosed.find((node) => node.props?.['data-cabinet-page-session'] !== undefined), 'the session picker hook survives');
-    assert.ok(treeClosed.find((node) => node.props?.['data-cabinet-page-side'] !== undefined), 'the side column hook survives');
-    assert.ok(treeClosed.find((node) => node.props?.['data-cabinet-page-main'] !== undefined), 'the main column hook survives');
-
-    // ---- 降级分支：宿主没有 sidebarRight 服务时，按钮退回纯轨道（openRightbar）----
+    // ---- 分栏按钮 → 页内自绘「内阁」右栏（第三栏）----
+    // 宿主原生右栏在 main 面板下三重锁不渲染（空壳，用户已否定），故按钮改为
+    // 纯本地开合；反向断言点击绝不触碰 openRightbar/closeRightbar/openTab。
     {
-      let plainClient = null;
-      runInNewContext(source.replace(exportPoint, 'return { apply, CabinetPage, zh };'), {
-        window: { __ModuleLoader__: { load: ({ factory }) => {
-          plainClient = factory((name) => {
-            if (name === '@deepseek-ai/dsh-client-ui-primitives') throw new Error('primitives not seeded');
-            return React;
-          });
-        } } },
-        console,
-      });
-      const plainRightbar = [];
-      plainClient.apply({
-        effect: (fn) => { try { const cleanup = fn(); return typeof cleanup === 'function' ? cleanup : () => {}; } catch (error) { return () => {}; } },
-        locale: { register: () => {}, bind: () => (key) => plainClient.zh[key] || key },
-        inject: (names, callback) => {
-          // 只注入 layout，**不**注入 sidebarRight —— 模拟插件没跑/服务缺席。
-          if (Array.isArray(names) && names.includes('layout')) callback({ layout: { openRightbar: (track, fullscreen) => plainRightbar.push(['open', track, fullscreen]), closeRightbar: () => plainRightbar.push(['close']) }, effect: (fn) => { fn(); return () => {}; } });
+      const railTextOf = (node) => {
+        if (typeof node === 'string') return node;
+        if (Array.isArray(node)) return node.map(railTextOf).join('');
+        if (!node || typeof node !== 'object') return '';
+        return (Array.isArray(node.children) ? node.children : []).map(railTextOf).join('');
+      };
+      const railMembers = [
+        { name: 'lead', role: 'lead', id: 's-rail', phase: 'active' },
+        { name: 'dalisi-qing', role: 'teammate', id: 'm-a', phase: 'active' },
+        { name: 'dalisi-qing2', role: 'teammate', id: 'm-b', phase: 'active' },
+      ];
+      const railList = {
+        ids: ['s-rail'],
+        byId: { 's-rail': { title: '内阁右栏测试', updatedAt: ageOf(10) } },
+        projectionsBySession: {
+          's-rail': { values: { agentTeam: { members: railMembers, tasks: [
+            { id: 't-p1', status: 'pending', title: '待办一', ownerName: 'dalisi-qing' },
+            { id: 't-p2', status: 'pending', title: '待办二', ownerName: 'lead' },
+            { id: 't-i1', status: 'in_progress', title: '进行一', ownerName: 'dalisi-qing2' },
+            { id: 't-c1', status: 'completed', title: '完成一', ownerName: 'lead' },
+            { id: 't-c2', status: 'completed', title: '完成二', ownerName: 'dalisi-qing' },
+            { id: 't-c3', status: 'completed', title: '完成三', ownerName: 'dalisi-qing2' },
+          ] } } },
+          'm-a': { values: { modelSelection: { next: { model: 'mimo-v2.6' } } } },
+          'm-b': { values: { modelSelection: { next: { model: '' } } } },
         },
-      });
+      };
+      const railStatus = new Map([['m-a', { running: true }]]);
+      const railProps = {
+        useSessions: (select) => select(railList),
+        useSessionStatus: (select) => select(railStatus),
+        t: (key) => pageClient.zh[key] || key,
+      };
       resetHookCursor();
-      const plainStart = elements(plainClient.CabinetPage(teamProps));
-      const plainBtn = plainStart.find((node) => node.props?.['data-cabinet-split-toggle'] !== undefined);
-      assert.ok(plainBtn, 'the split toggle still renders without the sidebarRight service');
-      plainBtn.props.onClick();
+      const railTree = elements(pageClient.CabinetPage(railProps));
+      const railNode = railTree.find((node) => node.props?.['data-cabinet-cabinet-rail'] !== undefined);
+      assert.ok(railNode, 'the cabinet rail exists as the third column');
+      assert.equal(railNode.props['data-cabinet-rail-open'], '1', 'the rail starts open: the user asked for the cabinet sidebar to be drawn on the page');
+      const splitBtn = railTree.find((node) => node.props?.['data-cabinet-split-toggle'] !== undefined);
+      assert.ok(splitBtn, 'the split toggle exists in the page toolbar');
+      assert.equal(splitBtn.props['data-cabinet-split-state'], '1', 'the toggle reports the open rail');
+      assert.equal(splitBtn.props['aria-pressed'], 'true', 'aria-pressed follows the open state');
+      const openGlyph = splitBtn.children.flat().filter((item) => typeof item === 'string').join('');
+      assert.equal(openGlyph, '▦', 'the open state shows the filled grid glyph, got ' + openGlyph);
+      // 三栏结构与滚动：左列/中列钩子保留，主列可收缩且无负边距，右栏定宽、
+      // 名册区与任务区各自可滚动。
+      assert.ok(railTree.find((node) => node.props?.['data-cabinet-page-side'] !== undefined), 'the side column hook survives');
+      const mainCol = railTree.find((node) => node.props?.['data-cabinet-page-main'] !== undefined);
+      assert.ok(mainCol, 'the main column hook survives');
+      assert.equal(mainCol.props.style.minWidth, 0, 'the centre column may shrink beside the rail');
+      assert.ok(!JSON.stringify(mainCol.props.style).includes('-'), 'no negative margin tricks in the centre column');
+      assert.equal(railNode.props.style.width, 288, 'the rail keeps a fixed width');
+      assert.equal(railNode.props.style.flex, 'none', 'the rail never grows');
+      const roster = railTree.find((node) => node.props?.['data-cabinet-rail-roster'] !== undefined);
+      const tasksBox = railTree.find((node) => node.props?.['data-cabinet-rail-tasks'] !== undefined);
+      assert.ok(roster && tasksBox, 'the rail carries a roster section and a task section');
+      assert.equal(roster.props.style.overflowY, 'auto', 'the roster scrolls on its own');
+      assert.equal(tasksBox.props.style.overflowY, 'auto', 'the task board scrolls on its own');
+      // 汇总行复用既有 locale 键（成员/待办/进行中/已完成）。
+      const railText = railTextOf(railNode);
+      assert.ok(railText.includes('成员 3'), 'the summary line counts the three members, got: ' + railText.slice(0, 160));
+      assert.ok(railText.includes('待办 2') && railText.includes('进行中 1') && railText.includes('已完成 3'), 'the summary line counts the task groups');
+      // 首辅卡片 + 阁臣名册：3 行都在、中文名正确、重名带序号。
+      const memberRows = railTree.filter((node) => node.props?.['data-cabinet-rail-member'] !== undefined);
+      assert.equal(memberRows.length, 3, 'the lead card and both ministers render as member rows, got ' + memberRows.length);
+      const expectedNames = client.chatBubbleNames(railMembers);
+      const childWith = (row, attr) => row.children.flat().find((child) => child !== null && typeof child === 'object' && child.props?.[attr] !== undefined);
+      const nameOfRow = (row) => {
+        const node = childWith(row, 'data-cabinet-rail-member-name');
+        return node === undefined ? null : node.props['data-cabinet-rail-member-name'];
+      };
+      const leadRow = memberRows.find((node) => node.props['data-cabinet-rail-member'] === 's-rail');
+      assert.equal(nameOfRow(leadRow), client.displayName('lead'), 'the lead card shows the Chinese display name');
+      const mateA = memberRows.find((node) => node.props['data-cabinet-rail-member'] === 'm-a');
+      const mateB = memberRows.find((node) => node.props['data-cabinet-rail-member'] === 'm-b');
+      assert.equal(nameOfRow(mateA), expectedNames.get('dalisi-qing'), 'the first minister shows its unique bubble name');
+      assert.equal(nameOfRow(mateB), expectedNames.get('dalisi-qing2'), 'the second minister shows its unique bubble name');
+      assert.notEqual(nameOfRow(mateA), nameOfRow(mateB), 'the duplicate office is disambiguated with an ordinal');
+      const statusOfRow = (row) => {
+        const node = childWith(row, 'data-cabinet-rail-status');
+        return node === undefined ? null : node.props['data-cabinet-rail-status'];
+      };
+      assert.equal(statusOfRow(mateA), 'running', 'the running minister shows the running dot');
+      assert.equal(statusOfRow(leadRow), 'inactive', 'the idle lead shows the inactive dot');
+      assert.equal(statusOfRow(mateB), 'inactive', 'the idle minister shows the inactive dot');
+      const modelOfRow = (row) => {
+        const node = childWith(row, 'data-cabinet-rail-member-model');
+        return node === undefined ? null : node.props['data-cabinet-rail-member-model'];
+      };
+      assert.equal(modelOfRow(mateA), 'mimo-v2.6', 'the model name shows when the projection has one');
+      assert.equal(modelOfRow(mateB), null, 'no model name node when the projection has none');
+      // 任务板三组计数 2 / 1 / 3，六个任务行都在。
+      const countNodes = railTree.filter((node) => node.props?.['data-cabinet-rail-task-count'] !== undefined);
+      assert.deepEqual(countNodes.map((node) => node.props['data-cabinet-rail-task-count']), ['2', '1', '3'], 'the three groups report 2 pending / 1 in progress / 3 done');
+      const taskRows = railTree.filter((node) => node.props?.['data-cabinet-rail-task'] !== undefined);
+      assert.equal(taskRows.length, 6, 'all six tasks render as clickable rows');
+      // 任务行点击走既有 openCabinetSession 通道：阁臣 parent/child 载荷、首辅 plain。
+      openedSessions.length = 0;
+      taskRows.find((node) => node.props['data-cabinet-rail-task'] === 't-p1').props.onClick();
+      // vm 跨 realm 对象原型不同，deepStrictEqual 会误判——按既有惯例用 JSON 比较。
+      assert.equal(JSON.stringify(openedSessions), JSON.stringify([{ parentSessionId: 's-rail', childSessionId: 'm-a', mode: 'continuable' }]), 'a minister-owned task opens that minister with the native roster payload');
+      openedSessions.length = 0;
+      taskRows.find((node) => node.props['data-cabinet-rail-task'] === 't-p2').props.onClick();
+      assert.deepEqual(openedSessions, ['s-rail'], 'a lead-owned task opens the lead session id directly');
+      // 点按钮 → 右栏收起：状态/glyph/aria-pressed 跟随，rail 隐藏。
+      splitBtn.props.onClick();
       resetHookCursor();
-      const plainOpen = elements(plainClient.CabinetPage(teamProps));
-      const plainOpenBtn = plainOpen.find((node) => node.props?.['data-cabinet-split-toggle'] !== undefined);
-      assert.equal(plainOpenBtn.props['data-cabinet-split-state'], '1', 'the state still flips without the service');
-      assert.equal(plainOpenBtn.props['data-cabinet-split-degraded'], '1', 'without the sidebarRight service the open state is honestly marked degraded');
-      assert.ok(String(plainOpenBtn.props.title).includes('屏上会话'), 'the degraded title tells the user the guide needs an on-screen session, got ' + plainOpenBtn.props.title);
-      assert.deepEqual(plainRightbar, [['open', true, false]], 'the fallback opens the plain track with (true, false)');
-      plainOpenBtn.props.onClick();
+      const closedTree = elements(pageClient.CabinetPage(railProps));
+      const closedRail = closedTree.find((node) => node.props?.['data-cabinet-cabinet-rail'] !== undefined);
+      assert.equal(closedRail.props['data-cabinet-rail-open'], '0', 'the rail state flips to closed');
+      assert.equal(closedRail.props.style.display, 'none', 'the closed rail is hidden');
+      const closedBtn = closedTree.find((node) => node.props?.['data-cabinet-split-toggle'] !== undefined);
+      assert.equal(closedBtn.props['data-cabinet-split-state'], '0', 'the toggle state follows');
+      assert.equal(closedBtn.props['aria-pressed'], 'false', 'aria-pressed follows the closed state');
+      const closedGlyph = closedBtn.children.flat().filter((item) => typeof item === 'string').join('');
+      assert.equal(closedGlyph, '◫', 'the closed state shows the empty grid glyph, got ' + closedGlyph);
+      assert.notEqual(closedGlyph, openGlyph, 'the glyph changes with state');
+      // 再点 → 回到开。
+      closedBtn.props.onClick();
       resetHookCursor();
-      const plainClosed = elements(plainClient.CabinetPage(teamProps));
-      const plainClosedBtn = plainClosed.find((node) => node.props?.['data-cabinet-split-toggle'] !== undefined);
-      assert.equal(plainClosedBtn.props['data-cabinet-split-state'], '0', 'the fallback close flips back to closed');
-      assert.equal(plainClosedBtn.props['data-cabinet-split-degraded'], '0', 'the degraded mark resets after the fallback close');
-      assert.deepEqual(plainRightbar, [['open', true, false], ['close']], 'the fallback close calls closeRightbar exactly once');
+      const reopenTree = elements(pageClient.CabinetPage(railProps));
+      assert.equal(reopenTree.find((node) => node.props?.['data-cabinet-cabinet-rail'] !== undefined).props['data-cabinet-rail-open'], '1', 'toggling again reopens the rail');
+      // 反向断言：点击从不触碰宿主原生右栏通道，且插件不再注入它们。
+      assert.deepEqual(rightbarCalls, [], 'the toggle never calls openRightbar/closeRightbar, got ' + JSON.stringify(rightbarCalls));
+      assert.deepEqual(sidebarCalls, [], 'the toggle never calls sidebarRight.openTab, got ' + JSON.stringify(sidebarCalls));
+      assert.ok(!injectLog.some((entry) => entry.includes('"layout"') || entry.includes('"sidebarRight"')), 'the plugin no longer injects the native rightbar services, got ' + JSON.stringify(injectLog));
     }
-
-    // ---- openTab 抛错分支：宿主 require() 要求屏上会话（sidebar-right :2244/:2235）----
-    // 服务在、但 openTab 抛「no session surface is mounted」时：状态照翻、
-    // degraded='1'、轨道照开——不假装装上了。
-    {
-      let throwClient = null;
-      runInNewContext(source.replace(exportPoint, 'return { apply, CabinetPage, zh };'), {
-        window: { __ModuleLoader__: { load: ({ factory }) => {
-          throwClient = factory((name) => {
-            if (name === '@deepseek-ai/dsh-client-ui-primitives') throw new Error('primitives not seeded');
-            return React;
-          });
-        } } },
-        console,
-      });
-      const throwRightbar = [];
-      throwClient.apply({
-        effect: (fn) => { try { const cleanup = fn(); return typeof cleanup === 'function' ? cleanup : () => {}; } catch (error) { return () => {}; } },
-        locale: { register: () => {}, bind: () => (key) => throwClient.zh[key] || key },
-        inject: (names, callback) => {
-          if (Array.isArray(names) && names.includes('layout')) callback({ layout: { openRightbar: (track, fullscreen) => throwRightbar.push(['open', track, fullscreen]), closeRightbar: () => throwRightbar.push(['close']) }, effect: (fn) => { fn(); return () => {}; } });
-          if (Array.isArray(names) && names.includes('sidebarRight')) callback({ sidebarRight: { openTab: () => { throw new Error('sidebarRight: no session surface is mounted'); } }, effect: (fn) => { fn(); return () => {}; } });
-        },
-      });
-      resetHookCursor();
-      const throwStart = elements(throwClient.CabinetPage(teamProps));
-      const throwBtn = throwStart.find((node) => node.props?.['data-cabinet-split-toggle'] !== undefined);
-      throwBtn.props.onClick();
-      resetHookCursor();
-      const throwOpen = elements(throwClient.CabinetPage(teamProps));
-      const throwOpenBtn = throwOpen.find((node) => node.props?.['data-cabinet-split-toggle'] !== undefined);
-      assert.equal(throwOpenBtn.props['data-cabinet-split-state'], '1', 'the state still flips when openTab throws');
-      assert.equal(throwOpenBtn.props['data-cabinet-split-degraded'], '1', 'an openTab throw marks the state degraded');
-      assert.ok(String(throwOpenBtn.props.title).includes('屏上会话'), 'the thrown-open title explains the on-screen session requirement');
-      assert.deepEqual(throwRightbar, [['open', true, false]], 'the track still opens after the throw');
-    }
-  }
     resetHookCursor();
     const collapsedTree0 = elements(pageClient.CabinetPage(teamProps));
     // 默认全折叠：首屏只有组标题与计数，没有任何会话行。
