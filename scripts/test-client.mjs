@@ -5,6 +5,8 @@ import { runInNewContext } from 'node:vm';
 let client;
 const source = readFileSync(new URL('../client.js', import.meta.url), 'utf8');
 const exportPoint = 'return { inject, apply };';
+// index.js 的提示词组装（memberBlock/leadBlock）在本文件直接断言两态。
+const indexModule = await import(new URL('../index.js', import.meta.url));
 assert.equal(source.split(exportPoint).length, 2);
 // PR#22 coderabbit Major: client.js must not hardcode a machine home path.
 assert.ok(!source.includes('/home/fslong'), 'client.js source carries no hardcoded home path');
@@ -3055,9 +3057,9 @@ assert.ok(!/background:\s*'(#fff|white)'/.test(source), 'no bare white backgroun
       });
     } catch (error) { /* optional services may be missing in this stub */ }
 
-    // ---- 分栏按钮 → 页内自绘「内阁」右栏（第三栏）----
-    // 宿主原生右栏在 main 面板下三重锁不渲染（空壳，用户已否定），故按钮改为
-    // 纯本地开合；反向断言点击绝不触碰 openRightbar/closeRightbar/openTab。
+    // ---- 分栏按钮 → 右栏复用 CabinetPanel 名册视图（第三栏）----
+    // 用户口径「直接复用」：容器与开合保留，内容换成 CabinetPanel 的 roster tab；
+    // 自绘名册/任务行已删——反向断言 data-cabinet-rail-member/-task 不再存在。
     {
       const railTextOf = (node) => {
         if (typeof node === 'string') return node;
@@ -3073,38 +3075,25 @@ assert.ok(!/background:\s*'(#fff|white)'/.test(source), 'no bare white backgroun
       const railList = {
         ids: ['s-rail'],
         byId: { 's-rail': { title: '内阁右栏测试', updatedAt: ageOf(10) } },
-        projectionsBySession: {
-          's-rail': { values: { agentTeam: { members: railMembers, tasks: [
-            { id: 't-p1', status: 'pending', title: '待办一', ownerName: 'dalisi-qing' },
-            { id: 't-p2', status: 'pending', title: '待办二', ownerName: 'lead' },
-            { id: 't-i1', status: 'in_progress', title: '进行一', ownerName: 'dalisi-qing2' },
-            { id: 't-c1', status: 'completed', title: '完成一', ownerName: 'lead' },
-            { id: 't-c2', status: 'completed', title: '完成二', ownerName: 'dalisi-qing' },
-            { id: 't-c3', status: 'completed', title: '完成三', ownerName: 'dalisi-qing2' },
-          ] } } },
-          'm-a': { values: { modelSelection: { next: { model: 'mimo-v2.6' } } } },
-          'm-b': { values: { modelSelection: { next: { model: '' } } } },
-        },
+        projectionsBySession: { 's-rail': { values: { agentTeam: { members: railMembers, tasks: [] } } } },
       };
-      const railStatus = new Map([['m-a', { running: true }]]);
       const railProps = {
         useSessions: (select) => select(railList),
-        useSessionStatus: (select) => select(railStatus),
+        useSessionStatus: (select) => select(new Map()),
         t: (key) => pageClient.zh[key] || key,
       };
       resetHookCursor();
       const railTree = elements(pageClient.CabinetPage(railProps));
       const railNode = railTree.find((node) => node.props?.['data-cabinet-cabinet-rail'] !== undefined);
       assert.ok(railNode, 'the cabinet rail exists as the third column');
-      assert.equal(railNode.props['data-cabinet-rail-open'], '1', 'the rail starts open: the user asked for the cabinet sidebar to be drawn on the page');
+      assert.equal(railNode.props['data-cabinet-rail-open'], '1', 'the rail starts open');
       const splitBtn = railTree.find((node) => node.props?.['data-cabinet-split-toggle'] !== undefined);
       assert.ok(splitBtn, 'the split toggle exists in the page toolbar');
       assert.equal(splitBtn.props['data-cabinet-split-state'], '1', 'the toggle reports the open rail');
       assert.equal(splitBtn.props['aria-pressed'], 'true', 'aria-pressed follows the open state');
       const openGlyph = splitBtn.children.flat().filter((item) => typeof item === 'string').join('');
       assert.equal(openGlyph, '▦', 'the open state shows the filled grid glyph, got ' + openGlyph);
-      // 三栏结构与滚动：左列/中列钩子保留，主列可收缩且无负边距，右栏定宽、
-      // 名册区与任务区各自可滚动。
+      // 三栏结构：左列/中列钩子保留，主列可收缩且无负边距，右栏定宽带分隔线。
       assert.ok(railTree.find((node) => node.props?.['data-cabinet-page-side'] !== undefined), 'the side column hook survives');
       const mainCol = railTree.find((node) => node.props?.['data-cabinet-page-main'] !== undefined);
       assert.ok(mainCol, 'the main column hook survives');
@@ -3112,58 +3101,32 @@ assert.ok(!/background:\s*'(#fff|white)'/.test(source), 'no bare white backgroun
       assert.ok(!JSON.stringify(mainCol.props.style).includes('-'), 'no negative margin tricks in the centre column');
       assert.equal(railNode.props.style.width, 288, 'the rail keeps a fixed width');
       assert.equal(railNode.props.style.flex, 'none', 'the rail never grows');
-      const roster = railTree.find((node) => node.props?.['data-cabinet-rail-roster'] !== undefined);
-      const tasksBox = railTree.find((node) => node.props?.['data-cabinet-rail-tasks'] !== undefined);
-      assert.ok(roster && tasksBox, 'the rail carries a roster section and a task section');
-      assert.equal(roster.props.style.overflowY, 'auto', 'the roster scrolls on its own');
-      assert.equal(tasksBox.props.style.overflowY, 'auto', 'the task board scrolls on its own');
-      // 汇总行复用既有 locale 键（成员/待办/进行中/已完成）。
-      const railText = railTextOf(railNode);
-      assert.ok(railText.includes('成员 3'), 'the summary line counts the three members, got: ' + railText.slice(0, 160));
-      assert.ok(railText.includes('待办 2') && railText.includes('进行中 1') && railText.includes('已完成 3'), 'the summary line counts the task groups');
-      // 首辅卡片 + 阁臣名册：3 行都在、中文名正确、重名带序号。
-      const memberRows = railTree.filter((node) => node.props?.['data-cabinet-rail-member'] !== undefined);
-      assert.equal(memberRows.length, 3, 'the lead card and both ministers render as member rows, got ' + memberRows.length);
-      const expectedNames = client.chatBubbleNames(railMembers);
-      const childWith = (row, attr) => row.children.flat().find((child) => child !== null && typeof child === 'object' && child.props?.[attr] !== undefined);
-      const nameOfRow = (row) => {
-        const node = childWith(row, 'data-cabinet-rail-member-name');
-        return node === undefined ? null : node.props['data-cabinet-rail-member-name'];
+      assert.ok(railNode.props.style.borderLeft, 'a divider separates the rail from the centre column');
+      // 内容 = CabinetPanel roster 视图：名册 tab（hideTabs:false 才有）与名册段文案。
+      const rosterTabs = railTree.filter((node) => node.props?.['data-cabinet-panel-tab'] === 'roster');
+      assert.equal(rosterTabs.length, 1, 'exactly one roster tab renders (only the rail hides nothing)');
+      assert.equal(railTextOf(rosterTabs[0]), pageClient.zh['panel.tab.roster'], 'the tab reads 名册');
+      const wholeText = railTree.map(railTextOf).join('');
+      assert.ok(wholeText.includes(pageClient.zh['section.roster']), 'the roster section 首辅与阁臣 · 派活与任务 renders');
+      // 反向：自绘名册行/任务行已删干净。
+      const selfDrawn = railTree.filter((node) => node.props?.['data-cabinet-rail-member'] !== undefined || node.props?.['data-cabinet-rail-task'] !== undefined);
+      assert.equal(selfDrawn.length, 0, 'no self-drawn roster/task row survives, got ' + selfDrawn.length);
+      // 空会话：右栏只出提示行，不渲染面板。
+      const emptyProps = {
+        useSessions: (select) => select({ ids: [], byId: {}, projectionsBySession: {} }),
+        useSessionStatus: (select) => select(new Map()),
+        t: (key) => pageClient.zh[key] || key,
       };
-      const leadRow = memberRows.find((node) => node.props['data-cabinet-rail-member'] === 's-rail');
-      assert.equal(nameOfRow(leadRow), client.displayName('lead'), 'the lead card shows the Chinese display name');
-      const mateA = memberRows.find((node) => node.props['data-cabinet-rail-member'] === 'm-a');
-      const mateB = memberRows.find((node) => node.props['data-cabinet-rail-member'] === 'm-b');
-      assert.equal(nameOfRow(mateA), expectedNames.get('dalisi-qing'), 'the first minister shows its unique bubble name');
-      assert.equal(nameOfRow(mateB), expectedNames.get('dalisi-qing2'), 'the second minister shows its unique bubble name');
-      assert.notEqual(nameOfRow(mateA), nameOfRow(mateB), 'the duplicate office is disambiguated with an ordinal');
-      const statusOfRow = (row) => {
-        const node = childWith(row, 'data-cabinet-rail-status');
-        return node === undefined ? null : node.props['data-cabinet-rail-status'];
-      };
-      assert.equal(statusOfRow(mateA), 'running', 'the running minister shows the running dot');
-      assert.equal(statusOfRow(leadRow), 'inactive', 'the idle lead shows the inactive dot');
-      assert.equal(statusOfRow(mateB), 'inactive', 'the idle minister shows the inactive dot');
-      const modelOfRow = (row) => {
-        const node = childWith(row, 'data-cabinet-rail-member-model');
-        return node === undefined ? null : node.props['data-cabinet-rail-member-model'];
-      };
-      assert.equal(modelOfRow(mateA), 'mimo-v2.6', 'the model name shows when the projection has one');
-      assert.equal(modelOfRow(mateB), null, 'no model name node when the projection has none');
-      // 任务板三组计数 2 / 1 / 3，六个任务行都在。
-      const countNodes = railTree.filter((node) => node.props?.['data-cabinet-rail-task-count'] !== undefined);
-      assert.deepEqual(countNodes.map((node) => node.props['data-cabinet-rail-task-count']), ['2', '1', '3'], 'the three groups report 2 pending / 1 in progress / 3 done');
-      const taskRows = railTree.filter((node) => node.props?.['data-cabinet-rail-task'] !== undefined);
-      assert.equal(taskRows.length, 6, 'all six tasks render as clickable rows');
-      // 任务行点击走既有 openCabinetSession 通道：阁臣 parent/child 载荷、首辅 plain。
-      openedSessions.length = 0;
-      taskRows.find((node) => node.props['data-cabinet-rail-task'] === 't-p1').props.onClick();
-      // vm 跨 realm 对象原型不同，deepStrictEqual 会误判——按既有惯例用 JSON 比较。
-      assert.equal(JSON.stringify(openedSessions), JSON.stringify([{ parentSessionId: 's-rail', childSessionId: 'm-a', mode: 'continuable' }]), 'a minister-owned task opens that minister with the native roster payload');
-      openedSessions.length = 0;
-      taskRows.find((node) => node.props['data-cabinet-rail-task'] === 't-p2').props.onClick();
-      assert.deepEqual(openedSessions, ['s-rail'], 'a lead-owned task opens the lead session id directly');
-      // 点按钮 → 右栏收起：状态/glyph/aria-pressed 跟随，rail 隐藏。
+      resetHookCursor();
+      const emptyTree = elements(pageClient.CabinetPage(emptyProps));
+      const emptyRail = emptyTree.find((node) => node.props?.['data-cabinet-cabinet-rail'] !== undefined);
+      assert.ok(emptyRail, 'the rail container still renders without a session');
+      const railNote = emptyTree.find((node) => node.props?.['data-cabinet-rail-note'] !== undefined);
+      assert.ok(railNote, 'the empty session shows the rail note');
+      assert.ok(railTextOf(railNote).includes(pageClient.zh['page.noSession']), 'the note reuses the page.noSession copy');
+      assert.equal(emptyTree.filter((node) => node.props?.['data-cabinet-panel-tab'] !== undefined).length, 0, 'no panel renders in the empty rail');
+      assert.equal(emptyTree.filter((node) => node.props?.['data-cabinet-groupchat'] !== undefined).length, 0, 'no panel renders in the empty page body either');
+      // 点按钮 → 右栏收起：状态/glyph/aria-pressed 跟随，rail 隐藏；再点回到开。
       splitBtn.props.onClick();
       resetHookCursor();
       const closedTree = elements(pageClient.CabinetPage(railProps));
@@ -3176,7 +3139,6 @@ assert.ok(!/background:\s*'(#fff|white)'/.test(source), 'no bare white backgroun
       const closedGlyph = closedBtn.children.flat().filter((item) => typeof item === 'string').join('');
       assert.equal(closedGlyph, '◫', 'the closed state shows the empty grid glyph, got ' + closedGlyph);
       assert.notEqual(closedGlyph, openGlyph, 'the glyph changes with state');
-      // 再点 → 回到开。
       closedBtn.props.onClick();
       resetHookCursor();
       const reopenTree = elements(pageClient.CabinetPage(railProps));
@@ -3185,6 +3147,32 @@ assert.ok(!/background:\s*'(#fff|white)'/.test(source), 'no bare white backgroun
       assert.deepEqual(rightbarCalls, [], 'the toggle never calls openRightbar/closeRightbar, got ' + JSON.stringify(rightbarCalls));
       assert.deepEqual(sidebarCalls, [], 'the toggle never calls sidebarRight.openTab, got ' + JSON.stringify(sidebarCalls));
       assert.ok(!injectLog.some((entry) => entry.includes('"layout"') || entry.includes('"sidebarRight"')), 'the plugin no longer injects the native rightbar services, got ' + JSON.stringify(injectLog));
+    }
+
+    // ---- 联想开关两态：提示词层（index.js memberBlock/leadBlock + client configuredPrompt）----
+    {
+      const offCfg = { associationMode: false, members: [] };
+      const onCfg = { associationMode: true, members: [] };
+      const tz = { role: 'teammate', name: 'tongzheng' };
+      const offText = indexModule.memberBlock(offCfg, tz);
+      assert.ok(offText.includes('联想模式已关闭'), 'association-off swaps in the constraint sentence, got: ' + offText.slice(0, 160));
+      assert.ok(!offText.includes('去找与旧事、旁证、相邻经验的联系'), 'association-off drops the active-duty clause');
+      const onText = indexModule.memberBlock(onCfg, tz);
+      assert.ok(onText.includes('去找与旧事、旁证、相邻经验的联系'), 'association-on keeps the factory duty clause');
+      assert.ok(!onText.includes('联想模式已关闭'), 'association-on carries no closure sentence');
+      const leadOff = indexModule.leadBlock(offCfg);
+      assert.ok(leadOff.includes('不要给通政使派活'), 'association-off tells the Lead not to dispatch the tongzheng');
+      const leadOn = indexModule.leadBlock(onCfg);
+      assert.ok(!leadOn.includes('不要给通政使派活'), 'association-on has no dispatch ban');
+      assert.ok(leadOn.includes('联想模式开启'), 'association-on keeps the dispatch-enable line');
+      // client 侧同款开关（设置页预览与面板读的 configuredPrompt）。
+      client.setMemberConfig({ associationMode: false });
+      const clientOff = client.configuredPrompt('tongzheng');
+      assert.ok(clientOff.includes('联想模式已关闭') && !clientOff.includes('去找与旧事、旁证、相邻经验的联系'), 'the client prompt follows the off switch, got: ' + clientOff.slice(0, 160));
+      client.setMemberConfig({ associationMode: true });
+      const clientOn = client.configuredPrompt('tongzheng');
+      assert.ok(clientOn.includes('去找与旧事、旁证、相邻经验的联系') && !clientOn.includes('联想模式已关闭'), 'the client prompt follows the on switch');
+      client.setMemberConfig(undefined);
     }
     resetHookCursor();
     const collapsedTree0 = elements(pageClient.CabinetPage(teamProps));

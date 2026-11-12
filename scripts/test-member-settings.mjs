@@ -53,7 +53,7 @@ for(const name of ['hanlinx','jiancha-yushix','dalisiX','x-dalisi','CUSTOM']){
 member={role:'teammate',name:'lead'};assert.equal(sectionText(ctx,{},agent),'','a teammate cannot inherit Lead policy by naming itself lead');
 for(const key of ['lead','hanlin','works','dali','yushi'])for(const mode of ['off','custom','']){
   const config={members:[{key,mode,prompt:''}]};member={role:key==='lead'?'lead':'teammate',name:key};client.setMemberConfig(config);
-  if(mode!==''){assert.equal(client.configuredPrompt(key),'');assert.equal(sectionText(ctx,config,agent),'');}
+  if(mode!==''){assert.equal(client.configuredPrompt(key),'');const txt=sectionText(ctx,config,agent);if(key==='lead'&&mode==='custom')assert.match(txt,/不要给通政使派活/,'联想关态给首辅补派活禁令');else assert.equal(txt,'');}
   else assert.ok(sectionText(ctx,config,agent).length>0);
 }
 for (const raw of [{members: 'bad',avatarLead:42},{avatarLead:'data:image/svg+xml;base64,AAAA'},{avatarLead:'data:image/png;base64,'+'A'.repeat(50000)}]) { Config(raw); client.setMemberConfig(raw); assert.equal(client.avatarFor('lead'),client.AVATARS.lead); }
@@ -134,7 +134,7 @@ assert.equal(associationLine({}), '', 'off renders nothing at all');
 assert.match(associationLine({associationMode:true}), /派活通政使/);
 assert.ok(!sectionText(ctx,{associationMode:false},agent).includes('联想'));
 member={role:'lead',name:'lead'};
-assert.equal(sectionText(ctx,{members:[{key:'lead',mode:'custom',prompt:''}],associationMode:false},agent), '', 'off adds no line to the Lead block');
+assert.match(sectionText(ctx,{members:[{key:'lead',mode:'custom',prompt:''}],associationMode:false},agent), /不要给通政使派活/, 'off adds the dispatch ban to the Lead block');
 assert.match(sectionText(ctx,{associationMode:true},agent), /派活通政使/);
 assert.ok(!sectionText(ctx,{associationMode:true},agent).includes('不要' + ' spawn'));
 const saved=form({members:[],associationMode:false});
@@ -149,7 +149,11 @@ assert.equal(saved.getSnapshot().value.associationMode,false,'a non-boolean swit
 member={role:'teammate',name:'tongzheng'};
 const tongzhengText=sectionText(ctx,{members:[{key:'tongzheng',mode:'',prompt:''}]},agent);
 assert.match(tongzhengText, /通政使/);
-assert.match(tongzhengText, /旧事、旁证、相邻经验/);
+assert.ok(!tongzhengText.includes('去找与旧事、旁证、相邻经验的联系'),'关态（默认）去掉主动联想分句');
+assert.match(tongzhengText, /联想模式已关闭/,'关态换成明确约束句');
+const tongzhengOnText=sectionText(ctx,{members:[{key:'tongzheng',mode:'',prompt:''}],associationMode:true},agent);
+assert.match(tongzhengOnText, /旧事、旁证、相邻经验/,'开态保留工厂联想分句');
+assert.ok(!tongzhengOnText.includes('联想模式已关闭'),'开态没有关态句');
 assert.ok(!/rsrs|--limit|--per|--min-cos/.test(tongzhengText), 'the duty prompt hardcodes no subcommand or flag');
 member={role:'teammate',name:'lianxiang'};
 assert.equal(sectionText(ctx,{members:[{key:'tongzheng',mode:'',prompt:''}]},agent), '', 'the removed spawn name is not mapped to the sixth office');

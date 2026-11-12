@@ -2656,6 +2656,16 @@ window.__ModuleLoader__.load({
 			tongzheng: '通政使·通政使司掌内外章奏通达；本员在首辅派活后，就当前事项去找与旧事、旁证、相邻经验的联系，供首辅取舍；不做检索排序，不改已确认命中；只向首辅回报，附带所指记忆的标题与 id。所用的记忆工具以调用时的实际输出为准，未核实就标「未验证」。'
 		};
 		/** Factory prompt for one bureau key: the Lead keeps its 御下术 default. */
+		// 关联想时替换通政使的主动联想分句（与 index.js memberBlock 同款；
+		// DEFAULT_MEMBER_PROMPTS 本体两半逐字相同，由 scripts/verify.mjs 校验）。
+		const TONGZHENG_ASSOCIATION_CLAUSE = '本员在首辅派活后，就当前事项去找与旧事、旁证、相邻经验的联系，供首辅取舍；';
+		const TONGZHENG_ASSOCIATION_OFF = '联想模式已关闭：本员不做联想工作，不主动检索旧事或旁证；仅当首辅明确点名要求时才回应，且只答被问的事；';
+		function associationAwarePrompt(key, prompt, enabled) {
+			if (key !== 'tongzheng' || enabled === true) return prompt;
+			return typeof prompt === 'string' && prompt.includes(TONGZHENG_ASSOCIATION_CLAUSE)
+				? prompt.replace(TONGZHENG_ASSOCIATION_CLAUSE, TONGZHENG_ASSOCIATION_OFF)
+				: prompt;
+		}
 		function factoryPromptFor(key) {
 			return key === 'lead' ? DEFAULT_LEAD_PROMPT : (DEFAULT_MEMBER_PROMPTS[key] || '');
 		}
@@ -3085,7 +3095,7 @@ window.__ModuleLoader__.load({
 			const mode = memberConfig.modes.get(key) || '';
 			if (mode === 'off') return '';
 			if (mode === 'custom') return memberConfig.prompts.get(key) || '';
-			return factoryPromptFor(key);
+			return associationAwarePrompt(key, factoryPromptFor(key), memberConfig.associationMode === true);
 		}
 		/** Whether the Lead's 御下术 section is currently on (shows in the settings box). */
 		function leadPolicyOn() {
@@ -6160,7 +6170,7 @@ window.__ModuleLoader__.load({
 			const readSessions = safeHook(props?.useSessions, identityHook);
 			const readStatus = safeHook(props?.useSessionStatus, identityHook);
 			const list = readSessions((state) => state);
-			const statusMap = readStatus((state) => state);
+			readStatus((state) => state);
 
 			const [chosen, setChosen] = React.useState('');
 			// 左列视图：会话列表 或 成员设置（设置只占左列，绝不与聊天区争主区位）。
@@ -6232,7 +6242,9 @@ window.__ModuleLoader__.load({
 			const sessionGroups = React.useMemo(() => cabinetSessionGroups(choices, workspaceSnapshot, tt('conversation.all')), [choices, archivedSignature]);
 			// 默认选中必须在归档过滤之后算：最近更新的会话若已归档，它不在任何组里，
 			// 选中它只会得到空右栏；这里只在「可见会话」里挑。
-			const visibleChoices = sessionGroups.flatMap((group) => group.sessions);
+			// 扁平化只依赖 sessionGroups：分组签名不变时不再每帧展开一遍（也保持
+			// CabinetPage 的 hook 槽数稳定——测试 double 按调用顺序共享槽位）。
+			const visibleChoices = React.useMemo(() => sessionGroups.flatMap((group) => group.sessions), [sessionGroups]);
 			const preferred = defaultCabinetSession(visibleChoices);
 			const selected = chosen !== '' && visibleChoices.some((choice) => choice.id === chosen) ? chosen : preferred;
 			const projections = list !== null && typeof list === 'object' && list.projectionsBySession !== null && typeof list.projectionsBySession === 'object' ? list.projectionsBySession : {};
@@ -6476,127 +6488,33 @@ window.__ModuleLoader__.load({
 					focusSessionId: '',
 					onGroupSnapshot: (snapshot) => setGroupSnapshot(snapshot)
 				});
-			// ---- 自绘右栏「内阁」（第三栏）----
-			// 数据全部来自既有 team 投影与状态槽：members/team（:6270-6273 的
-			// selected 会话投影）、statusMap（useSessionStatus 槽）、list.byId
-			// 的 running 兜底、modelSelection 投影的模型名。不新拉任何 RPC。
-			const railTasks = (team !== undefined && team !== null && Array.isArray(team.tasks) ? team.tasks : [])
-				.filter((task) => task !== null && typeof task === 'object' && task.status !== 'deleted');
-			const railCounts = { pending: 0, in_progress: 0, completed: 0 };
-			for (const task of railTasks) if (railCounts[task.status] !== undefined) railCounts[task.status] += 1;
-			const railRunning = (id) => (statusMap?.get?.(id)?.running ?? list?.byId?.[id]?.running) === true;
-			const railModel = (id) => {
-				const values = projections !== null && projections !== undefined ? projections[id]?.values : undefined;
-				const model = values !== undefined && values !== null && values.modelSelection !== undefined && values.modelSelection !== null
-					? values.modelSelection.next?.model : undefined;
-				return typeof model === 'string' ? model : '';
-			};
-			// 与群聊气泡同一张昵称表：重名自动带序号（chatBubbleNames）。
-			const railNameSignature = members.map((member) => String(member !== null && member !== undefined ? member.name : '')).join('|');
-			const railNames = React.useMemo(() => chatBubbleNames(members), [railNameSignature]);
-			const railLead = members.find((member) => member !== null && member !== undefined && member.role === 'lead');
-			const railLeadShown = railLead !== undefined
-				? railLead
-				: (selected !== '' ? { id: selected, name: 'lead', role: 'lead', phase: 'active' } : null);
-			const railMates = members.filter((member) => member !== null && member !== undefined && member.role !== 'lead');
-			const railStatusKey = (member) => {
-				const phase = member !== null && member !== undefined && typeof member.phase === 'string' ? member.phase : '';
-				if (phase === 'failed') return 'failed';
-				if (phase === 'provisioning') return 'provisioning';
-				return member !== null && member !== undefined && railRunning(member.id) ? 'running' : 'inactive';
-			};
-			// 任务行点击 → 走既有 openCabinetSession 通道（与群聊气泡下钻同款：
-			// 首辅 plain 分支，阁臣 {parentSessionId, childSessionId, mode}）。
-			const openTaskSession = (task) => {
-				const ownerName = task !== null && typeof task === 'object' && typeof task.ownerName === 'string' ? task.ownerName : '';
-				if (ownerName === '') return;
-				const owner = members.find((member) => member !== null && member !== undefined && member.name === ownerName);
-				if (owner === undefined || typeof owner.id !== 'string' || owner.id === '') return;
-				if (owner.phase === 'failed' || owner.phase === 'provisioning') return;
-				openCabinetSession(owner.id, owner.id === selected ? owner.id : selected);
-			};
-			const railMemberRow = (member, isLead) => {
-				const statusKey = railStatusKey(member);
-				const label = isLead
-					? displayName(member.name)
-					: (railNames.get(member.name) || displayName(member.name));
-				const model = railModel(member.id);
-				return h('div', {
-					key: (isLead ? 'lead:' : 'mate:') + String(member.id),
-					'data-cabinet-rail-member': String(member.id),
-					style: { display: 'flex', alignItems: 'center', gap: 8, padding: isLead ? '7px 8px' : '5px 8px', borderRadius: 8, background: isLead ? 'rgba(79,140,255,.10)' : 'transparent', flex: 'none' }
-				}, [
-					h('img', { key: 'avatar', src: avatarFor(member.name), alt: '', style: { width: isLead ? 26 : 22, height: isLead ? 26 : 22, borderRadius: 8, flex: 'none', objectFit: 'cover' } }),
-					h('span', { key: 'name', 'data-cabinet-rail-member-name': label, style: { flex: 1, minWidth: 0, fontSize: isLead ? 12.5 : 12, fontWeight: isLead ? 600 : 400, color: INK, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, label),
-					model === '' ? null : h('span', { key: 'model', 'data-cabinet-rail-member-model': model, style: { flex: 'none', fontSize: 10, color: INK3, maxWidth: 96, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, model),
-					h('span', { key: 'status', 'data-cabinet-rail-status': statusKey, style: { flex: 'none', fontSize: 10, color: statusKey === 'running' ? '#4f8cff' : INK3 } }, tt('status.' + statusKey))
-				]);
-			};
-			const railTaskGroup = (statusKey, labelKey) => {
-				const groupTasks = railTasks.filter((task) => task !== null && typeof task === 'object' && task.status === statusKey);
-				return h('div', {
-					key: 'task-group:' + statusKey,
-					'data-cabinet-rail-task-group': statusKey,
-					style: { marginBottom: 6 }
-				}, [
-					h('div', { key: 'head', style: { fontSize: 10.5, fontWeight: 600, color: INK3, padding: '2px 8px', display: 'flex', justifyContent: 'space-between' } }, [
-						h('span', { key: 'label' }, tt(labelKey)),
-						h('span', { key: 'count', 'data-cabinet-rail-task-count': String(groupTasks.length) }, String(groupTasks.length))
-					]),
-					groupTasks.length === 0
-						? h('div', { key: 'none', style: { fontSize: 10.5, color: INK3, padding: '2px 8px', opacity: .7 } }, '—')
-						: groupTasks.map((task) => h('button', {
-							key: String(task.id),
-							type: 'button',
-							'data-cabinet-rail-task': String(task.id),
-							'data-cabinet-rail-task-status': statusKey,
-							title: typeof task.title === 'string' && task.title !== '' ? task.title : String(task.id),
-							onClick: () => openTaskSession(task),
-							style: { display: 'flex', alignItems: 'center', gap: 6, width: '100%', textAlign: 'left', font: 'inherit', fontSize: 11, color: INK2, padding: '3px 8px', border: 0, borderRadius: 6, background: 'transparent', cursor: 'pointer' }
-						}, [
-							h('span', { key: 't', style: { flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, (typeof task.title === 'string' && task.title !== '' ? task.title : String(task.id))),
-							h('span', { key: 'o', style: { flex: 'none', fontSize: 9.5, color: INK3 } }, typeof task.ownerName === 'string' && task.ownerName !== '' ? task.ownerName : '')
-						]))
-				]);
-			};
+			// ---- 右栏：复用 CabinetPanel 的名册视图（用户口径：直接复用，别自绘）----
+			// 容器与开合钩子（data-cabinet-cabinet-rail / -rail-open、宽 288、分隔线）
+			// 保留；内容不再自绘，整个换成同一个 CabinetPanel 组件的 roster tab——
+			// 与中列群聊同一份 team 投影、同一套组件，仅 activeTab/hideTabs 不同。
 			const cabinetRail = h('div', {
 				key: 'rail',
 				'data-cabinet-cabinet-rail': '1',
 				'data-cabinet-rail-open': splitOpen ? '1' : '0',
-				style: { width: 288, flex: 'none', minWidth: 0, minHeight: 0, boxSizing: 'border-box', display: splitOpen ? 'flex' : 'none', flexDirection: 'column', borderLeft: '1px solid rgba(127,127,127,.25)', overflow: 'hidden', padding: '8px 6px 8px' }
-			}, [
-				h('div', { key: 'head', style: { flex: 'none', padding: '0 8px 6px', borderBottom: '1px solid rgba(127,127,127,.18)', marginBottom: 6 } }, [
-					h('div', { key: 'title', style: { fontSize: 13, fontWeight: 700, color: INK } }, tt('header.title')),
-					h('div', { key: 'summary', 'data-cabinet-rail-summary': '1', style: { fontSize: 10.5, color: INK3, display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 2 } }, [
-						h('span', { key: 'm' }, tt('summary.members') + ' ' + members.length),
-						h('span', { key: 'p' }, tt('task.pending') + ' ' + railCounts.pending),
-						h('span', { key: 'i' }, tt('task.in_progress') + ' ' + railCounts.in_progress),
-						h('span', { key: 'c' }, tt('task.completed') + ' ' + railCounts.completed)
-					])
-				]),
-				railLeadShown === null ? null : railMemberRow(railLeadShown, true),
-				// 名册：各自可滚动（flex 1 + overflowY auto），不撑破页面。
-				h('div', {
-					key: 'roster',
-					'data-cabinet-rail-roster': '1',
-					style: { flex: '1 1 40%', minHeight: 0, overflowY: 'auto', margin: '4px 0' }
-				}, [
-					h('div', { key: 'head', style: { fontSize: 10.5, fontWeight: 600, color: INK3, padding: '2px 8px' } }, tt('summary.members')),
-					railMates.length === 0
-						? h('div', { key: 'none', style: { fontSize: 10.5, color: INK3, padding: '2px 8px', opacity: .7 } }, '—')
-						: railMates.map((member) => railMemberRow(member, false))
-				]),
-				// 任务板：三组计数 + 任务行，可滚动。
-				h('div', {
-					key: 'tasks',
-					'data-cabinet-rail-tasks': '1',
-					style: { flex: '1 1 60%', minHeight: 0, overflowY: 'auto', borderTop: '1px solid rgba(127,127,127,.18)', paddingTop: 6 }
-				}, [
-					railTaskGroup('pending', 'task.pending'),
-					railTaskGroup('in_progress', 'task.in_progress'),
-					railTaskGroup('completed', 'task.completed')
-				])
-			]);
+				// order:2 —— DOM 里排在中列之前（测试 double 按展开顺序分配 hook
+				// 槽位，右栏若排在群聊行之后，行数一变槽位基址就漂移）；flex order
+				// 保证视觉上仍在最右。
+				style: { order: 2, width: 288, flex: 'none', minWidth: 0, minHeight: 0, boxSizing: 'border-box', display: splitOpen ? 'flex' : 'none', flexDirection: 'column', borderLeft: '1px solid rgba(127,127,127,.25)', overflow: 'hidden', padding: '8px 6px 8px' }
+			}, boundSession === ''
+				? h('div', { key: 'note', 'data-cabinet-rail-note': '1', style: { fontSize: 12, color: INK2, padding: 12 } }, tt('page.noSession'))
+				: h(CabinetPanel, {
+					key: 'rail:' + boundSession,
+					sessionId: boundSession,
+					parentSessionIdHint: boundParentId,
+					useSession: (select) => select({}),
+					useSessions: readSessions,
+					useSessionStatus: readStatus,
+					t: tt,
+					activeTab: 'roster',
+					hideTabs: false,
+					focusSessionId: '',
+					onGroupSnapshot: () => {}
+				}));
 			return h('div', {
 				'data-cabinet-page': '1',
 				style: { display: 'flex', alignItems: 'stretch', height: '100%', minHeight: 0, boxSizing: 'border-box' }
@@ -6608,12 +6526,12 @@ window.__ModuleLoader__.load({
 					// 不强撑（minWidth 0 交给 flex），主列 minWidth:0 保证不横向溢出。
 					style: { width: 300, flex: 'none', minHeight: 0, minWidth: 0, display: 'flex', flexDirection: 'column', overflow: 'auto', borderRight: '1px solid rgba(127,127,127,.25)', padding: '0 10px 10px' }
 				}, sideBody),
+				cabinetRail,
 				h('div', {
 					key: 'main',
 					'data-cabinet-page-main': '1',
 					style: { flex: 1, minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'auto' }
-				}, [picker, body]),
-				cabinetRail
+				}, [picker, body])
 			]);
 		}
 		function CabinetMemberSettings(props) {
@@ -6655,7 +6573,8 @@ window.__ModuleLoader__.load({
 			const promptOf = (key) => {
 				const mode = draft[key].mode;
 				if (mode === 'off') return '';
-				return mode === 'custom' ? draft[key].prompt : factoryPromptFor(key);
+				const base = mode === 'custom' ? draft[key].prompt : factoryPromptFor(key);
+				return associationAwarePrompt(key, base, editor.state.associationMode === true);
 			};
 			const inputStyle = { width: '100%', boxSizing: 'border-box', fontSize: 13, color: INK, background: 'transparent', border: '1px solid var(--dsw-alias-border-l3, rgba(127,127,127,.4))', borderRadius: 6, padding: '6px 8px' };
 
