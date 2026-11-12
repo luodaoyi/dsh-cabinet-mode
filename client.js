@@ -2439,8 +2439,8 @@ window.__ModuleLoader__.load({
 			'@keyframes cabinetBarPulse{0%,100%{opacity:.3;transform:scaleY(.55)}50%{opacity:1;transform:scaleY(1)}}',
 			'.cabinet-task-live::after{content:"";position:absolute;left:-9px;top:5px;bottom:5px;width:2px;border-radius:2px;background:#3b82f6;transform-origin:center;animation:cabinetBarPulse 1.6s ease-in-out infinite}',
 			// org-chart cards + first-class lead badge
-			'.cabinet-card{box-sizing:border-box;display:flex;flex-direction:column;gap:4px;min-width:0;padding:8px 10px;border-radius:8px;border:1px solid var(--dsw-alias-border-l3,light-dark(#0000001f,#ffffff29));background:var(--dsw-alias-bg-layer-1,light-dark(#ffffff,#232324))}',
-			'.cabinet-card-lead{border-color:rgba(245,197,24,.55);background-image:linear-gradient(rgba(245,197,24,.10),rgba(245,197,24,.10))}',
+			'.cabinet-card{box-sizing:border-box;display:flex;flex-direction:column;gap:4px;min-width:0;padding:8px 10px;border-radius:10px;border:1px solid var(--dsw-alias-border-l3,light-dark(#0000001f,#ffffff29));background:var(--dsw-alias-bg-layer-1,light-dark(#ffffff,#232324))}',
+			'.cabinet-card-lead{border-color:rgba(245,197,24,.8);background-image:linear-gradient(rgba(245,197,24,.14),rgba(245,197,24,.14))}',
 			// click-through affordance: the whole card, the whole task row and the
 			// Owner tag are targets, so hover has to say so. An inset ring leaves
 			// every inline background (tags, live rows) untouched.
@@ -2449,7 +2449,7 @@ window.__ModuleLoader__.load({
 			'.cabinet-clickable:hover{box-shadow:inset 0 0 0 1px rgba(127,127,127,.55)}',
 			// context-pressure bar: one 4px track, three state-coloured segments
 			// (system / tools / message) sized by the projection's own breakdown
-			'.cabinet-ctxbar{display:inline-flex;width:34px;height:4px;border-radius:2px;overflow:hidden;background:rgba(127,127,127,.25);flex:none}',
+			'.cabinet-ctxbar{display:flex;width:100%;height:3px;border-radius:2px;overflow:hidden;background:rgba(127,127,127,.25);flex:none}',
 			'.cabinet-ctxbar i{display:block;height:100%}',
 			'.cabinet-ctxbar-system{background:#8b5cf6}.cabinet-ctxbar-tools{background:#0ea5e9}.cabinet-ctxbar-message{background:#22c55e}',
 			'.cabinet-badge-lead{font-size:10px;line-height:14px;padding:0 6px;border-radius:4px;font-weight:600;background:rgba(245,197,24,.20);border:1px solid rgba(245,197,24,.45);color:#6b4a00}',
@@ -3305,7 +3305,7 @@ window.__ModuleLoader__.load({
 		}
 
 		// ---------- leaf pieces ---------------------------------------------
-		function Avatar({ name, size, live }) {
+		function Avatar({ name, size, live, ring }) {
 			const img = h('img', {
 				src: avatarFor(name),
                 onError: event => fallbackAvatar(event.currentTarget, name),
@@ -3324,7 +3324,7 @@ window.__ModuleLoader__.load({
 					borderRadius: '50%',
 					objectFit: 'cover',
 					background: '#f4ead8',
-					boxShadow: '0 0 0 1px rgba(127,127,127,.4)'
+					boxShadow: ring ? '0 0 0 2px ' + ring : '0 0 0 1px rgba(127,127,127,.4)'
 				}
 			});
 			// running members wear the spinning conic ring; idle members stay bare.
@@ -3591,7 +3591,7 @@ window.__ModuleLoader__.load({
 		// line one; status dot + state text (+ live dots / model) on line two.
 		// State text carries a theme-aware class so 11px copy clears 3:1 in both
 		// themes; the badge keeps lead's formula with a light-theme dark amber.
-		function MemberCard({ member, running, model, isCurrent, lead, statusLabel, t, size, onOpen, usage, teamUsage, children }) {
+		function MemberCard({ member, running, model, isCurrent, lead, statusLabel, t, size, onOpen, usage, teamUsage, familyColor, activity, children }) {
 			const tt = typeof t === 'function' ? t : (key) => key;
 			const status = member.phase === 'active' ? (running ? 'running' : 'inactive') : member.phase;
 			// Availability mirrors the native roster row (agent-team TeamMemberRow):
@@ -3603,6 +3603,11 @@ window.__ModuleLoader__.load({
 				&& member.phase !== 'failed'
 				&& member.phase !== 'provisioning'
 				&& typeof member.id === 'string' && member.id !== '';
+			// 家族色只上头像环与（非主控卡的）边框+8% 淡底；主控卡仍走
+			// .cabinet-card-lead 金边。底色一律来自 --dsw-* 令牌（.cabinet-card），
+			// 这里只叠半透明家族色，浅色主题下同样成立、不写死深底。
+			const hasHue = typeof familyColor === 'string' && familyColor !== '';
+			const tint = hasHue && familyColor.indexOf('hsl(') === 0 ? familyColor.replace(')', ' / 0.08)') : undefined;
 			// The whole card is a click target now, not just the who row: one click
 			// anywhere on a member card enters that member's child session. `canOpen`
 			// keeps its exemptions untouched; the who row and the card's own task
@@ -3610,8 +3615,13 @@ window.__ModuleLoader__.load({
 			return h('div', {
 				className: (lead ? 'cabinet-card cabinet-card-lead' : 'cabinet-card') + (canOpen ? ' cabinet-card-clickable' : ''),
 				onClick: canOpen ? () => onOpen(member) : undefined,
-				style: { position: 'relative', zIndex: 1, cursor: canOpen ? 'pointer' : undefined }
+				style: {
+					position: 'relative', zIndex: 1, cursor: canOpen ? 'pointer' : undefined,
+					borderColor: !lead && hasHue ? familyColor : undefined,
+					backgroundImage: !lead && tint ? 'linear-gradient(' + tint + ',' + tint + ')' : undefined
+				}
 			}, [
+				// 第一行：圆形头像（同色描边）+ 粗体名字 + 右贴状态点（绿=运行中、灰=空闲）。
 				h(canOpen ? 'button' : 'div', {
 					type: canOpen ? 'button' : undefined,
 					key: 'who',
@@ -3620,69 +3630,94 @@ window.__ModuleLoader__.load({
 					onClick: canOpen ? (event) => { stopPropagation(event); return onOpen(member); } : undefined,
 					style: { font: 'inherit', textAlign: 'left', padding: 0, border: 0, background: 'transparent', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', minWidth: 0, cursor: canOpen ? 'pointer' : undefined }
 				}, [
-					h(Avatar, { key: 'avatar', name: member.name, size: size || 22, live: status === 'running' }),
+					h(Avatar, { key: 'avatar', name: member.name, size: size || 22, live: status === 'running', ring: hasHue ? familyColor : undefined }),
 					h('span', {
 						key: 'n',
 						title: memberLabel(member.name),
 						style: { fontSize: 13, fontWeight: 600, color: INK, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }
 					}, memberLabel(member.name)),
 					lead ? h('span', { key: 'lead', className: 'cabinet-badge-lead' }, tt('lead.tag')) : null,
-					isCurrent ? h(Tag, { key: 'cur', background: 'rgba(127,127,127,.2)', color: INK2 }, tt('current')) : null
+					isCurrent ? h(Tag, { key: 'cur', background: 'rgba(127,127,127,.2)', color: INK }, tt('current')) : null,
+					h('span', {
+						key: 'state',
+						style: { marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 4, flex: 'none' }
+					}, [
+						h(StatusDot, { key: 'dot', status }),
+						h('span', { key: 'st', className: 'cabinet-status-' + status, style: { fontSize: 11 } }, statusLabel(status)),
+						status === 'running' ? h('span', {
+							key: 'dots',
+							className: 'cabinet-dots cabinet-status-' + status,
+							'aria-hidden': 'true'
+						}, [h('i', { key: 0 }), h('i', { key: 1 }), h('i', { key: 2 })]) : null
+					])
 				]),
-				h('div', {
-					key: 'state',
-					style: { display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', minWidth: 0 }
+				// 第二行：模型名（灰色小字、超长省略）；错误行整行红字跟随。
+				model || member.error ? h('div', {
+					key: 'model',
+					style: { display: 'flex', gap: 6, flexWrap: 'wrap', minWidth: 0 }
 				}, [
-					h(StatusDot, { key: 'dot', status }),
-					h('span', { key: 'st', className: 'cabinet-status-' + status, style: { fontSize: 11, flex: 'none' } }, statusLabel(status)),
-					status === 'running' ? h('span', {
-						key: 'dots',
-						className: 'cabinet-dots cabinet-status-' + status,
-						'aria-hidden': 'true',
-						style: { flex: 'none' }
-					}, [h('i', { key: 0 }), h('i', { key: 1 }), h('i', { key: 2 })]) : null,
 					model ? h('span', {
-						key: 'model',
-						style: { fontSize: 11, color: INK2, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }
+						key: 'mn',
+						title: model,
+						style: { fontSize: 11, color: INK2, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: '1 1 auto' }
 					}, model) : null,
 					member.error ? h('span', {
 						key: 'err',
 						style: { fontSize: 11, color: '#f25a5a', width: '100%', wordBreak: 'break-all' }
 					}, member.error) : null
-				]),
-				// Usage line: token total, elapsed time and the context-pressure bar,
-				// all from DSH session projections. A missing projection prints the em
-				// dash instead of collapsing the card, and the lead card adds the team
-				// total summed over its members.
+				]) : null,
+				// 第三行 token（亮）· 耗时（灰）+ 团队合计；随后 3px 多色分段计量条；
+				// 底行 左=最后消息时间·消息数、右=上下文百分比。全部来自 DSH 会话
+				// 投影与群聊折叠行，缺投影打短横线，不编数。
 				usage ? h('div', {
 					key: 'usage',
 					className: 'cabinet-usage',
-					style: { display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', minWidth: 0, fontSize: 10, color: INK2 }
+					style: { display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0, fontSize: 10, color: INK2 }
 				}, [
-					h('span', { key: 'tok', style: { flex: 'none' }, title: tt('usage.tokens') },
-						tt('usage.tokens') + ' ' + (formatTokenCount(usage.tokens) ?? tt('usage.none'))),
-					h('span', { key: 'el', style: { flex: 'none' }, title: tt('usage.elapsed') },
-						tt('usage.elapsed') + ' ' + (formatElapsed(usage.elapsedMs) ?? tt('usage.none'))),
-					usage.context ? h('span', {
-						key: 'ctx',
-						title: usage.context.percent !== undefined ? tt('usage.context') + ' ' + usage.context.percent + '%' : tt('usage.context'),
-						style: { display: 'inline-flex', alignItems: 'center', gap: 4, flex: 'none' }
+					h('div', {
+						key: 'line',
+						style: { display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', minWidth: 0 }
 					}, [
-						usage.context.percent !== undefined ? h('span', {
-							key: 'bar',
+						h('span', { key: 'tok', style: { color: INK, fontWeight: 600, flex: 'none' }, title: tt('usage.tokens') },
+							tt('usage.tokens') + ' ' + (formatTokenCount(usage.tokens) ?? tt('usage.none'))),
+						h('span', { key: 'el', style: { color: INK2, flex: 'none' }, title: tt('usage.elapsed') },
+							tt('usage.elapsed') + ' ' + (formatElapsed(usage.elapsedMs) ?? tt('usage.none'))),
+						teamUsage ? h('span', { key: 'team', style: { color: INK3, flex: 'none', marginLeft: 'auto' }, title: tt('usage.team') },
+							tt('usage.team') + ' ' + (formatTokenCount(teamUsage.tokens) ?? tt('usage.none'))) : null
+					]),
+					typeof usage.context === 'object' && usage.context !== null && usage.context.percent !== undefined
+						? h('div', {
+							key: 'meter',
+							'data-cabinet-meter': '1',
 							className: 'cabinet-ctxbar',
-							'aria-hidden': 'true'
+							'aria-hidden': 'true',
+							title: tt('usage.context') + ' ' + usage.context.percent + '%'
 						}, usage.context.segments.map((segment) => h('i', {
 							key: segment.key,
 							className: 'cabinet-ctxbar-' + segment.key,
 							style: { width: Math.max(0, Math.min(100, segment.ratio * 100)) + '%' }
 						}))) : null,
-						h('span', { key: 'pct' }, usage.context.percent !== undefined
-							? usage.context.percent + '%'
-							: (formatTokenCount(usage.context.projectedTokens) ?? tt('usage.none')))
-					]) : null,
-					teamUsage ? h('span', { key: 'team', style: { flex: 'none' }, title: tt('usage.team') },
-						tt('usage.team') + ' ' + (formatTokenCount(teamUsage.tokens) ?? tt('usage.none'))) : null
+					activity || usage.context
+						? h('div', {
+							key: 'foot',
+							style: { display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }
+						}, [
+							activity && typeof activity.time === 'number' && activity.time > 0
+								? h('span', {
+									key: 'clock',
+									style: { color: INK3, flex: 'none' }
+								}, (function () { const d = new Date(activity.time); return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'); })())
+								: null,
+							activity && typeof activity.count === 'number'
+								? h('span', { key: 'cnt', style: { color: INK3, flex: 'none' } }, activity.count + ' 条')
+								: null,
+							h('span', { key: 'pct', style: { color: '#22c55e', fontWeight: 600, marginLeft: 'auto', flex: 'none' } },
+								typeof usage.context === 'object' && usage.context !== null
+									? (usage.context.percent !== undefined
+										? usage.context.percent + '%'
+										: (formatTokenCount(usage.context.projectedTokens) ?? tt('usage.none')))
+									: tt('usage.none'))
+						]) : null
 				]) : null,
 				// the member's own task list hangs inside the card (品字形 layout)
 				children
@@ -3873,7 +3908,7 @@ window.__ModuleLoader__.load({
 			const cards = live.map((rect) => {
 				const left = rect.left - base.left;
 				const top = rect.top - base.top;
-				return { left, top, right: left + rect.width, bottom: top + rect.height, cx: left + rect.width / 2 };
+				return { left, top, right: left + rect.width, bottom: top + rect.height, cx: left + rect.width / 2, color: typeof rect.color === 'string' ? rect.color : '' };
 			});
 			const ax = lead.left + lead.width / 2 - base.left;
 			const ay = lead.top + lead.height - base.top;
@@ -3913,17 +3948,20 @@ window.__ModuleLoader__.load({
 			const minLeft = Math.min.apply(null, cards.map((r) => r.left));
 
 			const paths = [];
+			// 每条路径携带颜色：卡片支线跟被连卡片的家族色，公共母线与跨行折线
+			// 留空（渲染层回退中性 LINE 色）。
+			const push = (d, color) => paths.push({ d, color: color || '' });
 			const first = info[0];
 			// lead → row 0 bus; horizontal join first when the axis is off-span.
-			paths.push('M ' + ax + ' ' + ay + ' L ' + ax + ' ' + first.busY);
-			if (ax < first.left - 0.5) paths.push('M ' + ax + ' ' + first.busY + ' L ' + first.left + ' ' + first.busY);
-			else if (ax > first.right + 0.5) paths.push('M ' + ax + ' ' + first.busY + ' L ' + first.right + ' ' + first.busY);
+			push('M ' + ax + ' ' + ay + ' L ' + ax + ' ' + first.busY);
+			if (ax < first.left - 0.5) push('M ' + ax + ' ' + first.busY + ' L ' + first.left + ' ' + first.busY);
+			else if (ax > first.right + 0.5) push('M ' + ax + ' ' + first.busY + ' L ' + first.right + ' ' + first.busY);
 
 			for (let index = 0; index < info.length; index++) {
 				const row = info[index];
 				// (1) this row's bus + (2) one stub per card down to its top centre.
-				if (row.right - row.left > 0.5) paths.push('M ' + row.left + ' ' + row.busY + ' L ' + row.right + ' ' + row.busY);
-				for (const card of row.cards) paths.push('M ' + card.cx + ' ' + row.busY + ' L ' + card.cx + ' ' + card.top);
+				if (row.right - row.left > 0.5) push('M ' + row.left + ' ' + row.busY + ' L ' + row.right + ' ' + row.busY);
+				for (const card of row.cards) push('M ' + card.cx + ' ' + row.busY + ' L ' + card.cx + ' ' + card.top, card.color);
 				if (index === 0) continue;
 
 				// (4) row N → row N-1: a polyline off the row bus's END. Candidates run
@@ -3953,7 +3991,7 @@ window.__ModuleLoader__.load({
 					}
 				}
 				if (chosen === null) chosen = plan(channel); // margin channel never hits (x < every card)
-				for (const s of chosen) paths.push('M ' + s[0] + ' ' + s[1] + ' L ' + s[2] + ' ' + s[3]);
+				for (const s of chosen) push('M ' + s[0] + ' ' + s[1] + ' L ' + s[2] + ' ' + s[3]);
 			}
 			return paths;
 		}
@@ -4788,10 +4826,14 @@ window.__ModuleLoader__.load({
 				if (!tree || !leadEl) return;
 				const base = tree.getBoundingClientRect();
 				const leadRect = leadEl.getBoundingClientRect();
-				const nodes = Array.from(tree.querySelectorAll('[data-cabinet-node]')).map((el) => el.getBoundingClientRect());
+				const nodes = Array.from(tree.querySelectorAll('[data-cabinet-node]')).map((el) => {
+					const rect = el.getBoundingClientRect();
+					const color = typeof el.getAttribute === 'function' ? (el.getAttribute('data-cabinet-family') || '') : '';
+					return { left: rect.left, top: rect.top, width: rect.width, height: rect.height, color };
+				});
 				const paths = buildConnectorPaths(base, leadRect, nodes, -8);
 				if (paths === null) return; // hidden pane: keep the last drawing, redraw on wake
-				setLinkPaths((prev) => (prev.join(' ') === paths.join(' ') ? prev : paths));
+				setLinkPaths((prev) => (JSON.stringify(prev) === JSON.stringify(paths) ? prev : paths));
 				// Dependency edges: endpoints are the two task-row rects
 				// (data-cabinet-task anchors) in overlay coordinates; a row that is
 				// not rendered (or a task removed from the board) drops its edge.
@@ -5544,6 +5586,21 @@ window.__ModuleLoader__.load({
 			// rail. Rows wrap freely (品 = 1 up / 2 down, more nodes spill to further
 			// rows); connectors re-route through a column gutter or the left margin
 			// so no line ever crosses a card.
+			// 家族色：黄金角散列（与时间线同式）；主控卡固定金色系（环/边框）。
+			const familyColorOf = (index) => 'hsl(' + (Math.round(index * 137.508) % 360) + ' 58% 52%)';
+			// 底行活动数据：该成员在群聊折叠行里的条数与最后一条时间（真实行，
+			// 不编数）；无消息的成员 count 0、time 0，底行左半边整段省略。
+			const activityOf = (member) => {
+				let count = 0;
+				let time = 0;
+				for (const row of groupRows) {
+					const author = row !== null && row !== undefined && row.member !== null && row.member !== undefined && typeof row.member.id === 'string' && row.member.id !== '' ? row.member.id : (typeof row.memberName === 'string' ? row.memberName : '');
+					if (author !== member.id) continue;
+					count += 1;
+					if (typeof row.time === 'number' && row.time > time) time = row.time;
+				}
+				return { count, time };
+			};
 			const leadCard = h(MemberCard, {
 				member: leadShown,
 				running: runningOf(leadShown.id),
@@ -5555,14 +5612,18 @@ window.__ModuleLoader__.load({
 				t: tt,
 				onOpen: openMemberSession,
 				usage: leadUsage,
-				teamUsage: teamUsageOf([leadUsage, ...mateUsages])
+				teamUsage: teamUsageOf([leadUsage, ...mateUsages]),
+				familyColor: 'rgba(245,197,24,.9)',
+				activity: activityOf(leadShown)
 			});
 
 			// Cells: every minister first, then 未分派 / 首辅自办 / 不在册 as
 			// ordinary grid cells — same width and column cadence as the ministers,
 			// laid out after them (no full-width row, no span: equal cells win).
 			const cells = [];
-			for (const member of mates) cells.push({ key: 'member:' + member.id, member });
+			for (const [memberIndex, member] of mates.entries()) {
+				cells.push({ key: 'member:' + member.id, member, familyColor: familyColorOf(memberIndex), activity: activityOf(member) });
+			}
 			if (unassigned.length > 0) cells.push({ key: 'group:unassigned', title: tt('task.unassigned'), tasks: unassigned });
 			if (leadOwn.length > 0) cells.push({ key: 'group:leadown', title: tt('task.leadOwn'), tasks: leadOwn });
 			for (const owner of foreignOwners) {
@@ -5574,10 +5635,10 @@ window.__ModuleLoader__.load({
 					key: 'links',
 					'aria-hidden': 'true',
 					style: { position: 'absolute', left: 0, top: 0, width: '100%', height: '100%', pointerEvents: 'none', overflow: 'visible', zIndex: 0 }
-				}, linkPaths.map((d, index) => h('path', {
+				}, linkPaths.map((path, index) => h('path', {
 					key: index,
-					d,
-					style: { fill: 'none', stroke: LINE, strokeWidth: 2, strokeLinecap: 'round' }
+					d: typeof path === 'string' ? path : path.d,
+					style: { fill: 'none', stroke: typeof path === 'string' || !path || !path.color ? LINE : path.color, strokeWidth: 2, strokeLinecap: 'round' }
 				}))),
 				// dependency edges paint above the cards (endpoints sit on task rows
 				// inside cards) but never take pointer events
@@ -5618,6 +5679,8 @@ window.__ModuleLoader__.load({
 							t: tt,
 							onOpen: openMemberSession,
 							usage: usageOfMember(member),
+							familyColor: cell.familyColor,
+							activity: cell.activity,
 							// tasks live inside the card, elbow-connected by RailList
 							children: own.length > 0
 								? h(RailList, { key: 'tasks', style: { marginTop: 4 } }, own.map((task) => h(TaskLine, {
@@ -5651,6 +5714,7 @@ window.__ModuleLoader__.load({
 					return h('div', {
 						key: cell.key,
 						'data-cabinet-node': '1',
+						'data-cabinet-family': cell.familyColor,
 						// 卡片最小宽 140：既盖掉 grid item 的 min-content 自动最小
 						// 尺寸（nowrap 整行文本会把卡顶到 203+），又与列下限 140 对齐；
 						// 卡片内部 .cabinet-card 本就 min-width:0，允许内容收缩省略。

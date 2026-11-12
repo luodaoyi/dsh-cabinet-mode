@@ -713,6 +713,46 @@ const noUsageCard = elements(client.MemberCard({ member: { name: 'works', phase:
   .filter((node) => node.props?.key === 'usage');
 assert.equal(noUsageCard.length, 0, 'a member without a session id renders no usage line at all');
 
+// 阶段一卡片高保真：五行结构里的计量条、百分比、token·耗时文本、家族色环。
+const dressed = elements(client.MemberCard({
+  member: { id: 'm-works', name: 'works', phase: 'active' },
+  statusLabel: (status) => status,
+  t: zhT,
+  usage: full,
+  familyColor: 'hsl(138 58% 52%)',
+  activity: { time: 1700000000000, count: 12 },
+}));
+const meterNode = dressed.find((node) => node.props?.['data-cabinet-meter'] !== undefined);
+assert.ok(meterNode, 'the card renders the segmented context meter (data-cabinet-meter)');
+const dressedText = JSON.stringify(dressed);
+assert.ok(dressedText.includes('30%'), 'the card shows the context percent text');
+assert.ok(dressedText.includes(client.zh['usage.tokens'] + ' 3M') && dressedText.includes(client.zh['usage.elapsed'] + ' 17s'), 'the card keeps the token · 耗时 text row');
+const ringNode = dressed.find((node) => typeof node.props?.style?.boxShadow === 'string' && node.props.style.boxShadow.includes('hsl(138 58% 52%)'));
+assert.ok(ringNode, 'the avatar wears the family-color ring');
+const footNode = dressed.find((node) => node.props?.key === 'foot');
+assert.ok(footNode && JSON.stringify(footNode).includes('12 条'), 'the foot row carries the real message count');
+
+// 家族色：不同成员的卡片边框色不同（黄金角散列，同色即错）。
+const huePanel = elements(client.CabinetPanel({
+  sessionId: 'lead-session',
+  useSession: (select) => select({}),
+  useSessions: (select) => select({ projectionsBySession: {
+    'lead-session': { values: { agentTeam: { members: [
+      { id: 'lead-session', name: 'lead', role: 'lead', phase: 'active' },
+      { id: 'm-a', name: 'alice', role: 'mate', phase: 'active' },
+      { id: 'm-b', name: 'bob', role: 'mate', phase: 'active' },
+    ], tasks: [] } } },
+  } }),
+  useSessionStatus: (select) => select(new Map()),
+  t: (key) => client.zh[key] || key,
+}));
+const hueCards = huePanel.filter((node) => typeof node.props?.className === 'string'
+  && node.props.className.split(' ').includes('cabinet-card')
+  && !node.props.className.split(' ').includes('cabinet-card-lead'));
+assert.equal(hueCards.length, 2, 'two mate cards render for the hue check, got ' + hueCards.length);
+assert.ok(typeof hueCards[0].props.style?.borderColor === 'string' && typeof hueCards[1].props.style?.borderColor === 'string', 'mate cards carry a family border color');
+assert.notEqual(hueCards[0].props.style.borderColor, hueCards[1].props.style.borderColor, 'different members get different family colors: ' + hueCards[0].props.style.borderColor + ' vs ' + hueCards[1].props.style.borderColor);
+
 // Panel wiring: the usage line appears for a member whose projection exists.
 const usagePanel = elements(client.CabinetPanel({
   sessionId: 'lead-session',
