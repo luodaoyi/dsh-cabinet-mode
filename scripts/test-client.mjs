@@ -2584,6 +2584,24 @@ console.log('PASS 内阁 Bot section removal: no section box, office rows, 现�
 
     const events = nodesOf(tlView.tree, 'data-cabinet-timeline-event');
     assert.equal(events.length, 6, 'six events render (3 per lane), got ' + events.length);
+
+    // 时间线视觉还原：左块两行（头像+名字 / meta）、48px 行高、家族色事件点、顶部计数。
+    const head0 = findNodes([lanes[0]], (node) => node.props?.['data-cabinet-timeline-lane-head'] !== undefined)[0];
+    assert.ok(head0, 'the lane renders its head block (data-cabinet-timeline-lane-head)');
+    assert.ok(findNodes([head0], (node) => node.type === 'img' || (typeof node.type === 'function' && node.type.name === 'Avatar')).length >= 1, 'the head block carries the avatar');
+    assert.ok(flatText(head0).includes('lead'), 'the head block carries the member name, got: ' + JSON.stringify(flatText(head0)));
+    const meta0 = findNodes([lanes[0]], (node) => node.props?.['data-cabinet-timeline-lane-meta'] !== undefined)[0];
+    assert.ok(meta0, 'the head block carries the meta line (data-cabinet-timeline-lane-meta)');
+    assert.ok(flatText(meta0).includes('个任务') && flatText(meta0).includes('个事件'), 'meta counts tasks and events, got: ' + JSON.stringify(flatText(meta0)));
+    assert.equal(lanes[0].props.style.height, 48, 'lane rows compress to 48px');
+    assert.ok(typeof lanes[0].props.style.borderBottom === 'string' && lanes[0].props.style.borderBottom.includes('1px'), 'lanes keep a 1px separator');
+    const countNode = nodesOf(tlView.tree, 'data-cabinet-timeline-count')[0];
+    assert.ok(countNode, 'the timeline shows its count row (data-cabinet-timeline-count)');
+    assert.ok(flatText(countNode).includes('条泳道'), 'count row reads N 条泳道, got: ' + JSON.stringify(flatText(countNode)));
+    const leadHue = events[0].props.style.background;
+    assert.ok(typeof leadHue === 'string' && leadHue.indexOf('hsl(') === 0, 'events carry the family hue background, got: ' + leadHue);
+    assert.notEqual(leadHue, events[3].props.style.background, 'different lanes use different family hues: ' + leadHue + ' vs ' + events[3].props.style.background);
+    assert.ok(nodesOf(tlView.tree, 'data-cabinet-timeline-stem').length === 6, 'each event draws a stem down to the baseline');
     // X 位置随时间单调递增：每个泳道内，事件按时间排序，left% 严格递增。
     for (const lane of lanes) {
       const laneEvents = findNodes([lane], (node) => node.props?.['data-cabinet-timeline-event'] !== undefined);

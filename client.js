@@ -2452,6 +2452,7 @@ window.__ModuleLoader__.load({
 			'.cabinet-ctxbar{display:flex;width:100%;height:3px;border-radius:2px;overflow:hidden;background:rgba(127,127,127,.25);flex:none}',
 			'.cabinet-ctxbar i{display:block;height:100%}',
 			'.cabinet-ctxbar-system{background:#8b5cf6}.cabinet-ctxbar-tools{background:#0ea5e9}.cabinet-ctxbar-message{background:#22c55e}',
+			'.cabinet-timeline-event:hover{outline:1px solid rgba(127,127,127,.9);outline-offset:1px}',
 			'.cabinet-badge-lead{font-size:10px;line-height:14px;padding:0 6px;border-radius:4px;font-weight:600;background:rgba(245,197,24,.20);border:1px solid rgba(245,197,24,.45);color:#6b4a00}',
 			'body[data-ds-dark-theme] .cabinet-badge-lead{color:#ffd666}',
 			// status / task text: one colour per state per theme, so 11px copy clears
@@ -5520,44 +5521,102 @@ window.__ModuleLoader__.load({
 				const laneNodes = lanes.filter((member) => eventsOf(member).length > 0).map((member) => {
 					const laneIndex = lanes.findIndex((candidate) => candidate !== null && candidate !== undefined && candidate.id === member.id);
 					const rows = eventsOf(member);
+					const hue = hueOf(laneIndex);
+					// 左块第二行数据：模型/Token 来自会话投影（无投影不显示），任务数
+					// 与事件数是真实计数——缺的不编。
+					const model = modelOf(member.id);
+					const usage = usageOfMember(member);
+					const taskCount = tasks.filter((task) => task !== null && task !== undefined && task.ownerName === (member.name || member.id)).length;
+					const canOpen = typeof openMemberSession === 'function' && openableMember(member);
 					return h('div', {
 						key: member.id,
 						'data-cabinet-timeline-lane': member.id,
-						style: { display: 'flex', alignItems: 'center', height: 36, borderBottom: '1px solid rgba(127,127,127,.12)' }
+						// 行高 48 + 1px 分隔线：对齐截图密度。
+						style: { display: 'flex', alignItems: 'stretch', height: 48, borderBottom: '1px solid rgba(127,127,127,.18)' }
 					}, [
+						// 左块（固定 144px）：行1 头像(家族色环)+粗体名+↗；行2 模型/token/任务·事件。
 						h('div', {
-							key: 'label',
-							'data-cabinet-timeline-lane-label': '1',
-							style: { width: 96, flex: 'none', minWidth: 0, display: 'flex', alignItems: 'center', gap: 4, paddingRight: 6, boxSizing: 'border-box' }
+							key: 'head',
+							'data-cabinet-timeline-lane-head': '1',
+							style: { width: 144, flex: 'none', minWidth: 0, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 2, padding: '4px 6px 4px 2px', boxSizing: 'border-box', borderRight: '1px solid rgba(127,127,127,.10)' }
 						}, [
-							h(Avatar, { key: 'a', name: member.name || member.id, size: 16, live: member.phase === 'running' }),
-							h('span', {
-								key: 'n',
-								title: memberLabel(member.name || member.id),
-								style: { fontSize: 11, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }
-							}, memberLabel(member.name || member.id))
+							h('div', {
+								key: 'r1',
+								style: { display: 'flex', alignItems: 'center', gap: 5, minWidth: 0 }
+							}, [
+								h(Avatar, { key: 'a', name: member.name || member.id, size: 18, live: member.phase === 'running', ring: hue }),
+								h('span', {
+									key: 'n',
+									title: memberLabel(member.name || member.id),
+									style: { fontSize: 12, fontWeight: 600, color: INK, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: '1 1 auto' }
+								}, memberLabel(member.name || member.id)),
+								canOpen ? h('button', {
+									key: 'open',
+									type: 'button',
+									'data-cabinet-timeline-lane-open': member.id,
+									title: '打开该成员会话',
+									onClick: (event) => { stopPropagation(event); return openMemberSession(member); },
+									style: { font: 'inherit', fontSize: 11, lineHeight: '14px', width: 16, height: 16, padding: 0, flex: 'none', border: 0, background: 'transparent', color: INK2, cursor: 'pointer' }
+								}, '\u2197') : null
+							]),
+							h('div', {
+								key: 'meta',
+								'data-cabinet-timeline-lane-meta': '1',
+								style: { display: 'flex', flexWrap: 'wrap', gap: 4, minWidth: 0, fontSize: 10, color: INK2, lineHeight: '13px' }
+							}, [
+								model ? h('span', {
+									key: 'model',
+									title: model,
+									style: { minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: '1 1 100%' }
+								}, model) : null,
+								usage ? h('span', {
+									key: 'tok',
+									style: { flex: 'none' },
+									title: tt('usage.tokens')
+								}, tt('usage.tokens') + ' ' + (formatTokenCount(usage.tokens) ?? tt('usage.none'))) : null,
+								h('span', { key: 'cnt', style: { flex: 'none', color: INK3 } },
+									taskCount + ' 个任务 · ' + rows.length + ' 个事件')
+							])
 						]),
 						h('div', {
 							key: 'axis',
 							'data-cabinet-timeline-axis': '1',
 							style: { position: 'relative', flex: '1 1 auto', minWidth: 0, height: '100%' }
-						}, rows.map((row, rowIndex) => {
-							const taskId = typeof row.taskId === 'string' && row.taskId !== '' ? row.taskId : '';
-							// 方块数字：有任务号写任务号，没有写该行序号。
-							const mark = taskId !== '' ? taskId : String(row.seq);
-							return h('div', {
-								key: member.id + '#' + rowIndex,
-								'data-cabinet-timeline-event': mark,
-								'data-cabinet-timeline-event-task': taskId !== '' ? taskId : undefined,
-								'data-cabinet-timeline-event-seq': String(row.seq),
-								style: {
-									position: 'absolute', left: percentOf(row.time) + '%', top: '50%', transform: 'translate(-50%,-50%)',
-									width: 14, height: 14, borderRadius: 4, boxSizing: 'border-box',
-									background: hueOf(laneIndex), color: '#fff', fontSize: 10, lineHeight: '14px', textAlign: 'center',
-									padding: 0, border: 'none', cursor: 'pointer', overflow: 'hidden'
-								}
-							}, [h('span', { key: 't', style: { display: 'inline-block', maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', verticalAlign: 'top', lineHeight: '14px' } }, mark)]);
-						}))
+						}, [
+							// 淡色基线（1px，主题边框令牌低透明度）。
+							h('div', {
+								key: 'base',
+								'data-cabinet-timeline-baseline': '1',
+								style: { position: 'absolute', left: 0, right: 0, bottom: 6, height: 1, background: 'var(--dsw-alias-border-l2, rgba(127,127,127,.28))' }
+							}),
+							...rows.flatMap((row, rowIndex) => {
+								const taskId = typeof row.taskId === 'string' && row.taskId !== '' ? row.taskId : '';
+								// 方块数字：有任务号写任务号，没有写该行序号。
+								const mark = taskId !== '' ? taskId : String(row.seq);
+								const left = percentOf(row.time) + '%';
+								return [
+									// 方块到基线的家族色短连线（40% 透明）。
+									h('div', {
+										key: member.id + '#stem#' + rowIndex,
+										'data-cabinet-timeline-stem': mark,
+										style: { position: 'absolute', left, top: 21, width: 1, height: 19, transform: 'translateX(-50%)', background: hue, opacity: 0.4 }
+									}),
+									h('div', {
+										key: member.id + '#' + rowIndex,
+										'data-cabinet-timeline-event': mark,
+										'data-cabinet-timeline-event-task': taskId !== '' ? taskId : undefined,
+										'data-cabinet-timeline-event-seq': String(row.seq),
+										className: 'cabinet-timeline-event',
+										style: {
+											position: 'absolute', left, top: 7, transform: 'translateX(-50%)',
+											width: 14, height: 14, borderRadius: 4, boxSizing: 'border-box',
+											background: hue, color: '#fff', fontSize: 10, lineHeight: '14px', textAlign: 'center',
+											padding: 0, border: 'none', cursor: 'pointer', overflow: 'hidden', zIndex: 1
+										}
+									}, [h('span', { key: 't', style: { display: 'inline-block', maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', verticalAlign: 'top', lineHeight: '14px' } }, mark)])
+								];
+							})
+						])
 					]);
 				});
 				body.push(h('div', {
@@ -5566,6 +5625,12 @@ window.__ModuleLoader__.load({
 					// 与群聊面板同款撑满右栏的 flex 列；宽度不足时区域自身横向滚动。
 					style: { ...PANEL, display: 'flex', flexDirection: 'column', overflow: 'auto', marginTop: 12, gap: 6 }
 				}, [
+					// 顶部计数行：记录总量 · 泳道数（都从现有 groupRows/lanes 算）。
+					h('div', {
+						key: 'count',
+						'data-cabinet-timeline-count': '1',
+						style: { fontSize: 10.5, color: INK2, display: 'flex', alignItems: 'center', gap: 6, flex: 'none' }
+					}, groupRows.length + ' 条记录 · ' + laneNodes.length + ' 条泳道'),
 					h('div', {
 						key: 'inner',
 						'data-cabinet-timeline-inner': '1',
