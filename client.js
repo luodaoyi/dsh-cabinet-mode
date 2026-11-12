@@ -6361,7 +6361,7 @@ window.__ModuleLoader__.load({
 					: (last !== undefined && typeof last.time === 'number' && last.time > 0 ? chatStampText(last.time) : '');
 				// 选中态：显式点过就是该 id；没点过（focus 空）就是默认绑定的会话。
 				const active = entry.id === boundSession;
-				return h('button', {
+				const row = h('button', {
 					key: entry.id,
 					type: 'button',
 					'data-cabinet-conversation-item': '1',
@@ -6385,6 +6385,28 @@ window.__ModuleLoader__.load({
 						]),
 						h('span', { key: 'summary', 'data-cabinet-conversation-summary': '1', style: { fontSize: 11, color: INK3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, summary === '' ? '—' : summary.slice(0, 48))
 					])
+				]);
+				// 次级入口：「在原生视图打开」——与群聊气泡下钻/任务行同一通道
+				// （openCabinetSession → uiWorkspace.openSession → 宿主
+				// replaceMain(reveal) → selectPanel(null)），点它才离开本页去
+				// 会话原生视图（那里右栏含开始引导页本就可用）。单击行本身仍是
+				// 选中语义（setChosen，不离开本页），完全不动。
+				// 无 uiWorkspace 服务时整段不渲染（与既有降级语义一致，不抛错）。
+				if (typeof cabinetOpenSession !== 'function') return row;
+				return h('div', {
+					key: entry.id + ':native-wrap',
+					style: { display: 'flex', alignItems: 'center', gap: 2 }
+				}, [
+					h('div', { key: 'row', style: { flex: 1, minWidth: 0 } }, [row]),
+					h('button', {
+						key: 'native',
+						type: 'button',
+						'data-cabinet-open-native': entry.id,
+						title: '在原生视图打开',
+						'aria-label': '在原生视图打开',
+						onClick: () => { try { openCabinetSession(entry.id, entry.id); } catch (ignored) { /* channel guards itself */ } },
+						style: { flex: 'none', width: 24, height: 24, display: 'flex', alignItems: 'center', justifyContent: 'center', border: 0, borderRadius: 6, background: 'transparent', color: INK3, cursor: 'pointer', fontSize: 12, padding: 0 }
+					}, '⧉')
 				]);
 			};
 			const conversationList = h('div', {

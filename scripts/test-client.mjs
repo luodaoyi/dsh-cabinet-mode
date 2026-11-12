@@ -3200,6 +3200,54 @@ assert.ok(!/background:\s*'(#fff|white)'/.test(source), 'no bare white backgroun
     resetHookCursor();
     const tree1 = elements(pageClient.CabinetPage(teamProps));
     assert.equal(items(tree1)[0].props['data-cabinet-conversation-selected'], '1', 'the clicked session stays selected, so its group chat stays on screen');
+
+    // ---- 次级入口：「在原生视图打开」（走 uiWorkspace.openSession 既有通道）----
+    {
+      const nativeEntry = tree1.find((node) => node.props?.['data-cabinet-open-native'] !== undefined);
+      assert.ok(nativeEntry, 'each conversation row carries a native-view entry');
+      assert.equal(nativeEntry.props['data-cabinet-open-native'], 's-lead', 'the entry is keyed by its session id');
+      assert.equal(nativeEntry.props.title, '在原生视图打开', 'the entry explains what it does');
+      // 点入口 → 恰一次 openSession，带该会话 id（与群聊气泡下钻同通道 payload）。
+      openedSessions.length = 0;
+      nativeEntry.props.onClick();
+      assert.deepEqual(openedSessions, ['s-lead'], 'clicking the entry opens the native view for exactly that session');
+      // 点入口后选中态不被破坏（入口不改 chosen）。
+      resetHookCursor();
+      const treeAfterNative = elements(pageClient.CabinetPage(teamProps));
+      assert.equal(items(treeAfterNative)[0].props['data-cabinet-conversation-selected'], '1', 'the native-view entry does not disturb the in-page selection');
+      // 降级：无 uiWorkspace 服务 → 入口不渲染，行照常（不抛错、不留死按钮）。
+      let noOpenerClient = null;
+      runInNewContext(source.replace(exportPoint, 'return { apply, CabinetPage, zh };'), {
+        window: { __ModuleLoader__: { load: ({ factory }) => {
+          noOpenerClient = factory((name) => {
+            if (name === '@deepseek-ai/dsh-client-ui-primitives') throw new Error('primitives not seeded');
+            return React;
+          });
+        } } },
+        console,
+      });
+      noOpenerClient.apply({
+        effect: (fn) => { try { const cleanup = fn(); return typeof cleanup === 'function' ? cleanup : () => {}; } catch (error) { return () => {}; } },
+        locale: { register: () => {}, bind: () => (key) => noOpenerClient.zh[key] || key },
+        inject: () => { /* no uiWorkspace: opener stays null */ },
+      });
+      const expandOnce = (clientInstance, props) => {
+        let tree = null;
+        for (let round = 0; round < 12; round += 1) {
+          resetHookCursor();
+          tree = elements(clientInstance.CabinetPage(props));
+          const collapsedTitle = tree.find((node) => node.type === 'button' && node.props?.['data-cabinet-conversation-group-title'] !== undefined
+            && tree.find((other) => other.props?.['data-cabinet-conversation-group'] === node.props['data-cabinet-conversation-group-title'] && other.props?.['data-cabinet-conversation-group-collapsed'] === '1') !== undefined);
+          if (collapsedTitle === undefined) break;
+          collapsedTitle.props.onClick();
+        }
+        resetHookCursor();
+        return elements(clientInstance.CabinetPage(props));
+      };
+      const noOpenerTree = expandOnce(noOpenerClient, teamProps);
+      assert.equal(noOpenerTree.find((node) => node.props?.['data-cabinet-conversation-item'] !== undefined) !== undefined, true, 'rows still render without the opener service');
+      assert.equal(noOpenerTree.find((node) => node.props?.['data-cabinet-open-native'] !== undefined), undefined, 'the native-view entry is not rendered when no opener service exists');
+    }
     // 子会话绝不出现在左列（真实形状：parentSessionId / origin:subagent）。
     const mixedList = {
       ids: ['s-lead', 's-sub-a', 's-sub-b'],
