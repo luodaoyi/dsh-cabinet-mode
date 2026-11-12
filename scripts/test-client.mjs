@@ -1621,12 +1621,14 @@ console.log('PASS 内阁 Bot section removal: no section box, office rows, 现�
     return { tree, stop };
   };
 
-  // 1) Right pane: roster only. 群聊 now lives in the 左侧「内阁」整页
-  //    (`activeTab: 'groupchat'`), so the two surfaces no longer show the same
-  //    conversation; the roster keeps the five-tab settings section intact.
+  // 1) Right pane: 名册 + 时间线 (the right rail's two views). 群聊 lives in
+  //    the 左侧「内阁」整页 (`activeTab: 'groupchat'`), so the two surfaces no
+  //    longer show the same conversation; the roster keeps its five-tab
+  //    settings section intact and stays the default view.
   const first = groupRender();
   const tabNodes = findNodes(first.tree, (node) => node.props?.['data-cabinet-panel-tab'] !== undefined);
-  assert.deepEqual(tabNodes.map((node) => node.props['data-cabinet-panel-tab']), ['roster'], 'the right pane keeps the roster tab only');
+  assert.deepEqual(tabNodes.map((node) => node.props['data-cabinet-panel-tab']), ['roster', 'timeline'], 'the right pane keeps 名册 + 时间线');
+  assert.deepEqual(tabNodes.map((node) => node.props['data-cabinet-rail-tab']), ['roster', 'timeline'], 'both right-pane tabs carry the rail hook');
   assert.ok(!tabNodes.some((node) => node.props['data-cabinet-panel-tab'] === 'groupchat'), 'the right pane exposes no 群聊 tab');
   assert.equal(tabNodes[0].props['data-cabinet-panel-active'], '1', 'the roster view stays the default');
   assert.equal(findNodes(first.tree, (node) => node.props?.['data-cabinet-groupchat'] !== undefined).length, 0, 'the right pane no longer hosts the group chat');
@@ -2441,6 +2443,92 @@ console.log('PASS 内阁 Bot section removal: no section box, office rows, 现�
     assert.ok(releases.includes('lead-session'), 'unmounting the page releases the retained session, got ' + JSON.stringify(releases.slice(-3)));
     persistentRefs = null;
     groupTab = 'roster';
+  }
+
+  // ---- 泳道时间线（MVP）：数据 = 群聊那份折叠行；不新建 RPC ----
+  {
+    // 前面的页内渲染把 CabinetPage 布局的 ref/state 写进了 groupSlots 与
+    // hookStates.slots（基准偏移与独立 groupRender 不同）；本块从 0 基准起，先清干净。
+    groupSlots.length = 0;
+    hookStates.slots.length = 0;
+    // 页内渲染留下的 effect 队列带着 CabinetPage 的槽位基准，进本块的
+    // runGroupEffects 会按错误索引写槽（实测把 linkPaths 槽写成 null）——先清空。
+    recordedEffects.length = 0;
+    resetHookCursor();
+    const tlTeam = { members: [
+      { id: 'lead-session', name: 'lead', role: 'lead', phase: 'active' },
+      { id: 'm-works', name: 'works', role: 'mate', phase: 'active' },
+      { id: 'm-quiet', name: 'quiet', role: 'mate', phase: 'active' }
+    ], tasks: [{ id: '7', subject: '时间线联动任务', status: 'in_progress', ownerName: 'works' }] };
+    // lead：3 条真实消息，前两条带 taskId（方块写任务号），第三条没有（写序号）；
+    // works：3 条不带 taskId（全部写序号）；
+    // quiet：没有 source → 快照读取失败 → 不可用行（time 0）→ 无事件 → 不画泳道。
+    sources['lead-session'] = makeSource([
+      durable('user/message', 1, 1000, { role: 'user', content: [{ type: 'text', text: '第一问' }], taskId: '7' }),
+      durable('assistant/message', 2, 2000, { message: { role: 'assistant', content: [{ type: 'text', text: '答一' }] }, taskId: '7' }),
+      durable('user/message', 3, 3000, { role: 'user', content: [{ type: 'text', text: '第二问' }] })
+    ]);
+    sources['m-works'] = makeSource([
+      durable('user/message', 1, 1500, { role: 'user', content: [{ type: 'text', text: '开工' }] }),
+      durable('assistant/message', 2, 2500, { message: { role: 'assistant', content: [{ type: 'text', text: '在做' }] } }),
+      durable('assistant/message', 3, 3500, { message: { role: 'assistant', content: [{ type: 'text', text: '完成' }] } })
+    ]);
+    const nodesOf = (tree, attr) => findNodes(tree, (node) => node.props?.[attr] !== undefined);
+    const flatText = (node) => {
+      const collect = (item) => (item && Array.isArray(item.children) ? item.children : [])
+        .flat(Infinity)
+        .map((child) => (typeof child === 'string' ? child : collect(child)))
+        .join('');
+      return collect(node);
+    };
+
+    // 默认仍是名册：无时间线容器，有名册树。
+    const tlDefault = groupRender({ activeTab: 'roster', team: tlTeam });
+    assert.equal(nodesOf(tlDefault.tree, 'data-cabinet-timeline').length, 0, 'the default right pane renders no timeline');
+    assert.ok(nodesOf(tlDefault.tree, 'data-cabinet-roster').length > 0, 'the default right pane renders the roster tree');
+
+    // 首次时间线渲染才开始 retain；ready 落定后折叠行才进视图（同群聊段
+    // :1653 的 settled→merged 时序）。
+    groupRender({ activeTab: 'timeline', team: tlTeam });
+    for (const resolve of pendingReady.values()) resolve({});
+    pendingReady.clear();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const tlView = groupRender({ activeTab: 'timeline', team: tlTeam });
+    assert.equal(nodesOf(tlView.tree, 'data-cabinet-timeline').length, 1, 'switching to 时间线 renders the timeline container');
+    assert.equal(nodesOf(tlView.tree, 'data-cabinet-roster').length, 0, 'the roster tree disappears on 时间线');
+
+    const lanes = nodesOf(tlView.tree, 'data-cabinet-timeline-lane');
+    assert.deepEqual(lanes.map((node) => node.props['data-cabinet-timeline-lane']), ['lead-session', 'm-works'], 'two event lanes render; the member without events draws no lane');
+
+    const events = nodesOf(tlView.tree, 'data-cabinet-timeline-event');
+    assert.equal(events.length, 6, 'six events render (3 per lane), got ' + events.length);
+    // X 位置随时间单调递增：每个泳道内，事件按时间排序，left% 严格递增。
+    for (const lane of lanes) {
+      const laneEvents = findNodes([lane], (node) => node.props?.['data-cabinet-timeline-event'] !== undefined);
+      const lefts = laneEvents.map((node) => parseFloat(node.props.style.left));
+      assert.equal(lefts.length, 3, 'the lane keeps its three events');
+      for (let i = 1; i < lefts.length; i += 1) {
+        assert.ok(lefts[i] > lefts[i - 1], 'event X positions increase with time in ' + lane.props['data-cabinet-timeline-lane'] + ': ' + JSON.stringify(lefts));
+      }
+    }
+    // 方块数字：有任务号写任务号；没有任务号写该行序号。
+    const leadEvents = findNodes([lanes[0]], (node) => node.props?.['data-cabinet-timeline-event'] !== undefined);
+    assert.equal(leadEvents[0].props['data-cabinet-timeline-event-task'], '7', 'the first event carries its task id');
+    assert.ok(flatText(leadEvents[0]).includes('7'), 'the block renders the task number, got: ' + JSON.stringify(flatText(leadEvents[0])));
+    assert.equal(leadEvents[2].props['data-cabinet-timeline-event-task'], undefined, 'an event without a task has no task attr');
+    assert.equal(flatText(leadEvents[2]), String(leadEvents[2].props['data-cabinet-timeline-event-seq']), 'an event without a task shows its sequence number, got: ' + JSON.stringify(flatText(leadEvents[2])));
+    const worksEvents = findNodes([lanes[1]], (node) => node.props?.['data-cabinet-timeline-event'] !== undefined);
+    for (const eventNode of worksEvents) {
+      assert.ok(flatText(eventNode).length > 0, 'every taskless block still shows its sequence number, got: ' + JSON.stringify(flatText(eventNode)));
+    }
+    // 收尾：恢复默认名册。
+    groupRender({ activeTab: 'roster', team: tlTeam });
+    // 段尾契约：交还 persistentRefs=null，并清空本块写下的群聊布局残留槽——
+    // 段后的页面渲染按页面基址读槽，读到群聊布局残留会把 linkPaths 槽
+    // 当成非数组（实测 linkPaths.map 崩），清空后各块从 initial 值起步。
+    persistentRefs = null;
+    groupSlots.length = 0;
+    hookStates.slots.length = 0;
   }
 }
 console.log('PASS 群聊 tab: the right pane keeps the roster only (no 群聊 tab, rows or composer) while the group chat is mounted through the standalone 内阁 page, which retains/releases its selected SessionId, settings tabs untouched, retain first argument is a SessionId string with source cabinetGroupChat, messages merge in time order with officer portrait/name and body, the user\'s own durable prompt renders as 「你」 with no bureau name or portrait while injected user-role rows are filtered, the composer queues prompt(parts,\'queue\') to the Lead session and keeps its draft across re-renders, refuses duplicates while sending and degrades to a disabled hint without a SessionFace, long replies (>12 lines or 600+ chars) fold with 展开/收起 and short ones do not, only the newest 30 rows mount until 显示更早, the fold cache reuses an unchanged window revision instead of re-reading entries, two tool calls collapse to 「2 个工具」, a failed member degrades to 不可用, the bilingual empty state renders, a tab switch and unmount each release every reference exactly once, the 5s tick folds an appended window, and two text-delta frames concatenate inside one message');
@@ -3361,6 +3449,53 @@ assert.ok(!/background:\s*'(#fff|white)'/.test(source), 'no bare white backgroun
       resetHookCursor();
       elements(pageClient.CabinetPage({
         useSessions: (select) => select({ ids: ['s-of'], byId: { 's-of': { title: '溢出修复', updatedAt: ageOf(8) } }, projectionsBySession: {} }),
+        useSessionStatus: (select) => select(new Map()),
+        t: (key) => pageClient.zh[key] || key
+      }));
+    }
+
+    // ---- 右栏视图切换：名册 / 时间线（页面级：点 tab 真的能切）----
+    {
+      // 清槽位 + 无成员基线，块内 CabinetPage 渲染同构（同宽度/溢出块收尾约定）。
+      hookStates.slots.length = 0;
+      persistentRefs = { cursor: 0, slots: [] };
+      resetHookCursor();
+      const tlProps = {
+        useSessions: (select) => select({ ids: ['s-lead'], byId: { 's-lead': { title: '首辅会话', updatedAt: ageOf(50) } }, projectionsBySession: { 's-lead': { values: { agentTeam: { members: [
+          { name: 'lead', role: 'lead', id: 's-lead' },
+          { name: 'works', role: 'mate', id: 'm-works' },
+          { name: 'quiet', role: 'mate', id: 'm-quiet' }
+        ], tasks: [] } } } } }),
+        useSessionStatus: (select) => select(new Map()),
+        t: (key) => pageClient.zh[key] || key
+      };
+      const railTabsOf = (tree) => tree.filter((node) => node.props?.['data-cabinet-rail-tab'] !== undefined);
+      const baseTree = elements(pageClient.CabinetPage(tlProps));
+      const baseTabs = railTabsOf(baseTree);
+      assert.deepEqual(baseTabs.map((node) => node.props['data-cabinet-rail-tab']), ['roster', 'timeline'], 'the right rail offers 名册 + 时间线');
+      assert.equal(baseTabs.find((node) => node.props['data-cabinet-rail-tab'] === 'roster').props['data-cabinet-panel-active'], '1', '名册 is the default rail view');
+      assert.equal(baseTree.find((node) => node.props?.['data-cabinet-timeline'] !== undefined), undefined, 'no timeline renders on the default rail view');
+      // 点「时间线」→ 时间线容器出现、名册容器消失。
+      baseTabs.find((node) => node.props['data-cabinet-rail-tab'] === 'timeline').props.onClick();
+      resetHookCursor();
+      const tlTree = elements(pageClient.CabinetPage(tlProps));
+      assert.ok(tlTree.find((node) => node.props?.['data-cabinet-timeline'] !== undefined) !== undefined, 'clicking 时间线 renders the timeline container');
+      assert.equal(tlTree.find((node) => node.props?.['data-cabinet-roster'] !== undefined), undefined, 'the roster tree leaves the rail on 时间线');
+      // 页面级无 sessions 服务 → 全员无事件 → 时间线渲染空态（不画泳道）。
+      assert.ok(tlTree.find((node) => node.props?.['data-cabinet-timeline-empty'] !== undefined) !== undefined, 'an eventless timeline shows the empty state, not fake lanes');
+      assert.equal(tlTree.find((node) => node.props?.['data-cabinet-timeline-lane'] !== undefined), undefined, 'members without events draw no lane');
+      // 再点「名册」回到默认视图。
+      tlTree.filter((node) => node.props?.['data-cabinet-rail-tab'] === 'roster')[0].props.onClick();
+      resetHookCursor();
+      const backTree = elements(pageClient.CabinetPage(tlProps));
+      assert.ok(backTree.find((node) => node.props?.['data-cabinet-roster'] !== undefined) !== undefined, 'clicking 名册 brings the roster back');
+      assert.equal(backTree.find((node) => node.props?.['data-cabinet-timeline'] !== undefined), undefined, 'the timeline leaves the rail');
+      // 收尾：清槽位 + 无成员基线渲染（同溢出块收尾），别把 3 成员布局泄漏给后续块。
+      hookStates.slots.length = 0;
+      persistentRefs = { cursor: 0, slots: [] };
+      resetHookCursor();
+      elements(pageClient.CabinetPage({
+        useSessions: (select) => select({ ids: ['s-of'], byId: { 's-of': { title: '时间线收尾', updatedAt: ageOf(8) } }, projectionsBySession: {} }),
         useSessionStatus: (select) => select(new Map()),
         t: (key) => pageClient.zh[key] || key
       }));

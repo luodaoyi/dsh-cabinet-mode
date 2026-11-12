@@ -2773,7 +2773,7 @@ window.__ModuleLoader__.load({
 		// The right-hand pane keeps the roster only: 群聊 lives in the standalone
 		// 内阁 page (`activeTab: 'groupchat'` pins it there), so the two surfaces no
 		// longer show the same conversation side by side.
-		const PANEL_TABS = ['roster'];
+		const PANEL_TABS = ['roster', 'timeline'];
 		/** One readable text slice of a message's content blocks. */
 		function groupChatText(content) {
 			if (!Array.isArray(content)) return '';
@@ -2834,7 +2834,7 @@ window.__ModuleLoader__.load({
 					}
 					const text = groupChatText(message.content);
 					if (text === '') continue;
-					push({ kind: 'assistant', time: event.time, seq: event.seq, text, tools: [] });
+					push({ kind: 'assistant', time: event.time, seq: event.seq, text, tools: [], taskId: typeof data.taskId === 'string' && data.taskId !== '' ? data.taskId : undefined });
 					continue;
 				}
 				if (type === 'user/message') {
@@ -2865,7 +2865,7 @@ window.__ModuleLoader__.load({
 					if (source !== null && typeof source === 'object' && !('rpcId' in source)) continue;
 					const text = groupChatText(message.content);
 					if (text === '') continue;
-					push({ kind: 'user', time: event.time, seq: event.seq, text, tools: [] });
+					push({ kind: 'user', time: event.time, seq: event.seq, text, tools: [], taskId: typeof data.taskId === 'string' && data.taskId !== '' ? data.taskId : undefined });
 					continue;
 				}
 				if (type === 'tool/call') {
@@ -4180,7 +4180,7 @@ window.__ModuleLoader__.load({
 				);
 			});
 			React.useEffect(() => {
-				if (activeTab !== 'groupchat') return undefined;
+				if (activeTab !== 'groupchat' && activeTab !== 'timeline') return undefined;
 				let disposed = false;
 				const bump = () => { if (!disposed) setRevision((revision) => revision + 1); };
 				const fail = (id, error) => {
@@ -4252,7 +4252,7 @@ window.__ModuleLoader__.load({
 			// waiting for an event that will never come. The flag makes this dep
 			// change exactly once per mount.
 			const refilledRef = React.useRef(false);
-			const refilled = activeTab === 'groupchat'
+			const refilled = (activeTab === 'groupchat' || activeTab === 'timeline')
 				&& members.some((member) => member && typeof member.id === 'string' && state.records.has(member.id) && state.views.get(member.id) === undefined)
 				&& !refilledRef.current;
 			React.useEffect(() => {
@@ -4729,7 +4729,7 @@ window.__ModuleLoader__.load({
 				line
 			]);
 		}
-		function CabinetPanel({ sessionId, parentSessionIdHint, useSession, useSessions, useSessionStatus, t, activeTab: activeTabProp, hideTabs, focusSessionId, onGroupSnapshot }) {
+		function CabinetPanel({ sessionId, parentSessionIdHint, useSession, useSessions, useSessionStatus, t, activeTab: activeTabProp, hideTabs, focusSessionId, onGroupSnapshot, onTabChange }) {
 			// Panel view tabs: 群聊 (merged member messages) and the roster view.
 			// Hooks must run before any early return — an effect that is skipped
 			// on one render and run on the next would desynchronise the retain/
@@ -4953,7 +4953,7 @@ window.__ModuleLoader__.load({
 			// The 5s usage tick also folds the newest event window while the tab is
 			// open, so a settled message lands without waiting for the next frame.
 			React.useEffect(() => {
-				if (activeTab !== 'groupchat' || !groupService) return undefined;
+				if ((activeTab !== 'groupchat' && activeTab !== 'timeline') || !groupService) return undefined;
 				const timer = setInterval(() => group.forceSync(), PROJECTION_REFRESH_MS);
 				return () => clearInterval(timer);
 			}, [activeTab, groupService]);
@@ -5154,10 +5154,11 @@ window.__ModuleLoader__.load({
 				role: 'tab',
 				'aria-selected': activeTab === id,
 				'data-cabinet-panel-tab': id,
+				'data-cabinet-rail-tab': id,
 				'data-cabinet-panel-active': activeTab === id ? '1' : '0',
 				style: { fontSize: 11, cursor: 'pointer', padding: '3px 8px', borderRadius: 6, border: '1px solid var(--dsw-alias-border-l3, rgba(127,127,127,.4))', background: activeTab === id ? 'rgba(79,140,255,.16)' : 'transparent', color: activeTab === id ? INK : INK2 },
-				onClick: () => setActiveTab(id)
-			}, tt('panel.tab.' + id)))));
+				onClick: () => { setActiveTab(id); if (typeof onTabChange === 'function') onTabChange(id); }
+			}, id === 'timeline' ? '时间线' : tt('panel.tab.' + id)))));
 			// ---- click-to-open a member's child session (optional channel) ----
 			// cabinetOpenSession is filled by ctx.inject(['uiWorkspace']) in apply()
 			// and stays null when the service is missing — the helpers below then
@@ -5445,6 +5446,81 @@ window.__ModuleLoader__.load({
 				return h('div', { ref: panelRef, style: PANEL }, body);
 			}
 
+			// ---- 泳道时间线（右栏第二视图，MVP）----
+			// 数据 = 群聊那份折叠行（groupRows：每行带 time/seq/kind 与 member 归属），
+			// 不新建 RPC、不新订阅；事件 = 带真实时间戳的行（error/pending 行 time 为 0，
+			// 不算事件，对应成员落进「安静泳道」折叠）。右栏 <420px 时横向滚动。
+			if (activeTab === 'timeline') {
+				const authorOf = (row) => (row !== null && row !== undefined && row.member !== null && row.member !== undefined && typeof row.member.id === 'string' && row.member.id !== '' ? row.member.id : (typeof row.memberName === 'string' ? row.memberName : ''));
+				const lanes = chatMembers.filter((member) => member !== null && member !== undefined && typeof member.id === 'string' && member.id !== '');
+				const eventsOf = (member) => groupRows.filter((row) => authorOf(row) === member.id && typeof row.time === 'number' && row.time > 0);
+				const timed = groupRows.filter((row) => typeof row.time === 'number' && row.time > 0);
+				const minTime = timed.reduce((min, row) => Math.min(min, row.time), Infinity);
+				const maxTime = timed.reduce((max, row) => Math.max(max, row.time), -Infinity);
+				const span = maxTime - minTime;
+				// 线性映射 [最早, 最新] → [2%, 98%]：首尾方块不被容器裁掉。
+				const percentOf = (time) => (span > 0 ? 2 + ((time - minTime) / span) * 96 : 50);
+				// 家族色：黄金角散列，与宿主编队同式 hsl(round(i*137.508)%360 58% 52%)。
+				const hueOf = (index) => 'hsl(' + (Math.round(index * 137.508) % 360) + ' 58% 52%)';
+				// 无事件的成员不画泳道（本步不做静默折叠，留后续）。
+				const laneNodes = lanes.filter((member) => eventsOf(member).length > 0).map((member) => {
+					const laneIndex = lanes.findIndex((candidate) => candidate !== null && candidate !== undefined && candidate.id === member.id);
+					const rows = eventsOf(member);
+					return h('div', {
+						key: member.id,
+						'data-cabinet-timeline-lane': member.id,
+						style: { display: 'flex', alignItems: 'center', height: 36, borderBottom: '1px solid rgba(127,127,127,.12)' }
+					}, [
+						h('div', {
+							key: 'label',
+							'data-cabinet-timeline-lane-label': '1',
+							style: { width: 96, flex: 'none', minWidth: 0, display: 'flex', alignItems: 'center', gap: 4, paddingRight: 6, boxSizing: 'border-box' }
+						}, [
+							h(Avatar, { key: 'a', name: member.name || member.id, size: 16, live: member.phase === 'running' }),
+							h('span', {
+								key: 'n',
+								title: memberLabel(member.name || member.id),
+								style: { fontSize: 11, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }
+							}, memberLabel(member.name || member.id))
+						]),
+						h('div', {
+							key: 'axis',
+							'data-cabinet-timeline-axis': '1',
+							style: { position: 'relative', flex: '1 1 auto', minWidth: 0, height: '100%' }
+						}, rows.map((row, rowIndex) => {
+							const taskId = typeof row.taskId === 'string' && row.taskId !== '' ? row.taskId : '';
+							// 方块数字：有任务号写任务号，没有写该行序号。
+							const mark = taskId !== '' ? taskId : String(row.seq);
+							return h('div', {
+								key: member.id + '#' + rowIndex,
+								'data-cabinet-timeline-event': mark,
+								'data-cabinet-timeline-event-task': taskId !== '' ? taskId : undefined,
+								'data-cabinet-timeline-event-seq': String(row.seq),
+								style: {
+									position: 'absolute', left: percentOf(row.time) + '%', top: '50%', transform: 'translate(-50%,-50%)',
+									width: 14, height: 14, borderRadius: 4, boxSizing: 'border-box',
+									background: hueOf(laneIndex), color: '#fff', fontSize: 10, lineHeight: '14px', textAlign: 'center',
+									padding: 0, border: 'none', cursor: 'pointer', overflow: 'hidden'
+								}
+							}, [h('span', { key: 't', style: { display: 'inline-block', maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', verticalAlign: 'top', lineHeight: '14px' } }, mark)]);
+						}))
+					]);
+				});
+				body.push(h('div', {
+					key: 'timeline',
+					'data-cabinet-timeline': '1',
+					// 与群聊面板同款撑满右栏的 flex 列；宽度不足时区域自身横向滚动。
+					style: { ...PANEL, display: 'flex', flexDirection: 'column', overflow: 'auto', marginTop: 12, gap: 6 }
+				}, [
+					h('div', {
+						key: 'inner',
+						'data-cabinet-timeline-inner': '1',
+						style: { minWidth: 420 }
+					}, laneNodes.length > 0 ? laneNodes : h('div', { key: 'empty', 'data-cabinet-timeline-empty': '1', style: { fontSize: 12, color: INK2, padding: '8px 2px' } }, '暂无事件'))
+				]));
+				return h('div', { ref: panelRef, style: PANEL }, body);
+			}
+
 			const isLeadTask = (task) => task.ownerName === 'lead' || (lead !== undefined && task.ownerName === lead.name);
 			const unassigned = tasks.filter((task) => !task.ownerName);
 			const leadOwn = tasks.filter((task) => task.ownerName !== undefined && isLeadTask(task));
@@ -5583,7 +5659,7 @@ window.__ModuleLoader__.load({
 				})));
 			}
 
-			body.push(h('div', { key: 'tree', ref: treeRef, style: { position: 'relative', marginTop: 10 } }, treeChildren));
+			body.push(h('div', { key: 'tree', ref: treeRef, 'data-cabinet-roster': '1', style: { position: 'relative', marginTop: 10 } }, treeChildren));
 			body.push(h('div', {
 				key: 'legend',
 				style: { marginTop: 12, fontSize: 10.5, color: INK3, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }
@@ -6204,6 +6280,8 @@ window.__ModuleLoader__.load({
 			const toggleSplit = () => setSplitOpen((open) => !open);
 			// 右栏宽度：首渲染读 localStorage（读不到/非法回默认 360，见 readRailWidth）。
 			const [railWidth, setRailWidth] = React.useState(() => readRailWidth());
+			// 右栏视图切换：默认「名册」，用户点「时间线」才换；主列群聊不受影响。
+			const [railView, setRailView] = React.useState('roster');
 			// 拖拽中的解绑函数挂 ref：mouseup 与组件卸载共用，杜绝悬挂 document 监听。
 			const railDragCleanupRef = React.useRef(null);
 			React.useEffect(() => () => {
@@ -6582,7 +6660,8 @@ window.__ModuleLoader__.load({
 					useSessions: readSessions,
 					useSessionStatus: readStatus,
 					t: tt,
-					activeTab: 'roster',
+					activeTab: railView,
+					onTabChange: setRailView,
 					hideTabs: false,
 					focusSessionId: '',
 					onGroupSnapshot: () => {}
