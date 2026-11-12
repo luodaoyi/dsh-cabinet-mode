@@ -5728,20 +5728,28 @@ window.__ModuleLoader__.load({
 			];
 
 			if (cells.length > 0) {
+				// 分层：每层最多 3 个（用户要求“一排最多三个不挤，更多阁臣再下一层”）。
+				// 定长分组而非 grid auto-fill——360px 右栏也强制 3 个一行，卡宽靠
+				// basis 收缩 + 省略号；每层 flex 居中，不满 3 个的层同样居中。
+				const cellRows = [];
+				for (let startIndex = 0; startIndex < cells.length; startIndex += 3) {
+					cellRows.push(cells.slice(startIndex, startIndex + 3));
+				}
 				treeChildren.push(h('div', {
 					key: 'grid',
 					style: {
 						position: 'relative',
 						zIndex: 1,
-						display: 'grid',
-						// auto-fill + minmax(140px,1fr)：列宽下限 140、按容器宽度
-						// 自动定列数并换行成多行（第15轮实证：min 0 时列数会按项数
-						// 展开——9 成员 9 列×40px 挤成一条横排、名字竖排破版）。
-						gridTemplateColumns: 'repeat(auto-fill,minmax(140px,1fr))',
-						gap: '12px 14px',
+						display: 'flex',
+						flexDirection: 'column',
+						gap: 12,
 						width: '100%'
 					}
-				}, cells.map((cell) => {
+				}, cellRows.map((rowCells, rowIndex) => h('div', {
+					key: 'row-' + rowIndex,
+					'data-cabinet-tree-row': String(rowIndex + 1),
+					style: { display: 'flex', justifyContent: 'center', gap: 12, alignItems: 'stretch', minWidth: 0 }
+				}, rowCells.map((cell) => {
 					let content;
 					if (cell.member !== undefined) {
 						const member = cell.member;
@@ -5792,12 +5800,12 @@ window.__ModuleLoader__.load({
 						key: cell.key,
 						'data-cabinet-node': '1',
 						'data-cabinet-family': cell.familyColor,
-						// 卡片最小宽 140：既盖掉 grid item 的 min-content 自动最小
-						// 尺寸（nowrap 整行文本会把卡顶到 203+），又与列下限 140 对齐；
-						// 卡片内部 .cabinet-card 本就 min-width:0，允许内容收缩省略。
-						style: { minWidth: 140 }
+						// 分层后每层 ≤3 卡：basis=(可用宽-2列距)/3——460/600 右栏分别
+					// 约 141/184px；360px 右栏收缩到 ~104px 仍保 3 个一行（用户硬
+					// 要求），文本全靠省略号；maxWidth 200 封顶宽 rail 下的卡片。
+					style: { flex: '0 1 calc((100% - 24px) / 3)', minWidth: 0, maxWidth: 200 }
 					}, content);
-				})));
+				})))));
 			}
 
 			body.push(h('div', { key: 'tree', ref: treeRef, 'data-cabinet-roster': '1', style: { position: 'relative', marginTop: 10 } }, treeChildren));

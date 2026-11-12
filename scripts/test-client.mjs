@@ -90,7 +90,7 @@ const PAGE_NOW = Date.now();
 // ageOf 保序：原值越大 ⇒ 时间越新，且所有映射结果都落在最近 ~12 天内
 // （小于 30 天窗口，不会触发新鲜度过滤），既有排序断言的语义不变。
 const ageOf = (value) => PAGE_NOW - (1000000 - value);
-const exportList = 'return { inject, apply, avatarFor, displayName, chatBubbleName, chatBubbleNames, bureauOf, CabinetPanel, MemberCard, TaskLine, TaskEdgeLayer, buildTaskEdges, taskEdgesEqual, zh, en, BUREAUX, AVATARS, setMemberConfig, memberLabel, configuredAvatar, configuredPrompt, factoryPromptFor, DEFAULT_MEMBER_PROMPTS, DEFAULT_LEAD_PROMPT, CabinetMemberSettings, MemoryPluginCard, memoryPluginInstalledOf, SETTINGS_TABS, formatTokenCount, formatElapsed, tokenTotalOf, usageFor, planProjectionRequests, teamUsageOf, groupChatFold, markdownBlocksOf, markdownBlocksCached, inlineMarkdownTokens, markdownLinkHref, modelOptionsOf, modelCatalogNotice, modelSelectionOf, cabinetSessionChoices, cabinetSessionFilters, cabinetSessionGroups, defaultCabinetSession, CabinetMarkdown, CabinetPage, CabinetPanelIcon, GroupChatRow, STYLE_CSS, cabinetGroupMemberStates, mergeGroupChat, cabinetChatViewRows, chatStampNeeded, nearChatBottom, scrollChatToBottom, scrollFollowingTail, cabinetScopeRows, openCabinetSession };';
+const exportList = 'return { inject, apply, avatarFor, displayName, chatBubbleName, chatBubbleNames, bureauOf, CabinetPanel, MemberCard, TaskLine, TaskEdgeLayer, buildTaskEdges, buildConnectorPaths, taskEdgesEqual, zh, en, BUREAUX, AVATARS, setMemberConfig, memberLabel, configuredAvatar, configuredPrompt, factoryPromptFor, DEFAULT_MEMBER_PROMPTS, DEFAULT_LEAD_PROMPT, CabinetMemberSettings, MemoryPluginCard, memoryPluginInstalledOf, SETTINGS_TABS, formatTokenCount, formatElapsed, tokenTotalOf, usageFor, planProjectionRequests, teamUsageOf, groupChatFold, markdownBlocksOf, markdownBlocksCached, inlineMarkdownTokens, markdownLinkHref, modelOptionsOf, modelCatalogNotice, modelSelectionOf, cabinetSessionChoices, cabinetSessionFilters, cabinetSessionGroups, defaultCabinetSession, CabinetMarkdown, CabinetPage, CabinetPanelIcon, GroupChatRow, STYLE_CSS, cabinetGroupMemberStates, mergeGroupChat, cabinetChatViewRows, chatStampNeeded, nearChatBottom, scrollChatToBottom, scrollFollowingTail, cabinetScopeRows, openCabinetSession };';
 runInNewContext(source.replace(exportPoint, exportList), {
   setTimeout: (fn, ms) => setTimeout(fn, ms === 120000 ? 20 : ms), clearTimeout,
   Date: RealmDate,
@@ -1447,6 +1447,62 @@ assert.equal(client.usageFor({tokenUsage:{outputTokens:-1},contextPressure:{cont
   hookStates.slots.length = 0;
   recordedEffects.length = 0;
   resetHookCursor();
+}
+
+// 家族树分层：每层最多 3 个、层内居中（9/4/2 个阁臣 → 3/2/1 层），分层连线几何实测。
+{
+  const layerTeam = (count) => ({
+    members: [
+      { id: 'lead-session', name: 'lead', role: 'lead', phase: 'active' },
+      ...Array.from({ length: count }, (_, index) => ({ id: 'm-' + index, name: 'mate' + index, role: 'mate', phase: 'active' })),
+    ],
+    tasks: [],
+  });
+  const treeRows = (count) => elements(render(layerTeam(count), client.zh))
+    .filter((node) => node.props?.['data-cabinet-tree-row'] !== undefined);
+  const cardsIn = (row) => elements([row]).filter((node) => node.props?.['data-cabinet-node'] !== undefined);
+  const rows9 = treeRows(9);
+  assert.equal(rows9.length, 3, 'nine ministers lay out in three rows, got ' + rows9.length);
+  for (const [rowIndex, row] of rows9.entries()) {
+    assert.equal(cardsIn(row).length, 3, 'row ' + (rowIndex + 1) + ' holds three cards, got ' + cardsIn(row).length);
+    assert.equal(row.props.style.justifyContent, 'center', 'row ' + (rowIndex + 1) + ' centers its cards');
+  }
+  const rows4 = treeRows(4);
+  assert.equal(rows4.length, 2, 'four ministers lay out in two rows (3+1), got ' + rows4.length);
+  assert.deepEqual(rows4.map((row) => cardsIn(row).length), [3, 1], 'the second row holds the overflow minister');
+  assert.equal(rows4[1].props.style.justifyContent, 'center', 'the 1-card row still centers');
+  const rows2 = treeRows(2);
+  assert.equal(rows2.length, 1, 'two ministers share one row, got ' + rows2.length);
+  assert.equal(cardsIn(rows2[0]).length, 2, 'the single row holds both cards');
+  // 分层连线几何实测（buildConnectorPaths 真跑合成矩形）：按 top 聚类成行，
+  // 每卡一条支线落本层母线、lead 竖线落首层、行间有折线相连。
+  const connBase = { left: 0, top: 0, width: 600, height: 900 };
+  const connLead = { left: 260, top: 0, width: 80, height: 60 };
+  const connNodes = [];
+  for (let rowIndex = 0; rowIndex < 3; rowIndex += 1) {
+    for (let colIndex = 0; colIndex < 3; colIndex += 1) {
+      connNodes.push({ left: 40 + colIndex * 180, top: 200 + rowIndex * 160, width: 160, height: 120, color: 'hsl(' + (rowIndex * 3 + colIndex) + ' 58% 52%)' });
+    }
+  }
+  const connPaths = client.buildConnectorPaths(connBase, connLead, connNodes, -8);
+  assert.ok(Array.isArray(connPaths) && connPaths.length > 0, 'connector paths build for a 3x3 layered tree');
+  const connD = connPaths.map((path) => (typeof path === 'string' ? path : path.d));
+  let stubCount = 0;
+  for (const node of connNodes) {
+    const cx = node.left + node.width / 2;
+    const busY = node.top - 8;
+    if (connD.some((d) => d.indexOf('M ' + cx + ' ' + busY + ' L ' + cx + ' ' + node.top) === 0)) stubCount += 1;
+  }
+  assert.equal(stubCount, 9, 'every layered card gets a drop line to its own row bus, got ' + stubCount);
+  const busCount = connD.filter((d) => /^M (\d+) (\d+) L (\d+) \2$/.test(d)).length;
+  assert.ok(busCount >= 3, 'each layer keeps a horizontal bus, got ' + busCount);
+  assert.ok(connD.some((d) => d.indexOf('M 300 60 L 300 192') === 0), 'lead drops a line to the first layer bus');
+  // 无跨行折线时上限 13 条（1 lead + 3×(1 bus + 3 stub)）；更多即行间折线存在。
+  assert.ok(connPaths.length > 13, 'polylines join the layers, got ' + connPaths.length + ' paths');
+  const colored = connPaths.filter((path) => typeof path === 'object' && typeof path.color === 'string' && path.color.indexOf('hsl(') === 0);
+  assert.ok(colored.length >= 9, 'drop lines carry the family colors, got ' + colored.length);
+  // 收尾：清 CabinetPanel 入队的 effect，防泄漏给后续块（3b47d6a2 教训）。
+  recordedEffects.length = 0;
 }
 
 // The dispatch button is gone, so an injected workspace channel must not resurrect
@@ -3505,13 +3561,13 @@ assert.ok(!/background:\s*'(#fff|white)'/.test(source), 'no bare white backgroun
       const ofRail = ofTree.find((node) => node.props?.['data-cabinet-cabinet-rail'] !== undefined);
       assert.equal(ofRail.props.style.minWidth, 0, 'the rail container keeps minWidth:0');
       assert.equal(ofRail.props.style.overflow, 'hidden', 'the rail container clips instead of stretching');
-      const gridNode = ofTree.find((node) => typeof node.props?.style?.gridTemplateColumns === 'string' && node.props.style.gridTemplateColumns.includes('auto-fill'));
-      assert.ok(gridNode, 'the roster grid renders with members');
-      assert.ok(gridNode.props.style.gridTemplateColumns.includes('auto-fill'), 'the roster grid auto-fills columns by container width, got ' + gridNode.props.style.gridTemplateColumns);
-      assert.ok(gridNode.props.style.gridTemplateColumns.includes('minmax(140px'), 'roster grid columns floor at 140px, got ' + gridNode.props.style.gridTemplateColumns);
+      // 分层布局（每层 ≤3 卡、层内居中）取代 auto-fill grid：断言改为分层语义。
+      const treeRowNodes = ofTree.filter((node) => node.props?.['data-cabinet-tree-row'] !== undefined);
+      assert.ok(treeRowNodes.length > 0, 'the roster renders layered tree rows (data-cabinet-tree-row)');
+      for (const treeRow of treeRowNodes) assert.equal(treeRow.props.style?.justifyContent, 'center', 'every tree row centers its cards');
       const cellNodes = ofTree.filter((node) => node.props?.['data-cabinet-node'] !== undefined);
       assert.ok(cellNodes.length > 0, 'roster grid cells render');
-      for (const cell of cellNodes) assert.equal(cell.props.style?.minWidth, 140, 'every grid cell wrapper carries the 140px card floor');
+      for (const cell of cellNodes) assert.equal(cell.props.style?.flex, '0 1 calc((100% - 24px) / 3)', 'every cell wrapper uses the 3-per-row flex basis');
       // 成员名必须单行省略——竖排 = whiteSpace 没锁（御史第15轮实测症状）。
       const nameSpans = ofTree.filter((node) => node.props?.style?.fontSize === 13 && node.props?.style?.fontWeight === 600 && typeof node.props?.title === 'string' && node.props.title.includes('·'));
       assert.ok(nameSpans.length > 0, 'roster member name spans render');
