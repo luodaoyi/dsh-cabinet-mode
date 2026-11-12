@@ -19,15 +19,6 @@ const DEFAULT_MEMBER_PROMPTS = {
 	yushi: '左都御史·主验收并弹劾：按用户原话逐项核对并附证据，缺陷分级给位置与修法；结论明确可提或不可提 PR；只向首辅回报。',
 	tongzheng: '通政使·通政使司掌内外章奏通达；本员在首辅派活后，就当前事项去找与旧事、旁证、相邻经验的联系，供首辅取舍；不做检索排序，不改已确认命中；只向首辅回报，附带所指记忆的标题与 id。所用的记忆工具以调用时的实际输出为准，未核实就标「未验证」。'
 };
-/**
- * The association duty clause inside the tongzheng factory prompt, and the
- * sentence that replaces it while the global association switch is off.
- * The factory text itself stays byte-identical with client.js (verify.mjs
- * parity); only this runtime swap varies by config.associationMode.
- * Byte-copy of both constants lives in client.js.
- */
-const TONGZHENG_ASSOCIATION_CLAUSE = '本员在首辅派活后，就当前事项去找与旧事、旁证、相邻经验的联系，供首辅取舍；';
-const TONGZHENG_ASSOCIATION_OFF = '联想模式已关闭：本员不做联想工作，不主动检索旧事或旁证；仅当首辅明确点名要求时才回应，且只答被问的事；';
 
 /** Bureau keys, in the order the settings page lists them. */
 const MEMBER_KEYS = ['lead', 'hanlin', 'works', 'dali', 'yushi', 'tongzheng'];
@@ -254,30 +245,16 @@ function associationLine(config) {
 	return '联想模式开启：可为已确认的命中派活通政使；其正文进入上下文会多用 token，不要编造增量。';
 }
 
-/**
- * The Lead's line while the switch is off: a plain ban, because the factory
- * duty prompt still tells the Lead what the tongzheng office is for — without
- * this the Lead could dispatch association work from the role description.
- */
-function associationBanLine(config) {
-	if (associationModeOf(config)) return '';
-	return '联想模式关闭：不要给通政使派活。';
-}
-
 function leadBlock(config) {
 	const entry = memberEntries(config).get('lead');
 	const mode = entry === undefined ? '' : entry.mode;
-	if (mode === 'off') return '';
+	if (mode === 'off') return associationLine(config);
 	const prompt = mode === 'custom' ? (entry.prompt) : DEFAULT_LEAD_PROMPT;
 	const lines = [];
 	if (entry !== undefined && entry.name !== '') lines.push('你在内阁中的名号：' + entry.name);
 	if (prompt !== '') lines.push(prompt);
 	const association = associationLine(config);
 	if (association !== '') lines.push(association);
-	else {
-		const ban = associationBanLine(config);
-		if (ban !== '') lines.push(ban);
-	}
 	return lines.join('\n');
 }
 
@@ -294,11 +271,7 @@ function memberBlock(config, member) {
 	const entry = memberEntries(config).get(key);
 	if (entry !== undefined && entry.mode === 'off') return '';
 	const custom = entry === undefined || entry.mode !== 'custom' ? '' : entry.prompt;
-	let prompt = entry?.mode === 'custom' ? custom : factoryPromptFor(key);
-	// 关联想：通政使的主动联想分句换成明确约束（工厂文本本身不动，见常量注释）。
-	if (key === 'tongzheng' && !associationModeOf(config) && prompt.includes(TONGZHENG_ASSOCIATION_CLAUSE)) {
-		prompt = prompt.replace(TONGZHENG_ASSOCIATION_CLAUSE, TONGZHENG_ASSOCIATION_OFF);
-	}
+	const prompt = entry?.mode === 'custom' ? custom : factoryPromptFor(key);
 	const lines = [];
 	if (entry !== undefined && entry.name !== '') lines.push('你在内阁中的名号：' + entry.name);
 	if (prompt !== '') lines.push(custom !== '' ? '你的专属提示词：\n' + prompt : prompt);
@@ -625,4 +598,4 @@ async function apply(ctx, config) {
 	}, 'cabinet-member: model selection');
 }
 
-export { prepareModelSessionApi, bureauOf, sectionText, memberBlock, leadBlock, memberModel, modelRoute, clampModel, attachMemberModel, associationModeOf, associationLine, Config, DEFAULT_LEAD_PROMPT, DEFAULT_MEMBER_PROMPTS, MEMBER_KEYS, MEMBER_LABELS, MEMBER_SECTION, MAX_AVATAR_LENGTH, MAX_MODEL_LENGTH, MAX_NAME_LENGTH, MAX_PROMPT_LENGTH, apply, inject, name };
+export { prepareModelSessionApi, bureauOf, sectionText, memberBlock, memberModel, modelRoute, clampModel, attachMemberModel, associationModeOf, associationLine, Config, DEFAULT_LEAD_PROMPT, DEFAULT_MEMBER_PROMPTS, MEMBER_KEYS, MEMBER_LABELS, MEMBER_SECTION, MAX_AVATAR_LENGTH, MAX_MODEL_LENGTH, MAX_NAME_LENGTH, MAX_PROMPT_LENGTH, apply, inject, name };

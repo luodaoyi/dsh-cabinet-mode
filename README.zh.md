@@ -8,6 +8,8 @@
 
 **介绍站：** [luodaoyi.github.io/dsh-cabinet-mode](https://luodaoyi.github.io/dsh-cabinet-mode/)（中英双语介绍页，源码在本仓库 `site/` 目录）。
 
+Pages 工作流从最近五个已发布的正式 GitHub Release 自动生成双语页面的更新日志、当前版本、发布日期和下载链接。发布流程结束或修改 Release 说明后会自动重新部署，无需再编辑 HTML 中的版本和日志。请直接维护 GitHub Release 说明，网站按原文展示。`workflow_run` 也覆盖使用 `GITHUB_TOKEN` 创建的 Release，因为这种操作不会触发另一个 release 工作流。市场索引任务失败不会阻止已发布版本更新到官网。本地预览可在 `gh` 已登录的环境运行 `node .github/scripts/build-site.mjs`，输出目录为 `_site/`。
+
 <p align="center">
   <img src="docs/images/cabinet-portrait.jpg" width="200" alt="内阁模式图标来源：明代内阁首辅画像（已作为 bundle 图标 icon.svg 随包发布）"/>
 </p>
@@ -229,7 +231,7 @@ https://raw.githubusercontent.com/luodaoyi/dsh-cabinet-mode/market-index/marketp
 仅在商店不可用或本地开发时使用。先完全退出桌面 DSH，释放 profile 锁，再执行：
 
 ```sh
-dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.7.1/dsh-cabinet-mode-0.7.1.tgz
+dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.8.0/dsh-cabinet-mode-0.8.0.tgz
 dsh plugin --profile desktop list
 ```
 
@@ -240,7 +242,7 @@ dsh plugin --profile desktop list
 若通过插件市场安装：刷新市场，先在**已安装**页卸载旧版本，再从**插件市场**安装新版本，然后重启——没有 tgz URL 要换，也没有一键更新。否则用同一条安装命令换新版本 URL（或在插件页选新 `.tgz`），然后完全退出并重启 DeepSeek Harness：
 
 ```sh
-dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.7.1/dsh-cabinet-mode-0.7.1.tgz
+dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.8.0/dsh-cabinet-mode-0.8.0.tgz
 ```
 
 `dsh plugin --profile desktop list` 应显示新版本。升级已在 Windows 实测：

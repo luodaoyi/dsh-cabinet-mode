@@ -8,6 +8,8 @@
 
 **Website:** [luodaoyi.github.io/dsh-cabinet-mode](https://luodaoyi.github.io/dsh-cabinet-mode/) (bilingual intro page, served from `site/` in this repository).
 
+The Pages workflow generates both pages' changelog, current version, release date and download links from the latest five published stable GitHub Releases. Release completion and release-note edits redeploy the site automatically; maintain the notes on the GitHub Release, not in the HTML. `workflow_run` also covers releases created with `GITHUB_TOKEN`, which do not trigger another release workflow. A failed market-index job does not prevent an already-published release from reaching the website. To preview locally, run `node .github/scripts/build-site.mjs` with an authenticated `gh`; the output is `_site/`.
+
 <p align="center">
   <img src="docs/images/cabinet-portrait.jpg" width="200" alt="Cabinet Mode — grand-secretary portrait, shipped as the bundle icon (icon.svg)"/>
 </p>
@@ -298,7 +300,7 @@ On failure, show the exact error. For $.format must be 1, replace the webpage so
 Use this only when the market is unavailable or for local development. Fully quit desktop DSH first to release the profile lock, then install the release bundle:
 
 ```sh
-dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.7.1/dsh-cabinet-mode-0.7.1.tgz
+dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.8.0/dsh-cabinet-mode-0.8.0.tgz
 dsh plugin --profile desktop list
 ```
 
@@ -313,7 +315,7 @@ the same install command with the new version URL (or pick the new `.tgz` in the
 plugin page), then fully quit and restart DeepSeek Harness:
 
 ```sh
-dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.7.1/dsh-cabinet-mode-0.7.1.tgz
+dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.8.0/dsh-cabinet-mode-0.8.0.tgz
 ```
 
 `dsh plugin --profile desktop list` should report the new version. Upgrades were

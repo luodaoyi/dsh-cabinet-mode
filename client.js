@@ -2664,16 +2664,6 @@ window.__ModuleLoader__.load({
 			tongzheng: '通政使·通政使司掌内外章奏通达；本员在首辅派活后，就当前事项去找与旧事、旁证、相邻经验的联系，供首辅取舍；不做检索排序，不改已确认命中；只向首辅回报，附带所指记忆的标题与 id。所用的记忆工具以调用时的实际输出为准，未核实就标「未验证」。'
 		};
 		/** Factory prompt for one bureau key: the Lead keeps its 御下术 default. */
-		// 关联想时替换通政使的主动联想分句（与 index.js memberBlock 同款；
-		// DEFAULT_MEMBER_PROMPTS 本体两半逐字相同，由 scripts/verify.mjs 校验）。
-		const TONGZHENG_ASSOCIATION_CLAUSE = '本员在首辅派活后，就当前事项去找与旧事、旁证、相邻经验的联系，供首辅取舍；';
-		const TONGZHENG_ASSOCIATION_OFF = '联想模式已关闭：本员不做联想工作，不主动检索旧事或旁证；仅当首辅明确点名要求时才回应，且只答被问的事；';
-		function associationAwarePrompt(key, prompt, enabled) {
-			if (key !== 'tongzheng' || enabled === true) return prompt;
-			return typeof prompt === 'string' && prompt.includes(TONGZHENG_ASSOCIATION_CLAUSE)
-				? prompt.replace(TONGZHENG_ASSOCIATION_CLAUSE, TONGZHENG_ASSOCIATION_OFF)
-				: prompt;
-		}
 		function factoryPromptFor(key) {
 			return key === 'lead' ? DEFAULT_LEAD_PROMPT : (DEFAULT_MEMBER_PROMPTS[key] || '');
 		}
@@ -2806,7 +2796,6 @@ window.__ModuleLoader__.load({
 			const messages = [];
 			const openCalls = new Map();
 			const resultOrder = new Map();
-			const resultSeqs = new Set();
 			const live = { byAttempt: new Map() };
 			const push = (message) => {
 				if (message.time === undefined) return;
@@ -2826,7 +2815,7 @@ window.__ModuleLoader__.load({
 					if (chunk && chunk.type === 'text-delta' && typeof chunk.text === 'string' && typeof data.attemptId === 'string') {
 						const current = live.byAttempt.get(data.attemptId);
 						if (current === undefined) {
-							live.byAttempt.set(data.attemptId, { time: event.time, seq: typeof event.seq === 'number' ? event.seq : Number.MAX_SAFE_INTEGER, text: chunk.text });
+							live.byAttempt.set(data.attemptId, { time: event.time, seq: typeof event.seq === 'number' ? event.seq : Number.MAX_SAFE_INTEGER, text: chunk.text, turn: data.turn, step: data.step });
 						} else {
 							current.text += chunk.text;
 							if (typeof event.seq === 'number' && event.seq > current.seq) current.seq = event.seq;
@@ -2839,6 +2828,10 @@ window.__ModuleLoader__.load({
 					if (!message || typeof message !== 'object') continue;
 					// A settled message supersedes its own live suffix.
 					if (typeof data.attemptId === 'string') live.byAttempt.delete(data.attemptId);
+					// Official settlements identify the stream by turn/step, not attemptId.
+					for (const [id, delta] of live.byAttempt) {
+						if (data.turn !== undefined && data.step !== undefined && delta.turn === data.turn && delta.step === data.step) live.byAttempt.delete(id);
+					}
 					const text = groupChatText(message.content);
 					if (text === '') continue;
 					push({ kind: 'assistant', time: event.time, seq: event.seq, text, tools: [] });
@@ -2892,7 +2885,6 @@ window.__ModuleLoader__.load({
 				if (type === 'tool/result') {
 					const id = toolResultCallId(data);
 					if (id === null) continue;
-					resultSeqs.add(event.seq);
 					const call = openCalls.get(id);
 					if (call === undefined || call.text === '') {
 						// First settle wins; later retries for one callId keep the
@@ -2912,15 +2904,17 @@ window.__ModuleLoader__.load({
 			for (const [attemptId, delta] of live.byAttempt) {
 				rows.push({ kind: 'live', attemptId, time: delta.time, seq: delta.seq, text: delta.text, tools: [] });
 			}
-			for (const message of messages) {
-				const end = Math.max(message.seq === undefined ? -Infinity : message.seq, ...tools.filter((tool) => tool.time >= message.time && tool.time < message.time + 600000).map((tool) => tool.seq));
-				message.tools = tools.filter((tool) => tool.seq <= end && tool.time >= message.time && tool.time < message.time + 600000);
-				message.endSeq = end;
-				rows.push(message);
+			// Each call belongs to the latest assistant in this user turn, once.
+			const bySeq = messages.slice().sort((a, b) => a.seq - b.seq);
+			let cursor = 0, owner;
+			for (const tool of tools) {
+				while (cursor < bySeq.length && bySeq[cursor].seq <= tool.seq) {
+					const message = bySeq[cursor++];
+					owner = message.kind === 'assistant' ? message : undefined;
+				}
+				if (owner !== undefined) owner.tools.push(tool);
 			}
-			// A tool call that precedes the first message (or falls in a gap the
-			// per-message window never covered) still has to be counted, so the
-			// leftover set is "never attached", not "after the last endSeq".
+			rows.push(...messages);
 			const attached = new Set();
 			for (const row of rows) for (const tool of Array.isArray(row.tools) ? row.tools : []) attached.add(tool.callId);
 			const leftovers = tools.filter((tool) => !attached.has(tool.callId));
@@ -3103,7 +3097,7 @@ window.__ModuleLoader__.load({
 			const mode = memberConfig.modes.get(key) || '';
 			if (mode === 'off') return '';
 			if (mode === 'custom') return memberConfig.prompts.get(key) || '';
-			return associationAwarePrompt(key, factoryPromptFor(key), memberConfig.associationMode === true);
+			return factoryPromptFor(key);
 		}
 		/** Whether the Lead's 御下术 section is currently on (shows in the settings box). */
 		function leadPolicyOn() {
@@ -4129,16 +4123,11 @@ window.__ModuleLoader__.load({
 		 * panel unmount. A member that cannot be retained renders its own 不可用
 		 * row; the other members keep working.
 		 */
-		function useCabinetGroupChat(members, activeTab, service, notify) {
+		function useCabinetGroupChat(members, activeTab, service) {
 			const [, setRevision] = React.useState(0);
-
-			// The views/records pair is keyed by the member list so a render that
-			// starts from a fresh hook slot (a tab remount in the panel harness)
-			// still sees the folds that the previous commit produced, instead of
-			// repainting every row from an empty map until the next event.
-			const key = JSON.stringify(members.map((member) => (member && typeof member.id === 'string' ? member.id : '')).filter((id) => id !== ''));
-			const stateRef = React.useRef(null);
-			if (stateRef.current === null || stateRef.current.key !== key) stateRef.current = { views: new Map(), records: new Map(), key };
+			const key = JSON.stringify(members.map((member) => member.id));
+			// Keep one map across roster changes so the timer reads current records.
+			const stateRef = React.useRef({ views: new Map(), records: new Map() });
 			const state = stateRef.current;
 			stateRef.current.key = key;
 			// One fold per window revision. The feed's `revision` moves only when
@@ -4192,96 +4181,66 @@ window.__ModuleLoader__.load({
 			});
 			React.useEffect(() => {
 				if (activeTab !== 'groupchat') return undefined;
-				const abort = new AbortController();
 				let disposed = false;
 				const bump = () => { if (!disposed) setRevision((revision) => revision + 1); };
-				const releaseRecord = (record) => {
-					if (record === undefined || record.released) return;
-					record.released = true;
-					if (typeof record.unsubscribe === 'function') { try { record.unsubscribe(); } catch (ignored) { /* source already gone */ } }
-					try { record.reference.release(); } catch (ignored) { /* release is once-only by contract */ }
+				const fail = (id, error) => {
+					state.views.set(id, { fold: null, error: error?.message || String(error), liveText: '' });
+					bump();
 				};
 				const dropMember = (id) => {
 					const record = state.records.get(id);
 					if (record === undefined) return;
-					releaseRecord(record);
+					// releaseRecord 已随上游审计删除：就地释放，与 cleanup 同款。
+					try { record.unsubscribe?.(); } catch (ignored) { /* source already gone */ }
+					try { record.reference.release(); } catch (ignored) { /* release is once-only */ }
 					state.records.delete(id);
 					state.views.delete(id);
 				};
 				// A failed member keeps its 不可用 row until it actually returns:
 				// releasing the old reference must not silently clear the error.
-				const clearError = (id) => {
-					const view = state.views.get(id);
-					if (view !== undefined && view.error !== null) state.views.set(id, { fold: view.fold, error: null, liveText: view.liveText, revision: view.revision });
-				};
-				const syncMember = (id, record) => { foldInto(id, record, false); };
-				const addMember = (member) => {
-					const id = member.id;
-					let reference;
-					try {
-						reference = cabinetGroupRetain(id);
-					} catch (error) {
-						// Keep the failure on the row it belongs to.
-						const previous = state.views.get(id);
-						state.views.set(id, { fold: previous ? previous.fold : null, error: String(error && error.message ? error.message : error), liveText: previous ? previous.liveText : '', revision: previous ? previous.revision : undefined });
-						bump();
-						return;
-					}
-					clearError(id);
-					const record = { reference, released: false, unsubscribe: null };
-					state.records.set(id, record);
-					const source = () => {
-						try {
-							const binding = reference.binding;
-							return binding && binding.eventSource ? binding.eventSource : null;
-						} catch (error) {
-							return null;
-						}
-					};
-					const sync = () => {
-						if (record.released) return;
-						if (foldInto(id, record, false)) bump();
-					};
-					try {
-						const channel = source();
-						if (channel && typeof channel.subscribe === 'function') record.unsubscribe = channel.subscribe(sync);
-					} catch (error) { /* degrade to 不可用 below */ }
-					Promise.resolve(reference.ready).then(() => {
-						if (record.released || abort.signal.aborted) return;
-						sync();
-						if (record.unsubscribe === null) {
-							const channel = source();
-							if (channel && typeof channel.subscribe === 'function') { try { record.unsubscribe = channel.subscribe(sync); } catch (ignored) { /* already unavailable */ } }
-						}
-						// After `ready` a session without any event channel can never
-						// produce a row on its own, so it degrades explicitly instead
-						// of leaving the pane silently short one member.
-						const settledChannel = source();
-						if (!settledChannel || typeof settledChannel.getSnapshot !== 'function') {
-							if (state.views.get(id) === undefined) {
-								state.views.set(id, { fold: null, error: GROUP_UNAVAILABLE, liveText: '', revision: undefined });
-								bump();
-							}
-						}
-					}, (error) => {
-						if (record.released || abort.signal.aborted) return;
-						state.views.set(id, { fold: null, error: String(error && error.message ? error.message : error), liveText: '', revision: undefined });
-						bump();
-					});
-					sync();
-				};
 
 				for (const id of Array.from(state.records.keys())) if (!key.includes(JSON.stringify(id))) dropMember(id);
 				for (const member of members) {
-					if (member === undefined || member === null || typeof member.id !== 'string' || member.id === '') continue;
-					if (!state.records.has(member.id)) addMember(member);
-					else syncMember(member.id, state.records.get(member.id));
+					const id = member.id;
+					if (typeof id !== 'string' || id === '' || state.records.has(id)) continue;
+					let reference;
+					try { reference = cabinetGroupRetain(id); }
+					catch (error) { fail(id, error); continue; }
+					const record = { reference, unsubscribe: null, sync: null };
+					state.records.set(id, record);
+					record.sync = () => {
+						if (disposed) return;
+						try {
+							const channel = reference.binding.eventSource;
+							if (!channel || typeof channel.getSnapshot !== 'function' || typeof channel.subscribe !== 'function') throw new Error(GROUP_UNAVAILABLE);
+							if (record.unsubscribe === null) record.unsubscribe = channel.subscribe(record.sync);
+							const snapshot = channel.getSnapshot();
+							const revision = typeof snapshot.revision === 'number' ? snapshot.revision : undefined;
+							const previous = state.views.get(id);
+							// One fold per window revision: an unchanged window reuses
+							// the cached fold and never re-reads `entries` (the snapshot
+							// materialises them lazily — the 5s tick pays one revision
+							// comparison per member instead of a full refold).
+							if (previous !== undefined && previous.error == null && revision !== undefined && previous.revision === revision) return;
+							const fold = groupChatFold(Array.isArray(snapshot.entries) ? snapshot.entries : []);
+							state.views.set(id, { fold, error: null, liveText: fold.liveText, revision });
+							bump();
+						} catch (error) { fail(id, error); }
+					};
+					record.sync();
+					Promise.resolve(reference.ready).then(() => record.sync(), (error) => {
+						if (!disposed) fail(id, error);
+					});
 				}
+				bump();
 				return () => {
 					disposed = true;
-					try { abort.abort(); } catch (ignored) { /* controller is local */ }
-					for (const record of Array.from(state.records.values())) releaseRecord(record);
+					for (const record of state.records.values()) {
+						try { record.unsubscribe?.(); } catch (ignored) { /* source already gone */ }
+						try { record.reference.release(); } catch (ignored) { /* service already gone */ }
+					}
 					state.records.clear();
+					state.views.clear();
 				};
 			}, [activeTab, service, key]);
 			// A service that appears/disappears behind an already-active tab must
@@ -4306,10 +4265,7 @@ window.__ModuleLoader__.load({
 				if (changed) setRevision((revision) => revision + 1);
 			}, [refilled]);
 			return {
-				views: (id) => {
-					const view = state.views.get(id);
-					return view === undefined ? groupChatEmptyView() : view;
-				},
+				views: (id) => state.views.get(id) || groupChatEmptyView(),
 				members: () => Array.from(state.views.keys()),
 				canPrompt,
 				promptSession,
@@ -4774,6 +4730,18 @@ window.__ModuleLoader__.load({
 			]);
 		}
 		function CabinetPanel({ sessionId, parentSessionIdHint, useSession, useSessions, useSessionStatus, t, activeTab: activeTabProp, hideTabs, focusSessionId, onGroupSnapshot }) {
+			// Panel view tabs: 群聊 (merged member messages) and the roster view.
+			// Hooks must run before any early return — an effect that is skipped
+			// on one render and run on the next would desynchronise the retain/
+			// release pairing this tab owns.
+			// The roster stays the default view: every existing assertion and the
+			// regression red lines (member cards, task board, edges) are read from
+			// this pane. 群聊 is a sibling tab, added without displacing anything.
+			// `activeTab` is an optional override the tab button supplies when it
+			// switches (so one render carries the click); omitted means local state.
+			const [localTab, setLocalTab] = React.useState('roster');
+			const activeTab = typeof activeTabProp === 'string' ? activeTabProp : localTab;
+			const setActiveTab = setLocalTab;
 			// Re-render when the mirrored member settings change (names/avatars).
 			const [, setMemberRevision] = React.useState(0);
 			React.useEffect(() => subscribeMemberConfig(() => setMemberRevision((revision) => revision + 1)), []);
@@ -4898,7 +4866,7 @@ window.__ModuleLoader__.load({
 						panel.removeEventListener('scroll', schedule);
 					}
 				};
-			}, [measureLinks, hasTeam]);
+			}, [measureLinks, hasTeam, activeTab]);
 
 			// Styles live in one shared <style id="dsh-cabinet-ui-styles"> mounted by
 			// apply(); the panel itself renders no <style> element.
@@ -4915,18 +4883,6 @@ window.__ModuleLoader__.load({
 				const leadMember = members.find((member) => member && member.role === 'lead');
 				return leadMember === undefined ? members : [leadMember, ...members.filter((member) => member !== leadMember)];
 			})();
-			// Panel view tabs: 群聊 (merged member messages) and the roster view.
-			// Hooks must run before any early return — an effect that is skipped
-			// on one render and run on the next would desynchronise the retain/
-			// release pairing this tab owns.
-			// The roster stays the default view: every existing assertion and the
-			// regression red lines (member cards, task board, edges) are read from
-			// this pane. 群聊 is a sibling tab, added without displacing anything.
-			// `activeTab` is an optional override the tab button supplies when it
-			// switches (so one render carries the click); omitted means local state.
-			const [localTab, setLocalTab] = React.useState('roster');
-			const activeTab = typeof activeTabProp === 'string' ? activeTabProp : localTab;
-			const setActiveTab = setLocalTab;
 			// 群聊 composer + paging state. The draft lives in component state, so
 			// an external re-render (a feed frame, a tab click elsewhere) repaints
 			// the input with the same text instead of clearing it.
@@ -5157,7 +5113,7 @@ window.__ModuleLoader__.load({
 			}
 			// Stable time merge: a member's rows keep their window order, equal
 			// timestamps keep roster order, and the 不可用 rows join last.
-			groupRows.sort((a, b) => (a.time - b.time) || (a.seq - b.seq) || 0);
+			groupRows.sort((a, b) => Number(a.kind === 'error') - Number(b.kind === 'error') || (a.time - b.time) || (a.seq - b.seq));
 			// 进入即到底：挂载后一次、首次拿到消息后一次；用户上滚（非贴底）后
 			// 不再把视图拽回底部。没有定时器，只有这两个依赖点。
 			const chatTailRow = groupRows.length === 0 ? null : groupRows[groupRows.length - 1];
@@ -5702,6 +5658,7 @@ window.__ModuleLoader__.load({
       if (!editable()) return;
       epoch++; uploads = {};
       const keys = key ? [key] : AVATAR_KEYS;
+      if (!key || key === 'tongzheng') state.associationMode = false;
       for (const k of keys) { state.draft[k] = { name: '', prompt: '', mode: '', model: '' }; state.avatars[k] = ''; }
       state.draft = { ...state.draft }; state.avatars = { ...state.avatars }; state.errors = {}; changed();
     },
@@ -6690,7 +6647,7 @@ window.__ModuleLoader__.load({
 				const mode = draft[key].mode;
 				if (mode === 'off') return '';
 				const base = mode === 'custom' ? draft[key].prompt : factoryPromptFor(key);
-				return associationAwarePrompt(key, base, editor.state.associationMode === true);
+				return base;
 			};
 			const inputStyle = { width: '100%', boxSizing: 'border-box', fontSize: 13, color: INK, background: 'transparent', border: '1px solid var(--dsw-alias-border-l3, rgba(127,127,127,.4))', borderRadius: 6, padding: '6px 8px' };
 
@@ -6714,7 +6671,7 @@ window.__ModuleLoader__.load({
 						h('span', { key: 'l', style: { fontSize: 11, color: INK3 } }, t('member.builtin')),
 						...(function () {
 							const out = [];
-							for (const other of AVATAR_KEYS) {
+							for (const other of MEMBER_EDITOR_KEYS) {
 								out.push(h('button', {
 									key: 'b-' + other,
 									type: 'button',

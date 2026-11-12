@@ -1419,18 +1419,17 @@ console.log('PASS 内阁 Bot section removal: no section box, office rows, 现�
   };
   const leadEntries = [
     durable('tool/call', 1, 1000, { callId: 'c-lead', name: 'bash', arguments: '{"cmd":"ls"}' }),
-    durable('user/message', 2, 2000, { message: { role: 'user', content: [{ type: 'text', text: '请调研' }] } }),
+    durable('user/message', 2, 2000, { role: 'user', content: [{ type: 'text', text: '请调研' }] }),
     durable('assistant/message', 3, 3000, { message: { role: 'assistant', content: [{ type: 'text', text: '调研结论A' }] } }),
   ];
   const worksEntries = [
-    durable('user/message', 1, 2500, { message: { role: 'user', content: [{ type: 'text', text: '请实现' }] } }),
+    durable('user/message', 1, 2500, { role: 'user', content: [{ type: 'text', text: '请实现' }] }),
     durable('tool/call', 2, 2600, { callId: 'c-works', name: 'read', arguments: '{"path":"client.js"}' }),
-    transient(2.5, 2900, { attemptId: 'att-1', chunk: { type: 'text-delta', text: '实现中' } }),
-    transient(2.6, 2950, { attemptId: 'att-1', chunk: { type: 'text-delta', text: '…' } }),
+    transient(2.5, 2900, { attemptId: 'att-1', turn: 1, step: 1, chunk: { type: 'text-delta', text: '实现中' } }),
+    transient(2.6, 2950, { attemptId: 'att-1', turn: 1, step: 1, chunk: { type: 'text-delta', text: '…' } }),
     durable('tool/result', 3, 2970, { message: { role: 'tool', toolCallId: 'c-works', content: [{ type: 'text', text: 'file contents' }] } }),
-    // A settled message carries the attempt id of the live suffix it replaces
-    // (dsh session contract), so the fold drops that transient row.
-    durable('assistant/message', 4, 4000, { attemptId: 'att-1', message: { role: 'assistant', content: [{ type: 'text', text: '实现完成B' }] } }),
+    // Official settlements match the live suffix by turn/step, without attemptId.
+    durable('assistant/message', 4, 4000, { turn: 1, step: 1, message: { role: 'assistant', content: [{ type: 'text', text: '实现完成B' }] } }),
   ];
   const sources = { 'lead-session': makeSource(leadEntries), 'm-works': makeSource(worksEntries) };
   const releases = [];
@@ -1744,7 +1743,10 @@ console.log('PASS 内阁 Bot section removal: no section box, office rows, 现�
   const rowSignature = (node) => {
     const text = findNodes([node], (child) => child.props?.['data-cabinet-groupchat-text'] !== undefined)
       .map((child) => deepText(child)).join('');
-    return node.props['data-cabinet-groupchat-row'] + '|' + text;
+    // 上游 ed51fb3 的 member 前缀（同文不同成员不算重复行）；头像尺寸按本分支
+    // 气泡实现取 20→28。
+    const member = findNodes([node], (child) => child.props?.size === 28)[0]?.props?.name;
+    return member + '|' + node.props['data-cabinet-groupchat-row'] + '|' + text;
   };
   const seenRows = new Set();
   const uniqueRows = mergedRows.filter((node) => {
@@ -1815,9 +1817,8 @@ console.log('PASS 内阁 Bot section removal: no section box, office rows, 现�
   const badIndex = badRows.findIndex((row) => row.props['data-cabinet-groupchat-error'] === '1');
   assert.ok(badIndex >= 0, 'a failed member renders its own row, got ' + JSON.stringify(badRows.map((row) => row.props['data-cabinet-groupchat-row'])));
   assert.deepEqual(textsOf([badRows[badIndex]]), ['不可用'], 'the failed member degrades to 不可用, not an exception');
-  // The failed member's row sorts first (time 0) and the other members keep
-  // their own rows, in time order.
-  assert.deepEqual(textsOf(badSettled.tree), ['不可用', '请调研', '请实现', '调研结论A', '实现完成B'], 'one failed member never blanks the others');
+  // Unavailable members follow the other members' messages in time order.
+  assert.deepEqual(textsOf(badSettled.tree), ['请调研', '请实现', '调研结论A', '实现完成B', '不可用'], 'one failed member never blanks the others');
   badSettled.stop();
 
 
@@ -1841,7 +1842,7 @@ console.log('PASS 内阁 Bot section removal: no section box, office rows, 现�
 
   // 6) Incremental append: the next window adds one more message without
   //    another retain, and the 5s tick folds it into the merged view.
-  sources['lead-session'].push([...leadEntries, durable('user/message', 4, 5000, { message: { role: 'user', content: [{ type: 'text', text: '追加消息' }] } })]);
+  sources['lead-session'].push([...leadEntries, durable('user/message', 4, 5000, { role: 'user', content: [{ type: 'text', text: '追加消息' }] })]);
   const ticked = groupRender();
   // The unmount above ended the previous mount, so this render mounts again
   // (one retain per member); the very next render with the same roster must
@@ -3349,29 +3350,29 @@ assert.ok(!/background:\s*'(#fff|white)'/.test(source), 'no bare white backgroun
       }));
     }
 
-    // ---- 联想开关两态：提示词层（index.js memberBlock/leadBlock + client configuredPrompt）----
+    // ---- 联想开关两态：配置项控制，提示词本体两态逐字相同（对齐上游 ed51fb3）----
+    // leadBlock 两态由 scripts/test-member-settings.mjs 的 associationLine/sectionText
+    // 断言覆盖；这里断言成员提示词层与 client 侧同款开关零改动。
     {
       const offCfg = { associationMode: false, members: [] };
       const onCfg = { associationMode: true, members: [] };
       const tz = { role: 'teammate', name: 'tongzheng' };
       const offText = indexModule.memberBlock(offCfg, tz);
-      assert.ok(offText.includes('联想模式已关闭'), 'association-off swaps in the constraint sentence, got: ' + offText.slice(0, 160));
-      assert.ok(!offText.includes('去找与旧事、旁证、相邻经验的联系'), 'association-off drops the active-duty clause');
       const onText = indexModule.memberBlock(onCfg, tz);
-      assert.ok(onText.includes('去找与旧事、旁证、相邻经验的联系'), 'association-on keeps the factory duty clause');
-      assert.ok(!onText.includes('联想模式已关闭'), 'association-on carries no closure sentence');
-      const leadOff = indexModule.leadBlock(offCfg);
-      assert.ok(leadOff.includes('不要给通政使派活'), 'association-off tells the Lead not to dispatch the tongzheng');
-      const leadOn = indexModule.leadBlock(onCfg);
-      assert.ok(!leadOn.includes('不要给通政使派活'), 'association-on has no dispatch ban');
-      assert.ok(leadOn.includes('联想模式开启'), 'association-on keeps the dispatch-enable line');
-      // client 侧同款开关（设置页预览与面板读的 configuredPrompt）。
+      assert.equal(onText, offText, 'the association switch leaves the member prompt text identical in both states');
+      assert.ok(offText.includes(indexModule.DEFAULT_MEMBER_PROMPTS.tongzheng), 'the factory tongzheng prompt is embedded verbatim (section header aside)');
+      assert.ok(offText.includes('去找与旧事、旁证、相邻经验的联系'), 'the duty clause stays verbatim, got: ' + offText.slice(0, 160));
+      assert.ok(!offText.includes('联想模式已关闭'), 'no closure sentence is ever injected');
+      assert.equal(indexModule.associationLine(offCfg), '', 'association-off renders nothing at all');
+      assert.match(indexModule.associationLine(onCfg), /派活通政使/, 'association-on renders the dispatch-enable line');
+      // client 侧 configuredPrompt 两态同文（开关不改提示词，只由配置项决定）。
       client.setMemberConfig({ associationMode: false });
       const clientOff = client.configuredPrompt('tongzheng');
-      assert.ok(clientOff.includes('联想模式已关闭') && !clientOff.includes('去找与旧事、旁证、相邻经验的联系'), 'the client prompt follows the off switch, got: ' + clientOff.slice(0, 160));
       client.setMemberConfig({ associationMode: true });
       const clientOn = client.configuredPrompt('tongzheng');
-      assert.ok(clientOn.includes('去找与旧事、旁证、相邻经验的联系') && !clientOn.includes('联想模式已关闭'), 'the client prompt follows the on switch');
+      assert.equal(clientOn, clientOff, 'the client prompt is identical in both association states');
+      assert.ok(clientOff.includes('去找与旧事、旁证、相邻经验的联系'), 'the client prompt keeps the duty clause, got: ' + clientOff.slice(0, 160));
+      assert.ok(!clientOff.includes('联想模式已关闭'), 'the client prompt carries no closure sentence');
       client.setMemberConfig(undefined);
     }
     resetHookCursor();

@@ -2,7 +2,7 @@
 
 > Cabinet Mode is a free, open-source DSH bundle for DeepSeek Harness. A grand-secretary Lead directs four bureau members, research comes first, and every conclusion must cite a source. It ships with a right-sidebar dispatch panel and member customization.
 
-Last updated: 2026-11-09
+Last updated: __RELEASE_DATE__
 
 ## Canonical pages
 
@@ -17,7 +17,7 @@ Last updated: 2026-11-09
 - Product: Cabinet Mode / 内阁模式
 - Type: declarative DSH bundle and agent-team preset
 - Preset id: cabinet
-- Version: 0.7.0
+- Version: __RELEASE_VERSION__
 - License: MIT
 - Price: free
 - Publisher: Respire (https://rsrs.rs/)
@@ -61,7 +61,7 @@ Use the GitHub blob or tree page URL only for reading; DSH needs the raw JSON UR
 Fallback release tarball:
 
 ```sh
-dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.7.0/dsh-cabinet-mode-0.7.0.tgz
+dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v__RELEASE_VERSION__/dsh-cabinet-mode-__RELEASE_VERSION__.tgz
 dsh plugin --profile desktop list
 ```
 
