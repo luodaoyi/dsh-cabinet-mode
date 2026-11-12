@@ -2394,8 +2394,10 @@ window.__ModuleLoader__.load({
 			// running avatar: rotating conic ring (panel + native roster) and glow
 			'@keyframes cabinetSpin{to{transform:rotate(360deg)}}',
 			'@keyframes cabinetRingGlow{0%,100%{box-shadow:0 0 0 1px rgba(34,197,94,.35)}50%{box-shadow:0 0 0 3px rgba(34,197,94,.6)}}',
-			'.cabinet-avatar-slot{position:relative;display:inline-flex;flex:none;line-height:0}',
-			'.cabinet-avatar-slot.cabinet-ring-live::before{content:"";position:absolute;inset:-3px;border-radius:50%;background:conic-gradient(from 0deg,rgba(34,197,94,0) 0 58%,rgba(34,197,94,.95) 82%,rgba(34,197,94,0) 100%);-webkit-mask:radial-gradient(farthest-side,transparent calc(100% - 2.5px),#000 calc(100% - 2px));mask:radial-gradient(farthest-side,transparent calc(100% - 2.5px),#000 calc(100% - 2px));animation:cabinetSpin 1.2s linear infinite;pointer-events:none}',
+			// padding:3px + margin:-3px（占位不变）配合 ::before inset:0：光环盒子
+			// 恰好落在 padding box 内，scrollWidth==clientWidth，视觉直径不变。
+			'.cabinet-avatar-slot{position:relative;display:inline-flex;flex:none;line-height:0;padding:3px;margin:-3px}',
+			'.cabinet-avatar-slot.cabinet-ring-live::before{content:"";position:absolute;inset:0;border-radius:50%;background:conic-gradient(from 0deg,rgba(34,197,94,0) 0 58%,rgba(34,197,94,.95) 82%,rgba(34,197,94,0) 100%);-webkit-mask:radial-gradient(farthest-side,transparent calc(100% - 2.5px),#000 calc(100% - 2px));mask:radial-gradient(farthest-side,transparent calc(100% - 2.5px),#000 calc(100% - 2px));animation:cabinetSpin 1.2s linear infinite;pointer-events:none}',
 			'img.cabinet-avatar-running{animation:cabinetRingGlow 1.2s ease-in-out infinite}',
 			// running avatar: gentle breathe (panel only)
 			'@keyframes cabinetBreathe{0%,100%{transform:scale(1)}50%{transform:scale(1.05)}}',
@@ -2482,6 +2484,10 @@ window.__ModuleLoader__.load({
 		const PANEL = {
 			height: '100%',
 			minHeight: 0,
+			// minWidth:0 —— 面板根既是右栏/中列的 flex 子项又是内部滚动根；
+			// 缺了它 min-width:auto 会被名册内容撑开（御史实测 390/343 溢出）。
+			// overflow 保持 auto：这是竖向滚动根，改 hidden 会截断名册。
+			minWidth: 0,
 			overflow: 'auto',
 			boxSizing: 'border-box',
 			padding: '10px 12px 18px',
@@ -5556,7 +5562,9 @@ window.__ModuleLoader__.load({
 						position: 'relative',
 						zIndex: 1,
 						display: 'grid',
-						gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))',
+						// minmax(0,1fr)：列最小宽锁 0，列宽只随容器走，不被卡片内容
+						// 的 min-content 撑开（150px 下实测两列被内容顶出 +59）。
+						gridTemplateColumns: 'repeat(auto-fit,minmax(0,1fr))',
 						gap: '12px 14px',
 						width: '100%'
 					}
@@ -5607,7 +5615,10 @@ window.__ModuleLoader__.load({
 					}
 					return h('div', {
 						key: cell.key,
-						'data-cabinet-node': '1'
+						'data-cabinet-node': '1',
+						// grid item 的自动最小尺寸是 min-content（nowrap 文本整行宽度），
+						// 不锁 0 卡片盒就被内容顶宽（实测 203/152）。
+						style: { minWidth: 0 }
 					}, content);
 				})));
 			}

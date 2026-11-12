@@ -3014,7 +3014,7 @@ assert.ok(!/background:\s*'(#fff|white)'/.test(source), 'no bare white backgroun
       createElement: () => ({ id: '', textContent: '', style: {}, append: () => {} }),
       head: { append: () => {} },
     };
-    runInNewContext(source.replace(exportPoint, 'return { apply, CabinetPage, GroupChatRow, zh, memberLabel, cabinetScopeRows, openCabinetSession, STYLE_CSS, clampRailWidth, parseRailWidth, readRailWidth, persistRailWidth, CABINET_RAIL_DEFAULT_WIDTH, CABINET_RAIL_MIN_WIDTH, CABINET_RAIL_MAX_WIDTH, CABINET_RAIL_WIDTH_KEY };'), {
+    runInNewContext(source.replace(exportPoint, 'return { apply, CabinetPage, GroupChatRow, zh, memberLabel, cabinetScopeRows, openCabinetSession, STYLE_CSS, PANEL, clampRailWidth, parseRailWidth, readRailWidth, persistRailWidth, CABINET_RAIL_DEFAULT_WIDTH, CABINET_RAIL_MIN_WIDTH, CABINET_RAIL_MAX_WIDTH, CABINET_RAIL_WIDTH_KEY };'), {
       window: { __ModuleLoader__: { load: ({ factory }) => {
         pageClient = factory((name) => {
           if (name === '@deepseek-ai/dsh-client-ui-primitives') throw new Error('primitives not seeded');
@@ -3273,6 +3273,55 @@ assert.ok(!/background:\s*'(#fff|white)'/.test(source), 'no bare white backgroun
       hookStates.slots.length = 0;
       resetHookCursor();
       assert.equal(railOf(elements(pageClient.CabinetPage(widthProps))).props.style.width, 360, 'teardown leaves the default width');
+    }
+
+    // ---- 名册横向溢出修复：面板根/grid/单元包装的 minWidth、minmax(0,1fr)、光环盒子 ----
+    {
+      // 面板根（PANEL）是右栏里的 flex 子项又是滚动根：minWidth:0 才不会被内容撑开。
+      assert.equal(pageClient.PANEL.minWidth, 0, 'the panel root carries minWidth:0 (flex child must shrink)');
+      const overflowProps = {
+        useSessions: (select) => select({
+          ids: ['s-of'],
+          byId: { 's-of': { title: '溢出修复', updatedAt: ageOf(8) } },
+          projectionsBySession: { 's-of': { values: { agentTeam: {
+            members: [
+              { name: 'lead', role: 'lead', id: 's-of', phase: 'active' },
+              { name: 'gongbu-shangshu-2', role: 'mate', id: 'm-of', phase: 'active' }
+            ],
+            tasks: [{ id: 't-of', subject: '一个很长很长很长的任务书标题用来撑宽度验证省略号', status: 'pending', ownerName: 'gongbu-shangshu-2' }]
+          } } } }
+        }),
+        useSessionStatus: (select) => select(new Map()),
+        t: (key) => pageClient.zh[key] || key
+      };
+      hookStates.slots.length = 0;
+      resetHookCursor();
+      const ofTree = elements(pageClient.CabinetPage(overflowProps));
+      const ofRail = ofTree.find((node) => node.props?.['data-cabinet-cabinet-rail'] !== undefined);
+      assert.equal(ofRail.props.style.minWidth, 0, 'the rail container keeps minWidth:0');
+      assert.equal(ofRail.props.style.overflow, 'hidden', 'the rail container clips instead of stretching');
+      const gridNode = ofTree.find((node) => typeof node.props?.style?.gridTemplateColumns === 'string' && node.props.style.gridTemplateColumns.includes('auto-fit'));
+      assert.ok(gridNode, 'the roster grid renders with members');
+      assert.ok(gridNode.props.style.gridTemplateColumns.includes('minmax(0'), 'roster grid columns are minmax(0,1fr), got ' + gridNode.props.style.gridTemplateColumns);
+      const cellNodes = ofTree.filter((node) => node.props?.['data-cabinet-node'] !== undefined);
+      assert.ok(cellNodes.length > 0, 'roster grid cells render');
+      for (const cell of cellNodes) assert.equal(cell.props.style?.minWidth, 0, 'every grid cell wrapper carries minWidth:0');
+      const ofCss = Array.isArray(pageClient.STYLE_CSS) ? pageClient.STYLE_CSS.join('\n') : String(pageClient.STYLE_CSS || '');
+      assert.ok(ofCss.includes('.cabinet-avatar-slot{position:relative;display:inline-flex;flex:none;line-height:0;padding:3px;margin:-3px}'), 'the avatar slot box absorbs the 3px live-ring overhang (padding + negative margin)');
+      assert.ok(ofCss.includes('cabinet-ring-live::before{content:"";position:absolute;inset:0'), 'the live ring sits inside the padding box so scrollWidth==clientWidth');
+      // 反向：本块渲染同样不碰宿主原生右栏通道。
+      assert.deepEqual(rightbarCalls, [], 'the overflow fix never calls openRightbar/closeRightbar, got ' + JSON.stringify(rightbarCalls));
+      assert.deepEqual(sidebarCalls, [], 'the overflow fix never calls sidebarRight.openTab, got ' + JSON.stringify(sidebarCalls));
+      // 收尾：清槽位后用「无成员」的简单布局重渲染，把槽位基线还原成与前序
+      // 宽度块收尾同构的残留——后续区块不清槽位直接渲染，会读到本块布局的
+      // 残留值（带任务行的布局会让后者的 useMemo 撞上前者的 useState(null)）。
+      hookStates.slots.length = 0;
+      resetHookCursor();
+      elements(pageClient.CabinetPage({
+        useSessions: (select) => select({ ids: ['s-of'], byId: { 's-of': { title: '溢出修复', updatedAt: ageOf(8) } }, projectionsBySession: {} }),
+        useSessionStatus: (select) => select(new Map()),
+        t: (key) => pageClient.zh[key] || key
+      }));
     }
 
     // ---- 联想开关两态：提示词层（index.js memberBlock/leadBlock + client configuredPrompt）----
