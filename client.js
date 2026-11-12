@@ -3740,8 +3740,11 @@ window.__ModuleLoader__.load({
 			return value.filter((scope) => typeof scope === 'string' && scope.trim() !== '');
 		}
 
-		function TaskLine({ task, blockerOf, t, taskLabel, ownerRunning, onOpenOwner }) {
+		function TaskLine({ task, blockerOf, t, taskLabel, ownerRunning, onOpenOwner, expanded }) {
 			const [openBlockers, setOpenBlockers] = React.useState(true);
+			const [sheetOpenRaw, setSheetOpen] = React.useState(false);
+			// 任务书默认折叠成一行；expanded 供测试/受控场景直接指定展开态。
+			const sheetOpen = typeof expanded === 'boolean' ? expanded : sheetOpenRaw;
 			const status = TASK_COLOR[task.status] ? task.status : 'pending';
 			const color = TASK_COLOR[status];
 			const blockers = Array.isArray(task.blockedBy) ? [...new Set(task.blockedBy.filter((id) => typeof id === 'string' && id !== task.id))] : [];
@@ -3786,28 +3789,37 @@ window.__ModuleLoader__.load({
 			const description = taskDescriptionText(task.description);
 			const writeScopes = taskWriteScopeList(task.writeScopes);
 			const sheetStyle = { display: 'flex', alignItems: 'baseline', gap: 4, flexWrap: 'wrap', width: '100%', paddingLeft: 14, fontSize: 11, color: INK2, minWidth: 0 };
+			// 默认一行（~24px 单行、超长省略）：点行空白切换任务书；点标题/Owner
+			// 仍走各自的下钻 opener（它们 stopPropagation，不冒到行）。任务书两行
+			// 默认不渲染（不是隐藏占位），展开才出现；受控 expanded 时点击不切换。
 			const children = [h('div', {
 				key: 'line',
-				style: { display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', minWidth: 0, width: '100%' }
-			}, parts),
-			h('div', { key: 'sheet', style: sheetStyle }, [
-				h('span', { key: 'dl', style: { flex: 'none' } }, t('task.description')),
-				h('span', {
-					key: 'dv',
-					'data-cabinet-task-sheet': 'description',
-					title: description !== '' ? task.description.trim() : undefined,
-					style: { minWidth: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }
-				}, description !== '' ? description : t('task.absent'))
-			]),
-			h('div', { key: 'scopes', style: sheetStyle }, [
-				h('span', { key: 'sl', style: { flex: 'none' } }, t('task.writeScopes')),
-				h('span', {
-					key: 'sv',
-					'data-cabinet-task-sheet': 'writeScopes',
-					title: writeScopes.length > 0 ? writeScopes.join(', ') : undefined,
-					style: { minWidth: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }
-				}, writeScopes.length > 0 ? writeScopes.join(', ') : t('task.absent'))
-			])];
+				'data-cabinet-task-row': '1',
+				onClick: (event) => { stopPropagation(event); if (typeof expanded !== 'boolean') setSheetOpen((value) => !value); },
+				style: { display: 'flex', alignItems: 'center', gap: 6, height: 24, minWidth: 0, width: '100%', overflow: 'hidden', whiteSpace: 'nowrap', cursor: 'pointer' }
+			}, parts)];
+			if (sheetOpen) {
+				children.push(
+					h('div', { key: 'sheet', style: sheetStyle, onClick: (event) => stopPropagation(event) }, [
+						h('span', { key: 'dl', style: { flex: 'none' } }, t('task.description')),
+						h('span', {
+							key: 'dv',
+							'data-cabinet-task-sheet': 'description',
+							title: description !== '' ? task.description.trim() : undefined,
+							style: { minWidth: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }
+						}, description !== '' ? description : t('task.absent'))
+					]),
+					h('div', { key: 'scopes', style: sheetStyle, onClick: (event) => stopPropagation(event) }, [
+						h('span', { key: 'sl', style: { flex: 'none' } }, t('task.writeScopes')),
+						h('span', {
+							key: 'sv',
+							'data-cabinet-task-sheet': 'writeScopes',
+							title: writeScopes.length > 0 ? writeScopes.join(', ') : undefined,
+							style: { minWidth: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }
+						}, writeScopes.length > 0 ? writeScopes.join(', ') : t('task.absent'))
+					])
+				);
+			}
 			if (blockers.length > 0) {
 				children.push(h('div', {
 					key: 'block',

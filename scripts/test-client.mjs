@@ -1365,6 +1365,7 @@ assert.equal(client.usageFor({tokenUsage:{outputTokens:-1},contextPressure:{cont
     },
     t: (key) => client.zh[key] || key,
     taskLabel: (status) => status,
+    expanded: true,
   });
   const descriptionNode = sheetNode(filled, 'description');
   const scopeNode = sheetNode(filled, 'writeScopes');
@@ -1378,6 +1379,7 @@ assert.equal(client.usageFor({tokenUsage:{outputTokens:-1},contextPressure:{cont
     task: { id: 'blank', subject: '只有标题', status: 'pending', description: '   ', writeScopes: ['  ', 7] },
     t: (key) => client.zh[key] || key,
     taskLabel: (status) => status,
+    expanded: true,
   });
   assert.equal(shown(sheetNode(blank, 'description')), '未记载');
   assert.equal(shown(sheetNode(blank, 'writeScopes')), '未记载');
@@ -1387,24 +1389,64 @@ assert.equal(client.usageFor({tokenUsage:{outputTokens:-1},contextPressure:{cont
     task: { id: 'omitted', subject: '缺字段', status: 'in_progress', description: '完成了但没跑', writeScopes: 'index.js' },
     t: (key) => client.zh[key] || key,
     taskLabel: (status) => status,
+    expanded: true,
   });
   assert.equal(shown(sheetNode(omitted, 'description')), '完成了但没跑');
   assert.equal(shown(sheetNode(omitted, 'writeScopes')), '未记载', 'a non-array writeScopes value is absent, not split');
   const rendered = elements(omitted).flatMap((node) => node.children.flat()).filter((child) => typeof child === 'string').join('');
   assert.ok(!rendered.includes('未验证'), 'wording in the description does not add an unverified label');
-  const panel = JSON.stringify(render({
+  // stringify 原树只到 h(TaskLine) 元素层（task prop 自带字段文本），必须
+  // elements() 展开后查真实渲染文本，才区分得了「收起」与「传参」。
+  const panelNodes = elements(render({
     members: [{ id: 'm-works', name: 'works', role: 'mate', phase: 'active' }],
     tasks: [{ id: 'panel-1', subject: '面板任务', status: 'pending', ownerName: 'works', description: '目标：改右栏', writeScopes: ['client.js'] }],
   }, client.zh));
-  assert.ok(panel.includes('目标：改右栏'));
-  assert.ok(panel.includes('client.js'));
+  assert.ok(!panelNodes.some((node) => node.props?.['data-cabinet-task-sheet'] !== undefined), 'panel folds the task sheet by default');
+  assert.ok(!panelNodes.some((node) => node.props?.key === 'scopes'), 'panel hides the write scopes by default');
+  assert.ok(panelNodes.some((node) => node.props?.['data-cabinet-task-row'] !== undefined), 'panel renders the compact single-line task row');
   const english = client.TaskLine({
     task: { id: 'en-1', subject: 'sheet', status: 'pending' },
     t: (key) => client.en[key] || key,
     taskLabel: (status) => status,
+    expanded: true,
   });
   assert.equal(shown(sheetNode(english, 'description')), 'not recorded');
   assert.equal(shown(sheetNode(english, 'writeScopes')), 'not recorded');
+}
+
+
+// 任务书默认折叠：初始渲染不含任务书正文；点任务行展开、再点收起（单行 ~24px）。
+{
+  persistentRefs = { cursor: 0, slots: [] };
+  hookStates.slots.length = 0;
+  recordedEffects.length = 0;
+  resetHookCursor();
+  const foldTask = { id: 'fold-1', subject: '折叠任务', status: 'in_progress', ownerName: 'works', description: '目标：折叠起来才出现', writeScopes: ['client.js'] };
+  const foldArgs = { task: foldTask, t: (key) => client.zh[key] || key, taskLabel: (status) => status };
+  const fakeClick = () => ({ stopped: false, stopPropagation() { this.stopped = true; } });
+  let foldTree = elements(client.TaskLine(foldArgs));
+  const foldRow0 = elements(foldTree).find((node) => node.props?.['data-cabinet-task-row'] !== undefined);
+  assert.ok(foldRow0, 'the compact task row renders (data-cabinet-task-row)');
+  assert.equal(foldRow0.props.style.height, 24, 'the task row is a single 24px line');
+  assert.ok(foldRow0.props.style.whiteSpace === 'nowrap' && foldRow0.props.style.overflow === 'hidden', 'the row clips to one line with ellipsis');
+  assert.ok(!elements(foldTree).some((node) => node.props?.['data-cabinet-task-sheet'] !== undefined), 'the task sheet nodes are not rendered by default');
+  assert.ok(!JSON.stringify(foldTree).includes('目标：折叠起来才出现'), 'no sheet text in the initial render');
+  const foldEvent = fakeClick();
+  foldRow0.props.onClick(foldEvent);
+  assert.equal(foldEvent.stopped, true, 'the row click stops propagation so the card opener stays out');
+  resetHookCursor();
+  foldTree = elements(client.TaskLine(foldArgs));
+  assert.ok(JSON.stringify(foldTree).includes('目标：折叠起来才出现'), 'clicking the row reveals the task sheet');
+  const foldRow1 = elements(foldTree).find((node) => node.props?.['data-cabinet-task-row'] !== undefined);
+  foldRow1.props.onClick(fakeClick());
+  resetHookCursor();
+  foldTree = elements(client.TaskLine(foldArgs));
+  assert.ok(!JSON.stringify(foldTree).includes('目标：折叠起来才出现'), 'clicking again hides the task sheet');
+  // 收尾：交还 null + 清槽，别把本块布局泄漏给后续块（3b47d6a2 教训）。
+  persistentRefs = null;
+  hookStates.slots.length = 0;
+  recordedEffects.length = 0;
+  resetHookCursor();
 }
 
 // The dispatch button is gone, so an injected workspace channel must not resurrect
