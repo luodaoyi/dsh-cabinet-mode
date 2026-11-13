@@ -1724,7 +1724,7 @@ assert.equal(client.usageFor({tokenUsage:{outputTokens:-1},contextPressure:{cont
   assert.ok(Array.isArray(connPaths) && connPaths.length > 0, 'connector arcs build for a 3x3 layered tree');
   const connD = connPaths.map((path) => (typeof path === 'string' ? path : path.d));
   const leadFan = connD.filter((d) => d.indexOf('M 300 60 L 300 74 C ') === 0);
-  assert.equal(leadFan.length, 3, 'lead fans out to layer 1 from one point after a vertical stub, got ' + leadFan.length);
+  assert.equal(leadFan.length, connNodes.length, 'every card arcs from the lead bottom-centre after the shared 14px stub, got ' + leadFan.length);
   let arrived = 0;
   for (const node of connNodes) {
     const cx = node.left + node.width / 2;
@@ -1733,27 +1733,34 @@ assert.equal(client.usageFor({tokenUsage:{outputTokens:-1},contextPressure:{cont
   assert.equal(arrived, 9, 'every layered card receives an arc ending at its top centre, got ' + arrived);
   const hubFan = connD.filter((d) => d.indexOf('M 300 320 L 300 334 C ') === 0);
   assert.equal(hubFan.length, 0, 'no member is made the parent of the next visual row, got ' + hubFan.length);
-  // 总线扇出：3 fan + 1 主干 + 每后续层 1 水平段(2层) + 每卡 1 支线(6卡) = 12。
-  assert.equal(connPaths.length, 12, 'lead fan(3) + trunk(1) + bus segments(2) + branches(6), got ' + connPaths.length);
-  // 主干：M ax ay → L ax ay+8 → L trunkX ay+8 → L trunkX bottomY（列间隙，非中心线）。
-  const trunkOnly = connD.filter((d) => /^M 300 60 L 300 68 L (\d+) 68 L \d+ \d+$/.test(d));
-  assert.equal(trunkOnly.length, 1, 'exactly one neutral trunk with the 8px sideways step, got ' + trunkOnly.length);
-  const connTrunkX = Number((trunkOnly[0] || '').match(/^M 300 60 L 300 68 L (\d+) /)[1]);
-  assert.notEqual(connTrunkX, 300, 'the trunk leaves the lead centre-line for a column gap, got ' + connTrunkX);
+  // 纯弧线规格（用户：不要直线，全部弧线）：每卡恰 1 条、全部含 C、无长直段。
+  assert.equal(connPaths.length, connNodes.length, 'exactly one arc per card, got ' + connPaths.length);
+  assert.ok(connD.every((d) => d.includes(' C ')), 'every path is a bezier (no bare polyline)');
   const coordReConn = /[-+]?\d*\.?\d+/g;
-  const busSegs = connD.filter((d) => {
-    const m = d.match(/^M (\d+) (\d+) L (\d+) (\d+)(?: L (\d+) (\d+))?$/);
-    return !!m && m[2] === m[4] && (m[6] === undefined || m[6] === m[2]);
-  });
-  assert.equal(busSegs.length, 2, 'exactly one horizontal segment per later layer, got ' + busSegs.length);
-  const branches = connD.filter((d) => d.includes(' C ') && d.indexOf('M 300 60 ') !== 0);
-  assert.equal(branches.length, 6, 'one family-coloured branch per later-layer card, got ' + branches.length);
-  // 旧 gutter 横穿的负断言：任何 x 都不得伸到最左卡左缘之外。
-  // trunkX 不穿卡：不得落在任何卡的 [left-1, right+1] 内。
-  for (const node of connNodes) {
-    assert.ok(connTrunkX < node.left - 1 || connTrunkX > node.left + node.width + 1,
-      'trunk x=' + connTrunkX + ' must clear card [' + node.left + ',' + (node.left + node.width) + ']');
+  // 负断言：任何 L 段不得是水平长直线（|Δy|≈0 且 |Δx|>40）或垂直长主干
+  //（|Δx|≈0 且 |Δy|>80）；起点 14px 竖直小段（|Δy|=14≤20）是唯一允许的短竖段。
+  for (const d of connD) {
+    const tokens = d.match(/[MLC][^MLC]*/g) || [];
+    let px = 0, py = 0;
+    for (const token of tokens) {
+      const nums = (token.slice(1).match(/-?\d+(?:\.\d+)?/g) || []).map(Number);
+      if (token[0] === 'M') { px = nums[0]; py = nums[1]; }
+      else if (token[0] === 'L') {
+        const x = nums[0], y = nums[1];
+        assert.ok(!(Math.abs(y - py) < 0.01 && Math.abs(x - px) > 40), 'no long horizontal L segment (Δx=' + (x - px) + '), got: ' + d);
+        assert.ok(!(Math.abs(x - px) < 0.01 && Math.abs(y - py) > 80), 'no long vertical L segment (Δy=' + (y - py) + '), got: ' + d);
+        px = x; py = y;
+      } else { px = nums[4]; py = nums[5]; }
+    }
   }
+  // 同层控制点分散：第二层（top=360）三条弧的第一控制点互不相同（防叠成一根）。
+  const layer2C1 = [120, 300, 480].map((cx) => {
+    const d = connD.find((line) => line.includes(' C ') && line.endsWith(' ' + cx + ' 360'));
+    assert.ok(d, 'a layer-2 arc ends at (' + cx + ',360), got: ' + JSON.stringify(connD));
+    return Number(d.match(/C (\d+) /)[1]);
+  });
+  assert.equal(new Set(layer2C1).size, 3, 'same-layer arcs fan out with distinct control points, got: ' + JSON.stringify(layer2C1));
+  // 旧 gutter 横穿的负断言：任何 x 都不得伸到最左卡左缘之外。
   const minConnLeft = Math.min(...connNodes.map((node) => node.left));
   for (const d of connD) {
     const nums = d.match(coordReConn).map(Number);
@@ -1774,15 +1781,21 @@ assert.equal(client.usageFor({tokenUsage:{outputTokens:-1},contextPressure:{cont
     }
   }
   const offPaths = client.buildConnectorPaths(offBase, offLead, offNodes, -8);
-  const offTrunk = offPaths.find((path) => /^M 300 100 L 300 108 L (\d+) 108 L \d+ \d+$/.test(path.d));
-  assert.ok(offTrunk, 'the non-zero-base trunk keeps the 8px step form, got: ' + JSON.stringify(offPaths.map((path) => path.d)));
-  const offTrunkX = Number(offTrunk.d.match(/^M 300 100 L 300 108 L (\d+) /)[1]);
-  assert.notEqual(offTrunkX, 300, 'the trunk leaves the lead centre-line, got ' + offTrunkX);
-  for (const node of offNodes) {
-    assert.ok(offTrunkX < node.left - 1 || offTrunkX > node.left + node.width + 1,
-      'trunk x=' + offTrunkX + ' must clear card [' + node.left + ',' + (node.left + node.width) + ']');
+  assert.ok(Array.isArray(offPaths) && offPaths.length === 6, 'one arc per card builds against a non-zero base, got ' + JSON.stringify(offPaths && offPaths.length));
+  for (const path of offPaths) {
+    const tokens = path.d.match(/[MLC][^MLC]*/g) || [];
+    let px = 0, py = 0;
+    for (const token of tokens) {
+      const nums = (token.slice(1).match(/-?\d+(?:\.\d+)?/g) || []).map(Number);
+      if (token[0] === 'M') { px = nums[0]; py = nums[1]; }
+      else if (token[0] === 'L') {
+        const x = nums[0], y = nums[1];
+        assert.ok(!(Math.abs(y - py) < 0.01 && Math.abs(x - px) > 40), 'no long horizontal L (Δx=' + (x - px) + '), got: ' + path.d);
+        assert.ok(!(Math.abs(x - px) < 0.01 && Math.abs(y - py) > 80), 'no long vertical L (Δy=' + (y - py) + '), got: ' + path.d);
+        px = x; py = y;
+      } else { px = nums[4]; py = nums[5]; }
+    }
   }
-  assert.ok(Array.isArray(offPaths) && offPaths.length === 8, 'fan(3)+trunk(1)+bus(1)+branches(3) build against a non-zero base, got ' + JSON.stringify(offPaths && offPaths.length));
   const coordRe = /[-+]?\d*\.?\d+/g;
   for (const path of offPaths) {
     const nums = path.d.match(coordRe).map(Number);

@@ -4162,78 +4162,23 @@ window.__ModuleLoader__.load({
 					const cx = target.left + target.width / 2;
 					const top = target.top;
 					const bow = Math.max(24, (top - y1) * 0.6);
+					// 控制点向目标侧各收一半：同层左/右目标的第一控制点分居 from.x 两侧，
+					// 弧线呈扇形散开，不会在中段叠成一根粗线。
+					const c1x = from.x + (cx - from.x) * 0.5;
+					const c2x = cx - (cx - from.x) * 0.5;
 					const d = 'M ' + from.x + ' ' + from.y + ' L ' + from.x + ' ' + y1
-						+ ' C ' + from.x + ' ' + (y1 + bow) + ', ' + cx + ' ' + (top - bow) + ', ' + cx + ' ' + top;
+						+ ' C ' + c1x + ' ' + (y1 + bow) + ', ' + c2x + ' ' + (top - bow) + ', ' + cx + ' ' + top;
 					paths.push({ d, color: typeof target.color === 'string' ? target.color : '' });
 				}
 			};
-			fan({ x: leadLocal.left + leadLocal.width / 2, y: leadLocal.top + leadLocal.height }, layers[0].cards);
-			// Later visual rows remain siblings (never a member-to-member parent).
-			// Bus fan-out replaces the old outside gutter: one vertical trunk from the
-			// Lead's bottom-centre down to the lowest layer's bus line; exactly ONE
-			// horizontal segment per layer at `card top - 16px` reaching the outermost
-			// card centres of that layer; one family-coloured branch per card from its
-			// point on the bus to the card's top centre. No line reaches past the
-			// outermost cards, and bus/branches stay in the row-gap band above cards.
+			// Pure arcs: every card — first row or fourth — draws ONE bezier from the
+			// Lead's bottom-centre (the 14px vertical stub is the shared start, no
+			// right angles). No trunk, no horizontal bus segment, no gutter: the SVG
+			// layer sits under the cards, so an arc crossing a card hides behind it,
+			// which is what the user asked for (弧线, not 直角折线).
 			const ax = leadLocal.left + leadLocal.width / 2;
 			const ay = leadLocal.top + leadLocal.height;
-			const tail = layers.slice(1);
-			if (tail.length > 0) {
-				const busY = (layer) => layer.top - 16;
-				const bottomY = busY(tail[tail.length - 1]);
-				// Trunk x rides a COLUMN GAP, never the lead centre-line: a centre-line
-				// trunk would slide behind the middle-column card and read as a broken
-				// line. Take the card nearest ax, step out over the edge closer to ax by
-				// 8px; if that lands inside any card's [left, right] projection (2-card
-				// rows make this easy), push out by half that card's width — repeat at
-				// most once per card, and fall back to ax if a pathological layout
-				// still cannot clear every card (never worse than the old centre run).
-				const allCards = tail.flatMap((layer) => layer.cards);
-				let trunkX = ax;
-				if (allCards.length > 0) {
-					let nearest = allCards[0];
-					let nearestDist = Math.abs((nearest.left + nearest.width / 2) - ax);
-					for (const card of allCards) {
-						const dist = Math.abs((card.left + card.width / 2) - ax);
-						if (dist < nearestDist) { nearest = card; nearestDist = dist; }
-					}
-					const nearLeft = Math.abs(ax - nearest.left);
-					const nearRight = Math.abs(ax - (nearest.left + nearest.width));
-					trunkX = nearLeft <= nearRight ? nearest.left - 8 : nearest.left + nearest.width + 8;
-					for (let guard = 0; guard < allCards.length; guard += 1) {
-						const hit = allCards.find((card) => trunkX >= card.left - 1 && trunkX <= card.left + card.width + 1);
-						if (!hit) break;
-						// 兜底：2 卡无居中卡时按上面选边会落进另一张卡——再往外推半个卡宽。
-						trunkX = trunkX <= hit.left + hit.width / 2
-							? hit.left - hit.width / 2
-							: hit.left + hit.width + hit.width / 2;
-					}
-					if (allCards.some((card) => trunkX >= card.left - 1 && trunkX <= card.left + card.width + 1)) trunkX = ax;
-				}
-				// Neutral trunk: drop8px under the Lead, step sideways into the gap in
-				// that blank band, then straight down to the lowest bus line.
-				paths.push({ d: 'M ' + ax + ' ' + ay + ' L ' + ax + ' ' + (ay + 8) + ' L ' + trunkX + ' ' + (ay + 8) + ' L ' + trunkX + ' ' + bottomY, color: LINE });
-				for (const layer of tail) {
-					const y = busY(layer);
-					const centres = layer.cards.map((card) => card.left + card.width / 2);
-					const minX = Math.min(...centres);
-					const maxX = Math.max(...centres);
-					// One horizontal segment per layer, from the trunk to both ends.
-					paths.push({
-						d: 'M ' + trunkX + ' ' + y + ' L ' + minX + ' ' + y + (maxX !== minX ? ' L ' + maxX + ' ' + y : ''),
-						color: LINE
-					});
-					// One branch per card, family colour, from the bus down to the top centre.
-					for (const target of layer.cards) {
-						const cx = target.left + target.width / 2;
-						const top = target.top;
-						paths.push({
-							d: 'M ' + cx + ' ' + y + ' C ' + cx + ' ' + (y + 6) + ', ' + cx + ' ' + (top - 6) + ', ' + cx + ' ' + top,
-							color: typeof target.color === 'string' ? target.color : ''
-						});
-					}
-				}
-			}
+			for (const layer of layers) fan({ x: ax, y: ay }, layer.cards);
 			return paths;
 		}
 		// One cubic per dependency: from the BLOCKER's row to the blocked task's
