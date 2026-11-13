@@ -2,7 +2,8 @@
 // Requires DSH_MODULE_ROOT pointing at official runtime node_modules and pnpm on PATH.
 // Optional --headless requires DSH_BROWSER_TEST_ROOT/playwright-core and CHROME_PATH.
 // Raw host output, launch tokens, cookies and authenticated HTML never leave memory.
-// No browser traces, screenshots, storage state or raw browser diagnostics are saved.
+// No traces, storage state or raw browser diagnostics are saved. Optional failure PNG
+// requires CABINET_HOST_SCREENSHOT and a clean same-origin URL without query/fragment.
 import {spawn} from 'node:child_process';
 import {createRequire} from 'node:module';
 import {mkdtemp,mkdir,rm,readFile} from 'node:fs/promises';
@@ -43,7 +44,9 @@ function failure(label,state){
 }
 async function run(args,label){const s=start(args);const deadline=Date.now()+180000;while(!s.done&&Date.now()<deadline)await pause(100);if(!s.done||s.code!==0){const e=failure(label,s);await stop(s);throw e}const output=s.output;await stop(s);return output}
 async function browserSmoke(auth,origin,batchUrl){
- let browser,stage='dependency setup';
+ let browser,page,stage='dependency setup',assetSeen=false,pageErrors=0,consoleErrors=0,failedRequests=0,httpFailures=0;
+ const categories=new Set();
+ const categorize=value=>{const message=String(value||'');for(const [name,pattern] of [['module-resolution',/module.*(?:not found|resolve)|cannot find|unknown module/i],['service-injection',/inject|unresolved.*service|missing.*service/i],['javascript-reference',/ReferenceError|not defined|before initialization/i],['react-render',/React|hook|render|element type/i],['authentication',/unauthorized|forbidden|\b401\b|\b403\b/i],['connection',/websocket|connection|network|fetch/i],['bootstrap',/bootstrap|boot|loader|registration/i]])if(pattern.test(message))categories.add(name)};
  try{
   const testRoot=process.env.DSH_BROWSER_TEST_ROOT;
   if(!testRoot||!process.env.CHROME_PATH)throw Error('missing browser configuration');
@@ -56,11 +59,12 @@ async function browserSmoke(auth,origin,batchUrl){
    const url=new URL(route.request().url());
    return url.origin===origin?route.continue():route.abort();
   });
-  const page=await context.newPage();page.setDefaultTimeout(30000);
-  let pageErrors=0,assetSeen=false;
-  page.on('pageerror',()=>pageErrors++);
+  page=await context.newPage();page.setDefaultTimeout(30000);
+  page.on('pageerror',error=>{pageErrors++;categorize(error.message)});
+  page.on('console',message=>{if(message.type()==='error'){consoleErrors++;categorize(message.text())}});
+  page.on('requestfailed',()=>failedRequests++);
   const expected=new URL('/'+batchUrl.replace(/^\//,''),origin).href;
-  page.on('response',response=>{if(response.url()===expected&&response.status()===200)assetSeen=true});
+  page.on('response',response=>{if(response.url()===expected&&response.status()===200)assetSeen=true;if(response.status()>=400)httpFailures++});
   stage='authenticated official page navigation';
   await page.goto(auth.href,{waitUntil:'domcontentloaded',timeout:45000});
   await page.waitForURL(url=>url.origin===origin&&url.search==='',{timeout:15000});
@@ -83,6 +87,32 @@ async function browserSmoke(auth,origin,batchUrl){
   if(pageErrors!==0)throw Error('browser runtime error');
   console.log('PASS real official host Chromium: client batch requested, Cabinet entry/page, empty profile, rail toggles and settings navigation');
  }catch(error){
+  // Emit only fixed schema booleans/counts and allowlisted categories, never text/URLs.
+  const safe={assetSeen,pageErrors,consoleErrors,failedRequests,httpFailures,errorCategories:[...categories].sort()};
+  if(page){try{
+   Object.assign(safe,await page.evaluate(()=>({
+    cabinetIconCount:document.querySelectorAll('[data-cabinet-panel-icon]').length,
+    cabinetPageCount:document.querySelectorAll('[data-cabinet-page]').length,
+    buttonCount:document.querySelectorAll('button').length,
+    dialogCount:document.querySelectorAll('[role="dialog"],dialog').length,
+    bootGraphPresent:!!globalThis.__DSH_BOOT__,
+    bootGraphHasCabinet:!!globalThis.__DSH_BOOT__?.batches?.some(b=>b.entries?.includes('dsh-cabinet-mode')),
+    loaderPresent:!!globalThis.__ModuleLoader__,
+    loaderStillQueued:globalThis.__ModuleLoader__?.mode==='queue',
+    onboardingText:/welcome|onboarding|欢迎|开始使用|配置模型|configure.*model/i.test(document.body?.innerText||''),
+    connectionText:/connecting|disconnected|reconnect|连接中|未连接|重新连接/i.test(document.body?.innerText||''),
+    errorText:/failed|error|失败|错误/i.test(document.body?.innerText||'')
+   })));
+  }catch{safe.domProbeFailed=true}
+  try{
+   const current=new URL(page.url());
+   safe.cleanHostUrl=current.origin===origin&&current.search===''&&current.hash==='';
+   if(safe.cleanHostUrl&&process.env.CABINET_HOST_SCREENSHOT){
+    // This empty-profile page has no user data; screenshot excludes browser chrome.
+    await page.screenshot({path:process.env.CABINET_HOST_SCREENSHOT,fullPage:true});safe.screenshotSaved=true;
+   }
+  }catch{safe.screenshotSaved=false}}
+  console.log('DIAGNOSTIC real-host browser: '+JSON.stringify(safe));
   const reason=/EPERM|Operation not permitted|Permission denied/.test(String(error?.message||''))?' (permission denied)':/executable.*doesn.t exist|ENOENT/i.test(String(error?.message||''))?' (browser executable missing)':'';
   // Playwright exceptions can embed the authenticated navigation URL. Never forward them.
   throw Error('real-host browser smoke failed at '+stage+reason+'; raw browser diagnostics withheld');
