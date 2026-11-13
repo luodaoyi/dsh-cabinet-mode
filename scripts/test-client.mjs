@@ -900,6 +900,107 @@ const costProbe = elements(client.MemberCard({
   usage: { tokens: 3000000, elapsedMs: 1000, context: { percent: 40, segments: [] } },
 }));
 assert.ok(JSON.stringify(costProbe).includes('3M'), 'token total still renders without buckets');
+// --- 派活入口（task-40）：点击才展开、queue 派活/steer 插话、失败原文回显 ---
+{
+  const dispatchCalls = [];
+  const makeCard = (id, opts = {}) => elements(client.MemberCard({
+    member: { id, name: id, phase: 'active' },
+    running: opts.running === true,
+    statusLabel: (status) => status,
+    t: zhT,
+    usage: { tokens: 1000, elapsedMs: 1000 },
+    activity: { count: 1, time: 1700000000000 },
+    dispatchActions: opts.ready === false
+      ? { ready: false, submit: () => Promise.resolve({ ok: true }) }
+      : { ready: true, submit: (mode, content) => { dispatchCalls.push({ mode, content }); return Promise.resolve(opts.result || { ok: true }); } },
+  }));
+  const findProp = (nodes, prop) => nodes.find((node) => node && node.props && node.props[prop] !== undefined);
+  const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+  // 1) 初始收起：负断言——卡内不存在输入框（防常驻破坏紧凑布局）
+  let card = makeCard('m-dp-idle');
+  assert.ok(!findProp(card, 'data-cabinet-dispatch-input'), 'collapsed card carries no dispatch input (never resident)');
+  const openBtn = findProp(card, 'data-cabinet-dispatch-open');
+  assert.ok(openBtn, 'the dispatch entry renders in the meta row');
+  assert.equal(openBtn.props.disabled, false, 'a session-ready card opens dispatch');
+  assert.equal(String(openBtn.children.join('')), '派活', 'entry reads 派活 when collapsed');
+  assert.ok(String(openBtn.props.title).includes('不打断'), 'entry title explains queue semantics: ' + openBtn.props.title);
+
+  // 2) 点击展开：输入框出现，入口文案切到收起
+  openBtn.props.onClick();
+  card = makeCard('m-dp-idle');
+  const input = findProp(card, 'data-cabinet-dispatch-input');
+  assert.ok(input, 'clicking the entry expands the input row');
+  const openBtn2 = findProp(card, 'data-cabinet-dispatch-open');
+  assert.equal(String(openBtn2.children.join('')), '收起', 'entry toggles to 收起 while expanded');
+
+  // 3) 输入草稿 → 提交走 queue（非 steer）
+  input.props.onChange({ target: { value: '把门禁跑绿' } });
+  card = makeCard('m-dp-idle');
+  const input2 = findProp(card, 'data-cabinet-dispatch-input');
+  assert.equal(input2.props.value, '把门禁跑绿', 'the draft survives typing');
+  const sendBtn = findProp(card, 'data-cabinet-dispatch-send');
+  sendBtn.props.onClick();
+  await tick();
+  assert.equal(dispatchCalls.length, 1, 'submit fires exactly one prompt');
+  assert.equal(dispatchCalls[0].mode, 'queue', "dispatch submits with mode 'queue', not 'steer'");
+  assert.equal(dispatchCalls[0].content.length, 1, 'content is one text part');
+  assert.equal(dispatchCalls[0].content[0].type, 'text', "content part type is 'text'");
+  assert.equal(dispatchCalls[0].content[0].text, '把门禁跑绿', 'content part carries the draft verbatim');
+
+  // 4) 提交后收起 + 清空 + 已排队提示
+  card = makeCard('m-dp-idle');
+  assert.ok(!findProp(card, 'data-cabinet-dispatch-input'), 'the row collapses after a successful send');
+  const notice = findProp(card, 'data-cabinet-dispatch-notice');
+  assert.ok(notice && String(notice.children.join('')).includes('已排队'), 'the queued notice shows, got: ' + JSON.stringify(notice && notice.children));
+  findProp(card, 'data-cabinet-dispatch-open').props.onClick();
+  card = makeCard('m-dp-idle');
+  const input3 = findProp(card, 'data-cabinet-dispatch-input');
+  assert.ok(input3 && input3.props.value === '', 're-opening starts from an empty draft, got: ' + JSON.stringify(input3 && input3.props.value));
+
+  // 5) 会话不可用：按钮 disabled + title 说明，点击不展开
+  let dead = makeCard('m-dp-dead', { ready: false });
+  const deadOpen = findProp(dead, 'data-cabinet-dispatch-open');
+  assert.equal(deadOpen.props.disabled, true, 'no session → the entry is disabled');
+  assert.ok(String(deadOpen.props.title).includes('不可用'), 'the disabled title explains why: ' + deadOpen.props.title);
+  deadOpen.props.onClick();
+  dead = makeCard('m-dp-dead', { ready: false });
+  assert.ok(!findProp(dead, 'data-cabinet-dispatch-input'), 'a disabled entry expands nothing');
+
+  // 6) 失败：错误原文进 DOM（不吞）
+  let failing = makeCard('m-dp-fail', { result: { ok: false, error: 'gateway/internal: quota exhausted' } });
+  findProp(failing, 'data-cabinet-dispatch-open').props.onClick();
+  failing = makeCard('m-dp-fail', { result: { ok: false, error: 'gateway/internal: quota exhausted' } });
+  findProp(failing, 'data-cabinet-dispatch-input').props.onChange({ target: { value: 'try' } });
+  failing = makeCard('m-dp-fail', { result: { ok: false, error: 'gateway/internal: quota exhausted' } });
+  findProp(failing, 'data-cabinet-dispatch-send').props.onClick();
+  await tick();
+  failing = makeCard('m-dp-fail', { result: { ok: false, error: 'gateway/internal: quota exhausted' } });
+  const errNode = findProp(failing, 'data-cabinet-dispatch-error');
+  assert.ok(errNode && String(errNode.children.join('')).includes('gateway/internal: quota exhausted'),
+    'the raw error text reaches the DOM, got: ' + JSON.stringify(errNode && errNode.children));
+
+  // 7) 插话并存：running 才有 steer 按钮，提交走 steer；派活不受运行状态影响
+  let live = makeCard('m-dp-live', { running: true });
+  findProp(live, 'data-cabinet-dispatch-open').props.onClick();
+  live = makeCard('m-dp-live', { running: true });
+  findProp(live, 'data-cabinet-dispatch-input').props.onChange({ target: { value: '先看这条' } });
+  live = makeCard('m-dp-live', { running: true });
+  const interruptBtn = findProp(live, 'data-cabinet-dispatch-interrupt');
+  assert.ok(interruptBtn, 'a running card offers the steer entry alongside dispatch');
+  assert.ok(String(interruptBtn.props.title).includes('打断'), 'interrupt title explains the difference: ' + interruptBtn.props.title);
+  interruptBtn.props.onClick();
+  await tick();
+  assert.equal(dispatchCalls[dispatchCalls.length - 1].mode, 'steer', "the interrupt path submits with mode 'steer'");
+  let idleLive = makeCard('m-dp-live2');
+  findProp(idleLive, 'data-cabinet-dispatch-open').props.onClick();
+  idleLive = makeCard('m-dp-live2');
+  assert.ok(!findProp(idleLive, 'data-cabinet-dispatch-interrupt'), 'an idle card shows no interrupt entry');
+
+  // 8) 未 running 也能派活（排队语义不依赖进程）
+  const idleDispatch = makeCard('m-dp-idle2');
+  assert.equal(findProp(idleDispatch, 'data-cabinet-dispatch-open').props.disabled, false, 'an idle member still dispatches (queued for next turn)');
+}
 
 // 家族色：不同成员的卡片边框色不同（黄金角散列，同色即错）。
 const huePanel = elements(client.CabinetPanel({

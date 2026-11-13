@@ -3684,7 +3684,12 @@ window.__ModuleLoader__.load({
 		// 卡片按 dsh-context 高清截图分5层：方块头像+状态点+粗名 / 任务描述 /
 		// token 数字(不带字样) / 42% 宽分段条 / 时间·N步 + 百分比(>60橙 >80红)。
 		// 卡高固定：阁臣卡只显示当前一个任务（activeTask），不再挂任务列表。
-		function MemberCard({ member, running, model, isCurrent, lead, statusLabel, t, size, onOpen, usage, teamUsage, familyColor, activity, activeTask, children }) {
+		// 派活展开态按成员存（点击才展开，绝不常驻输入框）；bump 走面板 revision
+		// 驱动真机重渲，测试手动 re-render 读同一 Map（不依赖 React state mock）。
+		const dispatchUiMap = new Map();
+		let dispatchBump = null;
+
+		function MemberCard({ member, running, model, isCurrent, lead, statusLabel, t, size, onOpen, usage, teamUsage, familyColor, activity, activeTask, dispatchActions, children }) {
 			const tt = typeof t === 'function' ? t : (key) => key;
 			// 「任务在动」判定合并：agent 进程在跑，或卡上挂着 in_progress 任务——
 			// 用户看的是活在动，不只看进程（activeTaskOf 只回 in_progress，双保险再判一次）。
@@ -3703,6 +3708,36 @@ window.__ModuleLoader__.load({
 			// 红阈值 >85：截图 gongbu-shangshu-7 的 80.2% 是橙色（用户视觉为准）。
 			const pctColor = pctValue === undefined ? INK2 : (pctValue > 85 ? '#ef4444' : (pctValue > 60 ? '#f59e0b' : '#22c55e'));
 			const costValue = costOf(usage, model);
+			// 派活：通道可用性 + 展开态。queue=排队不打断（派活），steer=立刻插进当前回合（插话）。
+			const dispatchRecord = dispatchUiMap.get(member.id);
+			const dispatchOpen = dispatchRecord !== undefined && dispatchRecord.open === true;
+			const dispatchDraft = dispatchRecord !== undefined && typeof dispatchRecord.draft === 'string' ? dispatchRecord.draft : '';
+			const dispatchNotice = dispatchRecord !== undefined && typeof dispatchRecord.notice === 'string' ? dispatchRecord.notice : '';
+			const dispatchError = dispatchRecord !== undefined && typeof dispatchRecord.error === 'string' ? dispatchRecord.error : '';
+			const dispatchReady = dispatchActions !== undefined && dispatchActions !== null && dispatchActions.ready === true && typeof dispatchActions.submit === 'function';
+			const dispatchBumpNow = () => { if (dispatchBump) dispatchBump((revision) => revision + 1); };
+			const dispatchToggle = () => {
+				if (!dispatchReady) return;
+				dispatchUiMap.set(member.id, { open: !dispatchOpen, draft: '', notice: null, error: null });
+				dispatchBumpNow();
+			};
+			const dispatchType = (value) => {
+				dispatchUiMap.set(member.id, { open: true, draft: value, notice: null, error: null });
+				dispatchBumpNow();
+			};
+			const dispatchSubmit = (mode) => {
+				const text = dispatchDraft.trim();
+				if (text === '' || !dispatchReady) return;
+				Promise.resolve(dispatchActions.submit(mode, [{ type: 'text', text: text }])).then((result) => {
+					const ok = result !== null && typeof result === 'object' && result.ok === true;
+					const reason = result !== null && typeof result === 'object' && result.error
+						? (result.error.message || String(result.error)) : tt('dispatch.noSession');
+					dispatchUiMap.set(member.id, ok
+						? { open: false, draft: '', notice: tt('dispatch.queued'), error: null }
+						: { open: true, draft: text, notice: null, error: tt('dispatch.failed').replace('{error}', String(reason)) });
+					dispatchBumpNow();
+				});
+			};
 			return h('div', {
 				className: (lead ? 'cabinet-card cabinet-card-lead' : 'cabinet-card') + (canOpen ? ' cabinet-card-clickable' : ''),
 				onClick: canOpen ? () => onOpen(member) : undefined,
@@ -3828,8 +3863,65 @@ window.__ModuleLoader__.load({
 							h('span', { key: 'pct', style: { color: pctColor, fontWeight: 600, marginLeft: 'auto', flex: 'none' } },
 								pctValue !== undefined
 									? pctValue + '%'
-									: (formatTokenCount(usage.context && usage.context.projectedTokens) ?? tt('usage.none')))
-						]) : null
+									: (formatTokenCount(usage.context && usage.context.projectedTokens) ?? tt('usage.none'))),
+							// 派活提示（提交成功后短暂驻留到下次交互）。
+							dispatchNotice !== '' ? h('span', {
+								key: 'dnotice',
+								'data-cabinet-dispatch-notice': '1',
+								style: { color: '#22c55e', flex: 'none' }
+							}, dispatchNotice) : null,
+							// 派活入口：meta 行末尾极小文字按钮——点击才展开，绝不常驻输入框。
+							h('button', {
+								key: 'dopen',
+								'data-cabinet-dispatch-open': '1',
+								type: 'button',
+								disabled: !dispatchReady,
+								title: dispatchReady ? tt('dispatch.hint') : tt('dispatch.noSession'),
+								onClick: dispatchToggle,
+								style: { font: 'inherit', fontSize: 10.5, padding: 0, border: 0, background: 'transparent', color: dispatchReady ? INK2 : INK3, cursor: dispatchReady ? 'pointer' : 'not-allowed', flex: 'none' }
+							}, dispatchOpen ? tt('dispatch.close') : tt('dispatch.open'))
+						]) : null,
+				// 派活展开行：点击入口才出现；提交或收起后消失并清空（紧凑卡不被破坏）。
+				dispatchOpen ? h('div', {
+					key: 'dispatch',
+					'data-cabinet-dispatch-panel': '1',
+					style: { display: 'flex', gap: 6, alignItems: 'center', marginTop: 4, minWidth: 0 }
+				}, [
+					h('input', {
+						key: 'input',
+						'data-cabinet-dispatch-input': '1',
+						type: 'text',
+						value: dispatchDraft,
+						placeholder: tt('dispatch.placeholder'),
+						onChange: (event) => dispatchType(event && event.target ? event.target.value : ''),
+						onKeyDown: (event) => { if (event && event.key === 'Enter') dispatchSubmit('queue'); },
+						style: { flex: 1, minWidth: 0, font: 'inherit', fontSize: 11.5, padding: '2px 6px', border: '1px solid var(--dsw-alias-border-l3, light-dark(rgba(0,0,0,.18), rgba(255,255,255,.24)))', borderRadius: 6, background: 'transparent', color: INK }
+					}),
+					h('button', {
+						key: 'send',
+						'data-cabinet-dispatch-send': '1',
+						type: 'button',
+						disabled: !dispatchReady || dispatchDraft.trim() === '',
+						title: tt('dispatch.hint'),
+						onClick: () => dispatchSubmit('queue'),
+						style: { font: 'inherit', fontSize: 11, padding: '2px 8px', borderRadius: 6, border: '1px solid transparent', background: hasHue ? familyColor : '#22c55e', color: '#fff', cursor: 'pointer', flex: 'none' }
+					}, tt('dispatch.send')),
+					// 插话与派活并存：仅 running 可立刻打断（steer）；派活始终排队（queue）。
+					running === true ? h('button', {
+						key: 'interrupt',
+						'data-cabinet-dispatch-interrupt': '1',
+						type: 'button',
+						disabled: !dispatchReady,
+						title: tt('dispatch.interruptHint'),
+						onClick: () => dispatchSubmit('steer'),
+						style: { font: 'inherit', fontSize: 11, padding: '2px 8px', borderRadius: 6, border: '1px solid var(--dsw-alias-border-l3, light-dark(rgba(0,0,0,.18), rgba(255,255,255,.24)))', background: 'transparent', color: INK2, cursor: 'pointer', flex: 'none' }
+					}, tt('dispatch.interrupt')) : null,
+					dispatchError !== '' ? h('span', {
+						key: 'derror',
+						'data-cabinet-dispatch-error': '1',
+						style: { color: '#ef4444', fontSize: 10.5, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }
+					}, dispatchError) : null
+				]) : null,
 				]) : null,
 				// 组卡（未分派/首辅自办/不在册）仍可挂任务列表；阁臣卡不挂（activeTask 单行）。
 				children
@@ -4912,6 +5004,8 @@ window.__ModuleLoader__.load({
 			const setActiveTab = setLocalTab;
 			// Re-render when the mirrored member settings change (names/avatars).
 			const [memberRevision, setMemberRevision] = React.useState(0);
+			// 派活展开态变更驱动面板重渲（模块 Map 是数据源，这里是唯一渲染出口）。
+			dispatchBump = setMemberRevision;
 			React.useEffect(() => subscribeMemberConfig(() => setMemberRevision((revision) => revision + 1)), []);
 			const tt = typeof t === 'function' ? t : (key) => key;
 			const statusLabel = (status) => tt('status.' + status);
@@ -5787,6 +5881,11 @@ window.__ModuleLoader__.load({
 				}
 				return { count, time };
 			};
+			// 派活通道：会话 face 的 prompt(content, mode)——queue=排队（派活）、steer=插话。
+			const dispatchActionsFor = (member) => ({
+				ready: group.canPrompt(member.id),
+				submit: (mode, content) => group.promptSession(member.id, content, mode)
+			});
 			const leadCard = h(MemberCard, {
 				member: leadShown,
 				running: runningOf(leadShown.id),
@@ -5802,7 +5901,8 @@ window.__ModuleLoader__.load({
 				familyColor: 'rgba(245,197,24,.9)',
 				activity: activityOf(leadShown),
 				// 首辅卡同样只显示当前一个任务（截图同款单行）。
-				activeTask: activeTaskOf(leadOwn)
+				activeTask: activeTaskOf(leadOwn),
+				dispatchActions: dispatchActionsFor(leadShown)
 			});
 
 			// Cells: every minister first, then 未分派 / 首辅自办 / 不在册 as
@@ -5882,7 +5982,8 @@ window.__ModuleLoader__.load({
 							// tasks live inside the card, elbow-connected by RailList
 							// 阁臣卡不再挂任务列表（用户：「不要一个很长的卡片」）——
 							// 卡上只显示当前一个任务（in_progress 优先，否则最近一个）。
-							activeTask: activeTaskOf(own)
+							activeTask: activeTaskOf(own),
+							dispatchActions: dispatchActionsFor(member)
 						});
 					} else {
 						content = h('div', { className: 'cabinet-card', style: { position: 'relative', zIndex: 1 } }, [
@@ -7259,8 +7360,17 @@ window.__ModuleLoader__.load({
 			'groupchat.composer.sending': '发送中…',
 			'groupchat.composer.unavailable': '发送通道不可用：未接入首辅会话',
 			'groupchat.composer.unknown': '发送结果未知，未自动重发。请先核对收件会话再决定是否重试。',
-			'groupchat.composer.failed': '发送失败：{error}'
-,
+			'groupchat.composer.failed': '发送失败：{error}',
+			'dispatch.open': '派活',
+			'dispatch.close': '收起',
+			'dispatch.placeholder': '要它做什么…',
+			'dispatch.send': '派',
+			'dispatch.queued': '已排队',
+			'dispatch.hint': '派活：排到队尾，等它下一轮执行（不打断）',
+			'dispatch.interrupt': '插话',
+			'dispatch.interruptHint': '插话：立刻插进当前回合（打断）',
+			'dispatch.noSession': '发送通道不可用：会话未就绪',
+			'dispatch.failed': '发送失败：{error}',
 			'member.nav': '内阁成员',
 			'member.title': '内阁成员',
 			'member.desc': '六员的名字、头像与提示词。未配置时保持出厂行为；头像归一为 96×96 PNG，单张不超过 48KB。通政使使用中性头像。',
@@ -7410,8 +7520,17 @@ window.__ModuleLoader__.load({
 			'groupchat.composer.sending': 'Sending…',
 			'groupchat.composer.unavailable': 'Send channel unavailable: the Lead session is not connected',
 			'groupchat.composer.unknown': 'Delivery outcome unknown; not resent. Check the recipient session before retrying.',
-			'groupchat.composer.failed': 'Send failed: {error}'
-,
+			'groupchat.composer.failed': 'Send failed: {error}',
+			'dispatch.open': 'Dispatch',
+			'dispatch.close': 'Close',
+			'dispatch.placeholder': 'What should it do…',
+			'dispatch.send': 'Send',
+			'dispatch.queued': 'Queued',
+			'dispatch.hint': 'Dispatch: queued for its next turn (no interruption)',
+			'dispatch.interrupt': 'Interrupt',
+			'dispatch.interruptHint': 'Interrupt: injects into the running turn now',
+			'dispatch.noSession': 'Send channel unavailable: session not ready',
+			'dispatch.failed': 'Send failed: {error}',
 			'member.nav': 'Cabinet members',
 			'member.title': 'Cabinet members',
 			'member.desc': 'Names, avatars and prompts for the six members. Unconfigured keeps the factory behaviour; avatars are normalized to 96×96 PNG, at most 48KB each. The association minister uses the neutral portrait.',
