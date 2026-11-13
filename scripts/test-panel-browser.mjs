@@ -33,7 +33,7 @@ const taskRoot=createRoot(document.getElementById('task-fixture'));
 const stats=()=>document.getElementById('stats').textContent=JSON.stringify({opens,calls,timers:timers.size,errors});
 cabinet.setOpener((...args)=>{opens.push(args);stats()});
 const service={refreshProjections:async id=>{calls.push(id);stats()}};
-function render(){root.render(mounted?React.createElement(cabinet.CabinetPanel,{sessionId:'lead',useSession:fn=>fn({}),useSessions:fn=>fn({projectionsBySession:{lead:{values:{agentTeam:team}},mate:{values:{tokenUsage:{outputTokens:1234},contextPressure:{projectedTokens:25,contextWindow:100},contextBreakdown:{systemTokens:1,toolsTokens:2,messageTokens:3}}}}}),useSessionStatus:fn=>fn(new Map([['mate',{running:live}]])),t:k=>cabinet.en[k]||k}):null)}
+function render(){root.render(mounted?React.createElement(cabinet.CabinetPanel,{sessionId:'lead',useSession:fn=>fn({}),useSessions:fn=>fn({projectionsBySession:{lead:{values:{agentTeam:team,subagentCatalog:[{id:'dynamic-child',mode:'one-shot',label:'Dynamic test child'}]}},mate:{values:{tokenUsage:{outputTokens:1234},contextPressure:{projectedTokens:25,contextWindow:100},contextBreakdown:{systemTokens:1,toolsTokens:2,messageTokens:3}}}}}),useSessionStatus:fn=>fn(new Map([['mate',{running:live}]])),t:k=>cabinet.en[k]||k}):null)}
 const wait=()=>new Promise(r=>setTimeout(r,80));
 const assert=(condition,message)=>{if(!condition)throw Error(message)};
 document.getElementById('show').onclick=()=>{team={members,tasks};cabinet.setSessions(service);render()};
@@ -43,6 +43,8 @@ document.getElementById('run').onclick=async()=>{const passed=[];try{
   mounted=true;team=undefined;live=false;calls=[];cabinet.setSessions(null);render();await wait();
   assert(!errors.length,'empty render');passed.push('empty team');
   team={members,tasks};render();await wait();assert(document.querySelectorAll('.cabinet-card').length>=2,'team appears');assert(!calls.length,'no service');passed.push('team arrives without hook mismatch');
+  const catalogToggle=document.querySelector('#panel [data-cabinet-subagent-toggle]');assert(catalogToggle,'actual CabinetPanel wires lead catalog');catalogToggle.click();await wait();
+  document.querySelector('#panel [data-cabinet-child-id="dynamic-child"]').click();assert(opens.length===1&&opens[0][0].parentSessionId==='lead'&&opens[0][0].childSessionId==='dynamic-child'&&opens[0][0].mode==='one-shot','actual panel catalog preserves parent child and mode');opens=[];catalogToggle.click();await wait();passed.push('actual panel dynamic catalog and navigation');
   cabinet.setSessions(service);await wait();assert(calls.includes('mate')&&calls.includes('lead'),'idle initial reads');passed.push('late service and idle initial reads');
   calls=[];live=true;render();await wait();assert(calls.includes('mate')&&timers.size===1,'running starts');passed.push('running transition');
   calls=[];live=false;render();await wait();assert(calls.includes('mate')&&timers.size===0,'settled read and cleanup');passed.push('stopped read and timer cleanup');

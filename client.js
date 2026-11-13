@@ -2749,13 +2749,13 @@ window.__ModuleLoader__.load({
 		 * mirror that too. Returns false when the channel or the id is missing —
 		 * callers simply do nothing, no exception reaches the panel.
 		 */
-		function openCabinetSession(childSessionId, parentSessionId) {
+		function openCabinetSession(childSessionId, parentSessionId, mode = 'continuable') {
 			const open = cabinetOpenSession;
 			if (typeof open !== 'function') return false;
 			if (typeof childSessionId !== 'string' || childSessionId === '') return false;
 			try {
 				if (parentSessionId && childSessionId === parentSessionId) open(parentSessionId);
-				else open({ parentSessionId: parentSessionId ?? childSessionId, childSessionId, mode: 'continuable' });
+				else open({ parentSessionId: parentSessionId ?? childSessionId, childSessionId, mode });
 				return true;
 			} catch (error) {
 				try { console.warn('[cabinet-ui] open session failed:', error); } catch (ignored) { /* console may be unavailable */ }
@@ -4938,6 +4938,38 @@ window.__ModuleLoader__.load({
 				line
 			]);
 		}
+		// Catalog navigation preserves protocol mode. External entries have no local session.
+		function DynamicSubagents({ leadSessionId, catalog, members, runningOf, t }) {
+			const [disclosure, setDisclosure] = React.useState(() => ({ lead: leadSessionId, open: false }));
+			const open = disclosure.lead === leadSessionId && disclosure.open;
+			if (disclosure.lead !== leadSessionId) setDisclosure({ lead: leadSessionId, open: false });
+			const seen = new Set([leadSessionId, ...(Array.isArray(members) ? members : []).map(member => member && member.id)]);
+			const rows = (Array.isArray(catalog) ? catalog : []).filter(entry => {
+				if (!entry || typeof entry.id !== 'string' || entry.id.trim() === '' || entry.id !== entry.id.trim() || seen.has(entry.id)) return false;
+				seen.add(entry.id); return true;
+			});
+			if (!rows.length) return null;
+			return h('div', { 'data-cabinet-subagent-group': '1', style: { marginTop: 12, minWidth: 0 } }, [
+				h('button', { key: 'toggle', type: 'button', 'data-cabinet-subagent-toggle': '1', 'aria-expanded': open,
+					onClick: () => setDisclosure({ lead: leadSessionId, open: !open }), style: { font: 'inherit', cursor: 'pointer' } },
+					(open ? '▾ ' : '▸ ') + t('subagent.group').replace('{n}', String(rows.length))),
+				open ? h('div', { key: 'rows', 'data-cabinet-subagent-rows': '1' }, rows.map(entry => {
+					const validMode = ['one-shot', 'continuable', 'unknown'].includes(entry.mode);
+					const navigable = validMode && typeof leadSessionId === 'string' && leadSessionId.trim() !== '';
+					const modeKey = entry.mode === 'one-shot' ? 'oneshot' : ['continuable', 'external'].includes(entry.mode) ? entry.mode : 'unknown';
+					return h('button', { key: entry.id, type: 'button', disabled: !navigable,
+						'data-cabinet-subagent-row': '1', 'data-cabinet-child-id': entry.id,
+						onClick: event => { event.stopPropagation(); if (navigable) openCabinetSession(entry.id, leadSessionId, entry.mode); },
+						style: { display: 'flex', gap: 6, width: '100%', minWidth: 0, font: 'inherit', textAlign: 'left' } }, [
+						h('span', { key: 'dot', 'aria-hidden': true, style: { color: entry.mode !== 'external' && runningOf(entry.id) ? '#22c55e' : '#888' } }, '●'),
+						h('span', { key: 'label', style: { flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' } }, typeof entry.label === 'string' && entry.label !== '' ? entry.label : entry.id.slice(0, 8)),
+						h('span', { key: 'mode' }, t('subagent.mode.' + modeKey)),
+						h('span', { key: 'age' }, formatElapsed(typeof entry.createdAt === 'number' && Number.isFinite(entry.createdAt) ? Math.max(0, Date.now() - entry.createdAt) : NaN) ?? t('usage.none'))
+					]);
+				})) : null
+			]);
+		}
+
 		function CabinetPanel({ sessionId, parentSessionIdHint, useSession, useSessions, useSessionStatus, t, activeTab: activeTabProp, hideTabs, focusSessionId, onGroupSnapshot, onTabChange }) {
 			// Panel view tabs: 群聊 (merged member messages) and the roster view.
 			// Hooks must run before any early return — an effect that is skipped
@@ -5971,6 +6003,7 @@ window.__ModuleLoader__.load({
 			}
 
 			body.push(h('div', { key: 'tree', ref: treeRef, 'data-cabinet-roster': '1', style: { position: 'relative', marginTop: 10 } }, treeChildren));
+			body.push(h(DynamicSubagents, { key: 'subagents:' + leadSessionId, leadSessionId, catalog: projections?.[leadSessionId]?.values?.subagentCatalog, members: team.members, runningOf, t: tt }));
 			body.push(h('div', {
 				key: 'legend',
 				style: { marginTop: 12, fontSize: 10.5, color: INK3, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }
@@ -7329,6 +7362,11 @@ window.__ModuleLoader__.load({
 			'groupchat.composer.failed': '发送失败：{error}'
 ,
 			'member.nav': '内阁成员',
+			'subagent.group': '动态子智能体 ({n})',
+			'subagent.mode.oneshot': '一次性',
+			'subagent.mode.continuable': '可续',
+			'subagent.mode.external': '外部',
+			'subagent.mode.unknown': '未知',
 			'member.title': '内阁成员',
 			'member.desc': '六员的名字、头像与提示词。未配置时保持出厂行为；头像归一为 96×96 PNG，单张不超过 48KB。通政使使用中性头像。',
 			'member.lead': '内阁首辅',
@@ -7490,6 +7528,11 @@ window.__ModuleLoader__.load({
 			'groupchat.composer.failed': 'Send failed: {error}'
 ,
 			'member.nav': 'Cabinet members',
+			'subagent.group': 'Dynamic subagents ({n})',
+			'subagent.mode.oneshot': 'one-shot',
+			'subagent.mode.continuable': 'continuable',
+			'subagent.mode.external': 'external',
+			'subagent.mode.unknown': 'unknown',
 			'member.title': 'Cabinet members',
 			'member.desc': 'Names, avatars and prompts for the six members. Unconfigured keeps the factory behaviour; avatars are normalized to 96×96 PNG, at most 48KB each. The association minister uses the neutral portrait.',
 			'member.lead': '内阁首辅',

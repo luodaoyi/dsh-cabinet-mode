@@ -469,6 +469,14 @@ if (existsSync(workflowPath)) {
   } else ok('.github/workflows/release.yml has no DSH version gate');
 } else bad('.github/workflows/release.yml exists');
 
+// Native coverage runs in browser-regression CI; optionally run real React DOM locally.
+{
+  const args = process.env.DSH_BROWSER_TEST_ROOT ? ['scripts/test-subagent-browser.mjs'] : ['--check', 'scripts/test-subagent-browser.mjs'];
+  const result = spawnSync(process.execPath, args, { cwd: ROOT, env: process.env, encoding: 'utf8', timeout: 30000 });
+  if (result.status === 0) ok(process.env.DSH_BROWSER_TEST_ROOT ? 'dynamic subagent React DOM regression' : 'dynamic subagent browser fixture syntax (native coverage in CI)');
+  else bad('dynamic subagent regression', String(result.stderr || result.stdout).slice(0, 1000));
+}
+
 // ---------- composition check (needs dsh) ----------
 const dshVersion = findDsh();
 if (!dshVersion) {

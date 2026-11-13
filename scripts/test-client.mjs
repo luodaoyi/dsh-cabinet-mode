@@ -237,7 +237,7 @@ function elements(tree) {
   if (typeof tree.type === 'function') {
     const props = { ...tree.props };
     if (tree.children.length) props.children = tree.children.flat();
-    if (tree.type.name === 'MemberDispatch') {
+    if (['MemberDispatch', 'DynamicSubagents'].includes(tree.type.name)) {
       // This structural renderer historically flattens child hooks into the
       // panel's slots. Dispatch has its own React fiber, not a continuation of
       // the panel hook list. Render its collapsed initial structure with fresh
