@@ -141,28 +141,38 @@ export async function teamBrowser({auth,env,repo,members,onCreated}){
   if(!/Delivery outcome unknown; not resent|发送结果未知，未自动重发/.test(await memberHint.innerText()))throw Error('missing routed uncertain-delivery warning');
   if(pageErrors||routeFailed||[...promptCounts.values()].some(n=>n!==1))throw Error('browser prompt runtime or duplication failure');
   // Additional roster dispatch coverage. Preserve every composer assertion above.
-  // Both targets use the actual SessionFace endpoint, not subagents/prompt.
+  // The same public SessionFace routes Lead to session/prompt and addressed
+  // children to subagents/prompt; observe both real protocols, never reroute.
   const dispatchSpecs=[
    {marker:'CABINET_DISPATCH_LEAD_NORMAL_V1',id:lead.id,lost:false},
    {marker:'CABINET_DISPATCH_LEAD_ACK_LOST_V1',id:lead.id,lost:true},
    {marker:'CABINET_DISPATCH_MEMBER_NORMAL_V1',id:member.id,lost:false},
    {marker:'CABINET_DISPATCH_MEMBER_ACK_LOST_V1',id:member.id,lost:true}
   ];
-  await context.route(origin+'/api/session/prompt',async route=>{
+  const dispatchRoute=async route=>{
    try{
     const envelope=route.request().postDataJSON(),request=envelope?.payload?.args?.request;
     const marker=request?.content?.length===1&&request.content[0].type==='text'?request.content[0].text:undefined;
     const spec=dispatchSpecs.find(item=>item.marker===marker);
     if(!spec){await route.fallback();return}
     promptCounts.set(marker,(promptCounts.get(marker)||0)+1);
-    if(envelope.type!=='client-request'||envelope.method!=='session/prompt'||request.sessionId!==spec.id||request.mode!=='queue'||typeof request.requestId!=='string'||promptCounts.get(marker)!==1)throw Error('unexpected dispatch request');
+    const routed=spec.id===member.id;
+    const endpoint=routed?'subagents/prompt':'session/prompt';
+    if(route.request().method()!=='POST'||new URL(route.request().url()).pathname!=='/api/'+endpoint||envelope.type!=='client-request'||envelope.method!==endpoint||typeof request.requestId!=='string'||!request.requestId||promptCounts.get(marker)!==1)throw Error('unexpected dispatch request');
+    if(routed){
+     if(request.parentSessionId!==lead.id||request.childSessionId!==member.id||request.mode!=='continuable'||request.delivery!=='queue')throw Error('unexpected routed dispatch target');
+    }else if(request.sessionId!==lead.id||request.mode!=='queue')throw Error('unexpected lead dispatch target');
     const response=await route.fetch({maxRetries:0,maxRedirects:0,timeout:30000});
     const ack=await response.json();
-    if(response.status()!==200||ack.type!=='server-response'||ack.rpcId!==envelope.rpcId||ack.result?.ok!==true||ack.result.value?.accepted!==true)throw Error('actual SessionFace dispatch not accepted');
-    proofs.push({marker,requestId:request.requestId,sessionId:spec.id});
+    if(response.status()!==200||ack.type!=='server-response'||ack.rpcId!==envelope.rpcId||ack.result?.ok!==true)throw Error('actual SessionFace dispatch not accepted');
+    const messageId=routed?ack.result.value?.messageId:undefined;
+    if(routed?(typeof messageId!=='string'||!messageId):ack.result.value?.accepted!==true)throw Error('actual dispatch receipt mismatch');
+    proofs.push({marker,requestId:request.requestId,sessionId:spec.id,...(routed?{messageId}:{})});
     if(spec.lost)await route.abort('failed');else await route.fulfill({response});
    }catch{routeFailed=true;try{await route.abort('failed')}catch{}}
-  });
+  };
+  await context.route(origin+'/api/session/prompt',dispatchRoute);
+  await context.route(origin+'/api/subagents/prompt',dispatchRoute);
   const split=page.locator('[data-cabinet-split-toggle]');
   if(await split.getAttribute('data-cabinet-split-state')==='0')await split.click();
   const rail=page.locator('[data-cabinet-cabinet-rail]');
