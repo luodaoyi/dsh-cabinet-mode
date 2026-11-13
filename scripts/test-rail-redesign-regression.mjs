@@ -49,3 +49,8 @@ ctx.buildTaskEdges=(base,tasks,lookup)=>{lookedUp=lookup(task.id);return []};
 vm.runInNewContext(source.slice(start,end)+'measureLinks();',{...ctx});
 assert.equal(lookedUp.width,80);
 console.log('PASS actual process status is readable; hidden task details cannot erase visible dependency anchors');
+
+const mark=all(card).find(n=>n.props.className==='cabinet-task-mark');
+assert.ok(mark);assert.match(mark.props.style.animation,/cabinetPulse/);
+assert.match(source,/@media \(prefers-reduced-motion:reduce\)[^\n]*\.cabinet-task-mark\{animation:none!important\}/);
+console.log('PASS task pulse has reduced-motion override for inline animation');

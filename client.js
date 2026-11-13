@@ -2487,7 +2487,7 @@ window.__ModuleLoader__.load({
 			'.cabinet-edge-dot{stroke:none}',
 			'.cabinet-edge-dot-done{fill:light-dark(#15803d,#4ade80)}.cabinet-edge-dot-pending{fill:light-dark(#6b7280,#9ca3af)}.cabinet-edge-dot-active{fill:light-dark(#2563eb,#60a5fa)}',
 			// accessibility: everything above stands still
-			'@media (prefers-reduced-motion:reduce){[data-cabinet-status="running"],img.cabinet-avatar-running,.cabinet-live-breathe,.cabinet-dots i,.cabinet-task-live::after{animation:none!important}.cabinet-avatar-slot.cabinet-ring-live::before{animation:none!important;opacity:.8}.cabinet-row-live{animation:none!important;background-image:none}.cabinet-edge-active,.cabinet-edge-active.cabinet-edge-live{animation:none!important}}',
+			'@media (prefers-reduced-motion:reduce){[data-cabinet-status="running"],img.cabinet-avatar-running,.cabinet-live-breathe,.cabinet-dots i,.cabinet-task-live::after,.cabinet-task-mark{animation:none!important}.cabinet-avatar-slot.cabinet-ring-live::before{animation:none!important;opacity:.8}.cabinet-row-live{animation:none!important;background-image:none}.cabinet-edge-active,.cabinet-edge-active.cabinet-edge-live{animation:none!important}}',
 		].join('');
 
 		const PANEL = {
@@ -3704,6 +3704,7 @@ window.__ModuleLoader__.load({
 				}, activeTask && typeof activeTask.subject === 'string' && activeTask.subject !== ''
 					? [h('span', {
 						key: 'mark',
+						className: 'cabinet-task-mark',
 						style: {
 							color: hasHue ? familyColor : '#22c55e',
 							marginRight: 4,

@@ -10,7 +10,7 @@ const root = process.env.DSH_BROWSER_TEST_ROOT;
 if (!root) throw Error('Set DSH_BROWSER_TEST_ROOT to isolated npm test dependencies');
 const require = createRequire(root + '/package.json');
 const source = fs.readFileSync(new URL('../client.js', import.meta.url), 'utf8')
-  .replace('return { inject, apply };', 'return { inject, apply, CabinetPanel, TaskLine, STYLE_CSS, en, setOpener: fn => cabinetOpenSession = fn, setSessions: s => { cabinetSessions = s; for (const fn of cabinetSessionsListeners) fn(); } };');
+  .replace('return { inject, apply };', 'return { inject, apply, CabinetPanel, MemberCard, TaskLine, STYLE_CSS, en, setOpener: fn => cabinetOpenSession = fn, setSessions: s => { cabinetSessions = s; for (const fn of cabinetSessionsListeners) fn(); } };');
 const fixture = `
 import React from 'react'; import {createRoot} from 'react-dom/client';
 window.__ModuleLoader__={load:({factory})=>window.cabinet=factory(()=>React)};
@@ -58,6 +58,7 @@ document.getElementById('run').onclick=async()=>{const passed=[];try{
   mounted=true;live=false;render();await wait();document.getElementById('result').textContent='PASS '+passed.length+' '+passed.join('; ');stats();
 }catch(e){document.getElementById('result').textContent='FAIL '+e.stack;stats()}};
 window.taskNavigationCount=()=>opens.length;
+window.motionMount=async()=>{taskRoot.render(React.createElement(cabinet.MemberCard,{member:{id:'motion',name:'motion',phase:'active'},activeTask:{id:'motion-task',subject:'Running',status:'in_progress'},statusLabel:s=>s,t:k=>k}));await wait();};
 window.taskKeyboardMount=async()=>{taskRoot.render(React.createElement(cabinet.TaskLine,{task:tasks[0],blockerOf:id=>tasks.find(t=>t.id===id),t:k=>cabinet.en[k]||k,taskLabel:s=>s,onOpenOwner:()=>opens.push(['mate'])}));await wait();return opens.length;};
 window.panelUnmount=async()=>{taskRoot.render(null);mounted=false;render();await wait();assert(timers.size===0,'final unmount cleanup');stats();return{timers:timers.size,errors};};
 render();stats();
@@ -105,6 +106,14 @@ if(process.argv.includes('--headless')){
     await page.locator('#task-fixture [data-cabinet-task-sheet="description"]').waitFor({state:'hidden'});
     const navigationAfter=await page.evaluate(()=>window.taskNavigationCount());
     if(navigationAfter!==navigationBefore)throw Error('task disclosure navigated');
+    await page.evaluate(()=>window.motionMount());
+    const mark=page.locator('#task-fixture .cabinet-task-mark');
+    await page.emulateMedia({reducedMotion:'no-preference'});
+    await page.waitForFunction(()=>getComputedStyle(document.querySelector('#task-fixture .cabinet-task-mark')).animationName==='cabinetPulse');
+    await page.emulateMedia({reducedMotion:'reduce'});
+    if(await mark.evaluate(el=>getComputedStyle(el).animationName)!=='none')throw Error('task pulse ignores reduced motion');
+    await page.emulateMedia({reducedMotion:'no-preference'});
+    if(await mark.evaluate(el=>getComputedStyle(el).animationName)!=='cabinetPulse')throw Error('task pulse failed to resume');
     if(process.env.CABINET_SCREENSHOT)await page.screenshot({path:process.env.CABINET_SCREENSHOT,fullPage:true});
     const cleanup=await page.evaluate(()=>window.panelUnmount());
     if(errors.length||cleanup.errors.length)throw Error([...errors,...cleanup.errors].join('\n'));
