@@ -758,7 +758,7 @@ const meterStyled = dressed.find((node) => node.props?.['data-cabinet-meter'] !=
 assert.equal(meterStyled.props.style.width, '42%', 'the segmented bar is left-aligned at ~42% card width');
 const footNode = dressed.find((node) => node.props?.key === 'foot');
 const footTime = footNode && elements(footNode).find((node) => node.props?.key === 'time');
-assert.ok(footTime && footTime.children.join('') === '17s \u00b7 12 步', 'the foot row reads 时间 · N 步, got: ' + JSON.stringify(footTime && footTime.children));
+assert.ok(footTime && footTime.children.join('') === '17s \u00b7 12 条记录', 'the foot row reads 时间 · N 条记录, got: ' + JSON.stringify(footTime && footTime.children));
 assert.ok(footNode && JSON.stringify(footNode).includes('30%'), 'the foot row carries the context percent');
 const pctNode = footNode && elements(footNode).find((node) => node.props?.key === 'pct');
 assert.ok(pctNode && pctNode.props.style.color === '#22c55e', 'a ≤60% percent stays green, got: ' + JSON.stringify(pctNode && pctNode.props.style));
@@ -3816,7 +3816,8 @@ assert.ok(!/background:\s*'(#fff|white)'/.test(source), 'no bare white backgroun
       assert.ok(tlTree.find((node) => node.props?.['data-cabinet-timeline'] !== undefined) !== undefined, 'clicking 时间线 renders the timeline container');
       assert.equal(tlTree.find((node) => node.props?.['data-cabinet-roster'] !== undefined), undefined, 'the roster tree leaves the rail on 时间线');
       // 页面级无 sessions 服务 → 全员无事件 → 时间线渲染空态（不画泳道）。
-      assert.ok(tlTree.find((node) => node.props?.['data-cabinet-timeline-empty'] !== undefined) !== undefined, 'an eventless timeline shows the empty state, not fake lanes');
+      assert.equal(tlTree.find((node) => node.props?.['data-cabinet-timeline-empty'] !== undefined), undefined, 'unavailable history must not claim an empty timeline');
+      assert.ok(tlTree.some(node => node.props?.['data-cabinet-timeline-state'] !== undefined), 'unresolved member history exposes explicit status');
       assert.equal(tlTree.find((node) => node.props?.['data-cabinet-timeline-lane'] !== undefined), undefined, 'members without events draw no lane');
       // 再点「名册」回到默认视图。
       tlTree.filter((node) => node.props?.['data-cabinet-rail-tab'] === 'roster')[0].props.onClick();

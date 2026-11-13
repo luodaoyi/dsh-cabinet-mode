@@ -3697,6 +3697,7 @@ window.__ModuleLoader__.load({
 				h('div', {
 					key: 'taskdesc',
 					'data-cabinet-task-desc': '1',
+					...(activeTask && typeof activeTask.id === 'string' ? { 'data-cabinet-task': activeTask.id } : {}),
 					title: activeTask && typeof activeTask.subject === 'string' ? activeTask.subject : undefined,
 					style: { fontSize: 13, color: activeTask ? INK2 : INK3, marginTop: 6, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }
 				}, activeTask && typeof activeTask.subject === 'string' && activeTask.subject !== ''
@@ -3760,13 +3761,14 @@ window.__ModuleLoader__.load({
 								style: { color: INK2, flex: 'none', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
 								title: tt('usage.elapsed')
 							}, (formatElapsed(usage.elapsedMs) ?? tt('usage.none'))
-								+ (activity && typeof activity.count === 'number' && activity.count > 0 ? ' \u00b7 ' + activity.count + ' \u6b65' : '')),
+								+ (activity && typeof activity.count === 'number' && activity.count > 0 ? ' \u00b7 ' + activity.count + ' 条记录' : '')),
 							h('span', { key: 'pct', style: { color: pctColor, fontWeight: 600, marginLeft: 'auto', flex: 'none' } },
 								pctValue !== undefined
 									? pctValue + '%'
 									: (formatTokenCount(usage.context && usage.context.projectedTokens) ?? tt('usage.none')))
 						]) : null
 				]) : null,
+				activity && activity.known === false ? h('span', { key: 'activity-unknown', 'data-cabinet-activity-state': 'unknown', title: '名册未订阅消息历史，活动记录数未知', style: { fontSize: 11, color: INK3 } }, '活动 —') : null,
 				// 组卡（未分派/首辅自办/不在册）仍可挂任务列表；阁臣卡不挂（activeTask 单行）。
 				children
 			]);
@@ -3840,6 +3842,7 @@ window.__ModuleLoader__.load({
 			// 默认一行（~24px 单行、超长省略）：点行空白切换任务书；点标题/Owner
 			// 仍走各自的下钻 opener（它们 stopPropagation，不冒到行）。任务书两行
 			// 默认不渲染（不是隐藏占位），展开才出现；受控 expanded 时点击不切换。
+			parts.push(h('button', { key: 'sheet-toggle', type: 'button', 'data-cabinet-task-sheet-toggle': task.id, 'aria-expanded': sheetOpen, 'aria-label': t('task.description'), onClick: (event) => { stopPropagation(event); if (typeof expanded !== 'boolean') setSheetOpen(value => !value); }, style: { marginLeft: 'auto', border: 0, background: 'transparent', color: INK2, cursor: 'pointer', font: 'inherit' } }, sheetOpen ? '▾' : '▸'));
 			const children = [h('div', {
 				key: 'line',
 				'data-cabinet-task-row': '1',
@@ -3968,13 +3971,14 @@ window.__ModuleLoader__.load({
 			if (!base || typeof base !== 'object' || !lead || typeof lead !== 'object') return null;
 			// 隐藏面板：返回 null 让调用方保留上次绘制（旧版语义）。
 			if (base.width === 0 || base.height === 0 || lead.width === 0) return null;
-			if (!Array.isArray(nodes) || nodes.length === 0) return null;
+			if (!Array.isArray(nodes)) return null;
+			if (nodes.length === 0) return [];
 			// 视口坐标 → 容器内坐标：svg 挂在 roster 容器 (0,0)，聚类与绘制必须用
 			// 同一套局部坐标（漏减 base 会把线整体画到容器外——3e2bd67 的 bug）。
 			const toLocal = (rect) => ({ left: rect.left - base.left, top: rect.top - base.top, width: rect.width, height: rect.height, color: rect.color });
 			const leadLocal = toLocal(lead);
 			const valid = nodes.filter((node) => node && isFinite(node.left) && isFinite(node.top) && isFinite(node.width) && isFinite(node.height) && node.width > 0 && node.height > 0).map(toLocal);
-			if (valid.length === 0) return null;
+			if (valid.length === 0) return [];
 			// 按 top 聚类成层（8px 容差，与旧 bus 同规则）。
 			const sorted = valid.slice().sort((a, b) => (a.top - b.top) || (a.left - b.left));
 			const layers = [];
@@ -5554,7 +5558,8 @@ window.__ModuleLoader__.load({
 				const authorOf = (row) => (row !== null && row !== undefined && row.member !== null && row.member !== undefined && typeof row.member.id === 'string' && row.member.id !== '' ? row.member.id : (typeof row.memberName === 'string' ? row.memberName : ''));
 				const lanes = chatMembers.filter((member) => member !== null && member !== undefined && typeof member.id === 'string' && member.id !== '');
 				const eventsOf = (member) => groupRows.filter((row) => authorOf(row) === member.id && typeof row.time === 'number' && row.time > 0);
-				const timed = groupRows.filter((row) => typeof row.time === 'number' && row.time > 0);
+				const timed = groupRows.filter((row) => row.kind !== 'error' && typeof row.time === 'number' && row.time > 0);
+				const unresolved = lanes.map(member => ({ member, view: group.views(member.id) })).filter(({view}) => view.error !== null || view.fold === null);
 				const minTime = timed.reduce((min, row) => Math.min(min, row.time), Infinity);
 				const maxTime = timed.reduce((max, row) => Math.max(max, row.time), -Infinity);
 				const span = maxTime - minTime;
@@ -5675,12 +5680,13 @@ window.__ModuleLoader__.load({
 						key: 'count',
 						'data-cabinet-timeline-count': '1',
 						style: { fontSize: 10.5, color: INK2, display: 'flex', alignItems: 'center', gap: 6, flex: 'none' }
-					}, groupRows.length + ' 条记录 · ' + laneNodes.length + ' 条泳道'),
+					}, timed.length + ' 条记录 · ' + laneNodes.length + ' 条泳道'),
+					...unresolved.map(({member,view}) => h('div', { key: 'state:' + member.id, role: 'status', 'data-cabinet-timeline-state': view.error !== null ? 'error' : 'pending', 'data-cabinet-timeline-state-member': member.id, style: { fontSize: 12, color: INK2 } }, memberLabel(member.name || member.id) + ' · ' + tt(view.error !== null ? 'groupchat.unavailable' : 'groupchat.pending'))),
 					h('div', {
 						key: 'inner',
 						'data-cabinet-timeline-inner': '1',
 						style: { minWidth: 420 }
-					}, laneNodes.length > 0 ? laneNodes : h('div', { key: 'empty', 'data-cabinet-timeline-empty': '1', style: { fontSize: 12, color: INK2, padding: '8px 2px' } }, '暂无事件'))
+					}, laneNodes.length > 0 ? laneNodes : unresolved.length > 0 ? null : h('div', { key: 'empty', 'data-cabinet-timeline-empty': '1', style: { fontSize: 12, color: INK2, padding: '8px 2px' } }, '暂无事件'))
 				]));
 				return h('div', { ref: panelRef, style: PANEL }, body);
 			}
@@ -5713,6 +5719,8 @@ window.__ModuleLoader__.load({
 			// 底行活动数据：该成员在群聊折叠行里的条数与最后一条时间（真实行，
 			// 不编数）；无消息的成员 count 0、time 0，底行左半边整段省略。
 			const activityOf = (member) => {
+				// Roster does not own a history subscription. Never label missing data as zero steps.
+				if (activeTab === 'roster') return { known: false };
 				let count = 0;
 				let time = 0;
 				for (const row of groupRows) {

@@ -10,7 +10,7 @@ const root = process.env.DSH_BROWSER_TEST_ROOT;
 if (!root) throw Error('Set DSH_BROWSER_TEST_ROOT to isolated npm test dependencies');
 const require = createRequire(root + '/package.json');
 const source = fs.readFileSync(new URL('../client.js', import.meta.url), 'utf8')
-  .replace('return { inject, apply };', 'return { inject, apply, CabinetPanel, STYLE_CSS, en, setOpener: fn => cabinetOpenSession = fn, setSessions: s => { cabinetSessions = s; for (const fn of cabinetSessionsListeners) fn(); } };');
+  .replace('return { inject, apply };', 'return { inject, apply, CabinetPanel, TaskLine, STYLE_CSS, en, setOpener: fn => cabinetOpenSession = fn, setSessions: s => { cabinetSessions = s; for (const fn of cabinetSessionsListeners) fn(); } };');
 const fixture = `
 import React from 'react'; import {createRoot} from 'react-dom/client';
 window.__ModuleLoader__={load:({factory})=>window.cabinet=factory(()=>React)};
@@ -24,6 +24,7 @@ window.clearInterval=id=>{timers.delete(id);originalClear(id)};
 const members=[{id:'lead',name:'lead',role:'lead',phase:'active'},{id:'mate',name:'works',role:'teammate',phase:'active'}];
 const tasks=[{id:'task',ownerName:'works',subject:'Open task session',status:'pending',blockedBy:['other']},{id:'other',ownerName:'works',subject:'Blocker task',status:'pending'}];
 const root=createRoot(document.getElementById('panel'));
+const taskRoot=createRoot(document.getElementById('task-fixture'));
 const stats=()=>document.getElementById('stats').textContent=JSON.stringify({opens,calls,timers:timers.size,errors});
 cabinet.setOpener((...args)=>{opens.push(args);stats()});
 const service={refreshProjections:async id=>{calls.push(id);stats()}};
@@ -43,18 +44,26 @@ document.getElementById('run').onclick=async()=>{const passed=[];try{
   team=undefined;render();await wait();assert(!errors.length,'team disappears');passed.push('team disappears');
   team={members,tasks};render();await wait();
   assert(!document.querySelector('button button'),'no nested buttons');passed.push('no nested buttons');
-  const button=Array.from(document.querySelectorAll('#panel button')).find(e=>e.textContent==='Open task session');
+  // Current-task-only member cards do not contain pending TaskLine rows.
+  // Test the retained TaskLine navigation/disclosure independently.
+  taskRoot.render(React.createElement(cabinet.TaskLine,{task:tasks[0],blockerOf:id=>tasks.find(t=>t.id===id),t:k=>cabinet.en[k]||k,taskLabel:s=>s,onOpenOwner:()=>opens.push(['mate'])}));await wait();
+  assert(!document.querySelector('button button'),'task controls are not nested');
+  const button=Array.from(document.querySelectorAll('#task-fixture button')).find(e=>e.textContent==='Open task session');
   opens=[];button.click();assert(opens.length===1,'subject bubbles once');passed.push('subject click opens once');
   opens=[];document.querySelector('[data-cabinet-task="task"]').click();assert(opens.length===1,'row click');passed.push('row click opens once');
-  opens=[];const toggle=Array.from(document.querySelectorAll('#panel button')).find(e=>e.textContent.includes('blocked by'));toggle.click();assert(opens.length===0,'blocker toggle inert');passed.push('blocker toggle does not navigate');
+  opens=[];const toggle=Array.from(document.querySelectorAll('#task-fixture button')).find(e=>e.textContent.includes('blocked by'));toggle.click();assert(opens.length===0,'blocker toggle inert');passed.push('blocker toggle does not navigate');
+  const sheet=document.querySelector('[data-cabinet-task-sheet-toggle="task"]');assert(sheet&&sheet.tagName==='BUTTON'&&sheet.getAttribute('aria-expanded')==='false','native sheet disclosure');sheet.click();await wait();assert(sheet.getAttribute('aria-expanded')==='true'&&document.querySelector('[data-cabinet-task-sheet="description"]'),'sheet expands');passed.push('task sheet disclosure');
+  taskRoot.render(null);await wait();
   live=true;render();await wait();mounted=false;render();await wait();assert(timers.size===0,'unmount cleanup');assert(!errors.length,'no React errors');passed.push('unmount cleanup');
   mounted=true;live=false;render();await wait();document.getElementById('result').textContent='PASS '+passed.length+' '+passed.join('; ');stats();
 }catch(e){document.getElementById('result').textContent='FAIL '+e.stack;stats()}};
-window.panelUnmount=async()=>{mounted=false;render();await wait();assert(timers.size===0,'final unmount cleanup');stats();return{timers:timers.size,errors};};
+window.taskNavigationCount=()=>opens.length;
+window.taskKeyboardMount=async()=>{taskRoot.render(React.createElement(cabinet.TaskLine,{task:tasks[0],blockerOf:id=>tasks.find(t=>t.id===id),t:k=>cabinet.en[k]||k,taskLabel:s=>s,onOpenOwner:()=>opens.push(['mate'])}));await wait();return opens.length;};
+window.panelUnmount=async()=>{taskRoot.render(null);mounted=false;render();await wait();assert(timers.size===0,'final unmount cleanup');stats();return{timers:timers.size,errors};};
 render();stats();
 `;
 const bundle=require('esbuild').buildSync({stdin:{contents:fixture,resolveDir:root},bundle:true,format:'iife',write:false}).outputFiles[0].contents;
-const html='<!doctype html><meta charset="utf-8"><title>Cabinet isolated React regression</title><style>body{font:14px system-ui;margin:20px}#panel{width:900px;max-width:100%;height:650px;overflow:auto}#stats,#result{white-space:pre-wrap;overflow-wrap:anywhere}button{margin:2px}</style><button id="run">Run lifecycle checks</button><button id="show">Show team</button><button id="clear">Clear counters</button><button id="width">Narrow / wide</button><pre id="result"></pre><pre id="stats"></pre><div id="panel"></div><script src="/fixture.js"></script>';
+const html='<!doctype html><meta charset="utf-8"><title>Cabinet isolated React regression</title><style>body{font:14px system-ui;margin:20px}#panel{width:900px;max-width:100%;height:650px;overflow:auto}#stats,#result{white-space:pre-wrap;overflow-wrap:anywhere}button{margin:2px}</style><button id="run">Run lifecycle checks</button><button id="show">Show team</button><button id="clear">Clear counters</button><button id="width">Narrow / wide</button><pre id="result"></pre><pre id="stats"></pre><div id="panel"></div><div id="task-fixture"></div><script src="/fixture.js"></script>';
 const server=createServer((req,res)=>{res.setHeader('Content-Type',req.url==='/fixture.js'?'text/javascript':'text/html');res.end(req.url==='/fixture.js'?bundle:html)});
 await new Promise((resolve,reject)=>{
   server.once('error',reject);
@@ -78,6 +87,15 @@ if(process.argv.includes('--headless')){
     await page.waitForFunction(()=>/^(PASS|FAIL) /.test(document.getElementById('result').textContent));
     const result=await page.locator('#result').textContent();
     if(!result.startsWith('PASS '))throw Error(result);
+    const navigationBefore=await page.evaluate(()=>window.taskKeyboardMount());
+    const sheet=page.locator('[data-cabinet-task-sheet-toggle="task"]');
+    await sheet.focus();await page.keyboard.press('Enter');
+    await page.locator('[data-cabinet-task-sheet="description"]').waitFor({state:'visible'});
+    if(await sheet.getAttribute('aria-expanded')!=='true')throw Error('Enter did not expand task sheet');
+    await page.keyboard.press('Space');
+    await page.locator('[data-cabinet-task-sheet="description"]').waitFor({state:'hidden'});
+    const navigationAfter=await page.evaluate(()=>window.taskNavigationCount());
+    if(navigationAfter!==navigationBefore)throw Error('task disclosure navigated');
     if(process.env.CABINET_SCREENSHOT)await page.screenshot({path:process.env.CABINET_SCREENSHOT,fullPage:true});
     const cleanup=await page.evaluate(()=>window.panelUnmount());
     if(errors.length||cleanup.errors.length)throw Error([...errors,...cleanup.errors].join('\n'));
