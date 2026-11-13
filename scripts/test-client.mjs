@@ -92,7 +92,7 @@ const PAGE_NOW = Date.now();
 // ageOf 保序：原值越大 ⇒ 时间越新，且所有映射结果都落在最近 ~12 天内
 // （小于 30 天窗口，不会触发新鲜度过滤），既有排序断言的语义不变。
 const ageOf = (value) => PAGE_NOW - (1000000 - value);
-const exportList = 'return { inject, apply, avatarFor, displayName, chatBubbleName, chatBubbleNames, bureauOf, CabinetPanel, MemberCard, TaskLine, TaskEdgeLayer, buildTaskEdges, buildConnectorPaths, taskEdgesEqual, zh, en, BUREAUX, AVATARS, setMemberConfig, memberLabel, configuredAvatar, configuredPrompt, factoryPromptFor, DEFAULT_MEMBER_PROMPTS, DEFAULT_LEAD_PROMPT, CabinetMemberSettings, MemoryPluginCard, memoryPluginInstalledOf, SETTINGS_TABS, formatTokenCount, formatElapsed, tokenTotalOf, usageFor, costOf, rateForModel, planProjectionRequests, teamUsageOf, groupChatFold, markdownBlocksOf, markdownBlocksCached, inlineMarkdownTokens, markdownLinkHref, modelOptionsOf, modelCatalogNotice, modelSelectionOf, cabinetSessionChoices, cabinetSessionFilters, cabinetSessionGroups, defaultCabinetSession, CabinetMarkdown, CabinetPage, CabinetPanelIcon, GroupChatRow, STYLE_CSS, cabinetGroupMemberStates, mergeGroupChat, cabinetChatViewRows, chatStampNeeded, nearChatBottom, scrollChatToBottom, scrollFollowingTail, cabinetScopeRows, openCabinetSession };';
+const exportList = 'return { inject, apply, avatarFor, displayName, chatBubbleName, chatBubbleNames, bureauOf, CabinetPanel, MemberCard, TaskLine, TaskEdgeLayer, buildTaskEdges, buildConnectorPaths, taskEdgesEqual, zh, en, BUREAUX, AVATARS, setMemberConfig, memberLabel, configuredAvatar, configuredPrompt, factoryPromptFor, DEFAULT_MEMBER_PROMPTS, DEFAULT_LEAD_PROMPT, CabinetMemberSettings, MemoryPluginCard, memoryPluginInstalledOf, SETTINGS_TABS, formatTokenCount, formatElapsed, tokenTotalOf, usageFor, costOf, rateForModel, planProjectionRequests, teamUsageOf, groupChatFold, markdownBlocksOf, markdownBlocksCached, inlineMarkdownTokens, markdownLinkHref, modelOptionsOf, modelCatalogNotice, modelSelectionOf, cabinetSessionChoices, cabinetSessionFilters, cabinetSessionGroups, defaultCabinetSession, CabinetMarkdown, CabinetPage, CabinetPanelIcon, GroupChatRow, STYLE_CSS, cabinetGroupMemberStates, mergeGroupChat, cabinetChatViewRows, chatStampNeeded, nearChatBottom, scrollChatToBottom, scrollFollowingTail, cabinetScopeRows, openCabinetSession, subagentGroupState, setCabinetOpener: fn => { cabinetOpenSession = fn; } };';
 runInNewContext(source.replace(exportPoint, exportList), {
   setTimeout: (fn, ms) => setTimeout(fn, ms === 120000 ? 20 : ms), clearTimeout,
   Date: RealmDate,
@@ -519,6 +519,90 @@ assert.equal(client.zh['member.tongzheng'], '通政使', '通政使 label stays 
 assert.equal(client.avatarFor('tongzheng'), client.AVATARS.neutral, '通政使 keeps using the neutral portrait');
 assert.equal(client.displayName('tongzheng'), '通政使 · tongzheng', '通政使 keeps its display name');
 assert.ok(client.factoryPromptFor('tongzheng').includes('通政使'), '通政使 keeps its duty prompt');
+
+// --- 动态子智能体分区（lead 投影 subagentCatalog，去重+默认折叠+打开通道） ---
+{
+  const deepText = (node) => node === null || node === undefined ? ''
+    : typeof node !== 'object' ? String(node)
+      : Array.isArray(node) ? node.map(deepText).join('')
+        : Array.isArray(node.children) ? node.children.map(deepText).join('') : String(node.children ?? '');
+  const subReset = () => { client.subagentGroupState.open = false; };
+  const subTeam = { members: [
+    { id: 'lead-session', name: 'lead', role: 'lead', phase: 'active' },
+    { id: 'm-works', name: 'works', role: 'mate', phase: 'active' },
+  ], tasks: [] };
+  const now = Date.now();
+  const subCatalog = [
+    { id: 'child-a', createdAt: now - 120000, mode: 'one-shot', label: '调研子任务' },
+    { id: 'm-works', createdAt: now - 60000, mode: 'continuable', label: 'dup member' },
+    { id: 'child-b', createdAt: now - 3000000, mode: 'continuable' },
+  ];
+  const subPanel = (catalog, status) => elements(client.CabinetPanel({
+    sessionId: 'lead-session',
+    useSession: (select) => select({}),
+    useSessions: (select) => select({ projectionsBySession: { 'lead-session': { values: { agentTeam: subTeam, subagentCatalog: catalog } } } }),
+    useSessionStatus: (select) => select(status || new Map()),
+    t: (key) => client.zh[key] || key,
+  }));
+  const findProp = (nodes, prop) => nodes.find((node) => node && node.props && node.props[prop] !== undefined);
+
+  // 1) 去重生效、标题计数、默认折叠（行容器不存在）
+  subReset();
+  let nodes = subPanel(subCatalog);
+  assert.ok(findProp(nodes, 'data-cabinet-subagent-group'), 'the dynamic-subagent section renders for a non-empty catalog');
+  const toggle = findProp(nodes, 'data-cabinet-subagent-toggle');
+  assert.ok(toggle, 'the section header carries the toggle hook');
+  assert.ok(deepText(toggle).includes('动态子智能体 (2)'), 'the title counts deduped rows, got: ' + deepText(toggle));
+  assert.ok(!findProp(nodes, 'data-cabinet-subagent-rows'), 'the section defaults to collapsed (no rows node)');
+
+  // 2) 展开 → 恰好 2 行；label/childId 短写/中文 mode 徽标
+  toggle.props.onClick();
+  nodes = subPanel(subCatalog);
+  const rows = nodes.filter((node) => node.props?.['data-cabinet-subagent-row'] === '1');
+  assert.equal(rows.length, 2, 'the roster-member id is deduped out, got ' + rows.length + ' rows');
+  assert.ok(!rows.some((node) => node.props['data-cabinet-child-id'] === 'm-works'), 'the duplicate member id never renders');
+  const rowA = rows.find((node) => node.props['data-cabinet-child-id'] === 'child-a');
+  const rowB = rows.find((node) => node.props['data-cabinet-child-id'] === 'child-b');
+  assert.ok(deepText(rowA).includes('调研子任务') && deepText(rowA).includes('一次性'),
+    'row A shows its label and the 一次性 badge, got: ' + deepText(rowA));
+  assert.ok(deepText(rowB).includes('child-b') && deepText(rowB).includes('可续'),
+    'row B falls back to the short id and the 可续 badge, got: ' + deepText(rowB));
+  assert.ok(!deepText(rowA).includes('one-shot') && !deepText(rowB).includes('continuable'),
+    'the zh roster never leaks the raw English mode');
+
+  // 3) 状态点：能判 running 的亮绿，判不了保持灰（不瞎标绿）
+  subReset();
+  nodes = subPanel(subCatalog, new Map([['child-a', { running: true }]]));
+  nodes.find((node) => node.props?.['data-cabinet-subagent-toggle']).props.onClick();
+  nodes = subPanel(subCatalog, new Map([['child-a', { running: true }]]));
+  const liveRow = nodes.filter((node) => node.props?.['data-cabinet-subagent-row'] === '1')
+    .find((node) => node.props['data-cabinet-child-id'] === 'child-a');
+  const deadRow = nodes.filter((node) => node.props?.['data-cabinet-subagent-row'] === '1')
+    .find((node) => node.props['data-cabinet-child-id'] === 'child-b');
+  assert.equal(liveRow.children.flat()[0].props.style.background, '#22c55e', 'a running child gets the live dot');
+  assert.equal(deadRow.children.flat()[0].props.style.background, 'rgba(127,127,127,.55)', 'an unknown-status child stays grey');
+
+  // 4) 空目录 → 整个分区不渲染（负断言）
+  subReset();
+  const emptyNodes = subPanel([]);
+  assert.ok(!findProp(emptyNodes, 'data-cabinet-subagent-group'), 'an empty catalog renders no section at all');
+
+  // 5) 点击行 → 打开该子 agent 会话，参数是 childId（挂在 lead 会话下）
+  subReset();
+  const opened = [];
+  client.setCabinetOpener((arg) => { opened.push(arg); return true; });
+  nodes = subPanel(subCatalog);
+  nodes.find((node) => node.props?.['data-cabinet-subagent-toggle']).props.onClick();
+  nodes = subPanel(subCatalog);
+  const target = nodes.filter((node) => node.props?.['data-cabinet-subagent-row'] === '1')
+    .find((node) => node.props['data-cabinet-child-id'] === 'child-a');
+  target.props.onClick();
+  assert.equal(opened.length, 1, 'clicking a row opens exactly one session');
+  assert.equal(opened[0].childSessionId, 'child-a', 'the open channel receives the child id, got ' + JSON.stringify(opened[0]));
+  assert.equal(opened[0].parentSessionId, 'lead-session', 'the child opens under the lead session');
+  client.setCabinetOpener(null);
+  subReset();
+}
 
 // --- click-through: whole card, whole task row and Owner tag are targets ---
 // One click must open exactly one session. Every nested target stops the event,

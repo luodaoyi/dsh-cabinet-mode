@@ -3688,6 +3688,8 @@ window.__ModuleLoader__.load({
 		// 驱动真机重渲，测试手动 re-render 读同一 Map（不依赖 React state mock）。
 		const dispatchUiMap = new Map();
 		let dispatchBump = null;
+		// 动态子智能体分区：默认折叠，测试手动 re-render 读同一对象。
+		const subagentGroupState = { open: false };
 
 		function MemberCard({ member, running, model, isCurrent, lead, statusLabel, t, size, onOpen, usage, teamUsage, familyColor, activity, activeTask, dispatchActions, children }) {
 			const tt = typeof t === 'function' ? t : (key) => key;
@@ -6015,6 +6017,72 @@ window.__ModuleLoader__.load({
 			}
 
 			body.push(h('div', { key: 'tree', ref: treeRef, 'data-cabinet-roster': '1', style: { position: 'relative', marginTop: 10 } }, treeChildren));
+
+			// 动态子智能体：首辅运行时 spawn 的直接子 agent 不在 agentTeam（团队声明
+			// 成员）里，它们只在 lead 会话投影的 subagentCatalog（物化 entry[]：
+			// id/createdAt/mode/label）。排除已在名册的 id；默认折叠防撑爆名册；
+			// 空目录整个分区不渲染。
+			const subagentCatalog = projections && projections[leadSessionId] && projections[leadSessionId].values
+				? projections[leadSessionId].values.subagentCatalog : undefined;
+			const rosterIds = new Set((team && Array.isArray(team.members) ? team.members : []).map((member) => member && member.id));
+			const subagentRows = Array.isArray(subagentCatalog)
+				? subagentCatalog.filter((entry) => {
+					const childId = entry && (entry.id !== undefined ? entry.id : entry.childId);
+					return typeof childId === 'string' && childId !== '' && !rosterIds.has(childId);
+				})
+				: [];
+			if (subagentRows.length > 0) {
+				const subOpen = subagentGroupState.open === true;
+				body.push(h('div', {
+					key: 'subagents',
+					'data-cabinet-subagent-group': '1',
+					style: { marginTop: 12, minWidth: 0 }
+				}, [
+					h('button', {
+						key: 'toggle',
+						type: 'button',
+						'data-cabinet-subagent-toggle': '1',
+						'aria-expanded': String(subOpen),
+						onClick: () => { subagentGroupState.open = !subOpen; setMemberRevision((revision) => revision + 1); },
+						style: { font: 'inherit', fontSize: 11.5, fontWeight: 600, padding: 0, border: 0, background: 'transparent', color: INK, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, minWidth: 0, width: '100%' }
+					}, [
+						h('span', { key: 'arrow', style: { flex: 'none' } }, subOpen ? '\u25be' : '\u25b8'),
+						h('span', { key: 'title', style: { minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } },
+							tt('subagent.group').replace('{n}', String(subagentRows.length)))
+					]),
+					subOpen ? h('div', {
+						key: 'rows',
+						'data-cabinet-subagent-rows': '1',
+						style: { display: 'flex', flexDirection: 'column', gap: 2, marginTop: 4, minWidth: 0 }
+					}, subagentRows.map((entry) => {
+						// 物化 entry 用 id/createdAt（事件层才叫 childId/childCreatedAt）；
+						// 兼容事件形状只是一行保险。
+						const childId = entry && entry.id !== undefined ? entry.id : entry.childId;
+						const modeKey = entry.mode === 'one-shot' ? 'oneshot'
+							: entry.mode === 'continuable' ? 'continuable'
+								: entry.mode === 'external' ? 'external' : 'unknown';
+						// 判不了 running 一律灰点（runningOf 缺 status 时为 false），不瞎标绿。
+						const alive = runningOf(childId);
+						return h('button', {
+							key: childId,
+							type: 'button',
+							'data-cabinet-subagent-row': '1',
+							'data-cabinet-child-id': childId,
+							title: childId,
+							onClick: () => openCabinetSession(childId, leadSessionId),
+							style: { font: 'inherit', height: 28, display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, width: '100%', padding: '0 6px', border: 0, borderRadius: 6, background: 'transparent', color: INK, cursor: 'pointer', textAlign: 'left' }
+						}, [
+							h('span', { key: 'dot', 'aria-hidden': 'true', style: { width: 7, height: 7, borderRadius: '50%', flex: 'none', background: alive ? '#22c55e' : 'rgba(127,127,127,.55)' } }),
+							h('span', { key: 'label', style: { fontSize: 12, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: '1 1 auto' } },
+								typeof entry.label === 'string' && entry.label !== '' ? entry.label : String(childId).slice(0, 8)),
+							h('span', { key: 'mode', style: { fontSize: 10, flex: 'none', color: INK2, background: 'rgba(127,127,127,.16)', borderRadius: 999, padding: '0 6px' } },
+								tt('subagent.mode.' + modeKey)),
+							h('span', { key: 'ago', title: tt('subagent.createdAt'), style: { fontSize: 10.5, flex: 'none', color: INK3 } },
+								formatElapsed(typeof entry.createdAt === 'number' && Number.isFinite(entry.createdAt) ? Math.max(0, Date.now() - entry.createdAt) : NaN) ?? tt('usage.none'))
+						]);
+					})) : null
+				]));
+			}
 			body.push(h('div', {
 				key: 'legend',
 				style: { marginTop: 12, fontSize: 10.5, color: INK3, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }
@@ -7371,6 +7439,12 @@ window.__ModuleLoader__.load({
 			'dispatch.interruptHint': '插话：立刻插进当前回合（打断）',
 			'dispatch.noSession': '发送通道不可用：会话未就绪',
 			'dispatch.failed': '发送失败：{error}',
+			'subagent.group': '动态子智能体 ({n})',
+			'subagent.mode.oneshot': '一次性',
+			'subagent.mode.continuable': '可续',
+			'subagent.mode.external': '外部',
+			'subagent.mode.unknown': '未知',
+			'subagent.createdAt': '创建于',
 			'member.nav': '内阁成员',
 			'member.title': '内阁成员',
 			'member.desc': '六员的名字、头像与提示词。未配置时保持出厂行为；头像归一为 96×96 PNG，单张不超过 48KB。通政使使用中性头像。',
@@ -7531,6 +7605,12 @@ window.__ModuleLoader__.load({
 			'dispatch.interruptHint': 'Interrupt: injects into the running turn now',
 			'dispatch.noSession': 'Send channel unavailable: session not ready',
 			'dispatch.failed': 'Send failed: {error}',
+			'subagent.group': 'Dynamic subagents ({n})',
+			'subagent.mode.oneshot': 'one-shot',
+			'subagent.mode.continuable': 'continuable',
+			'subagent.mode.external': 'external',
+			'subagent.mode.unknown': 'unknown',
+			'subagent.createdAt': 'created',
 			'member.nav': 'Cabinet members',
 			'member.title': 'Cabinet members',
 			'member.desc': 'Names, avatars and prompts for the six members. Unconfigured keeps the factory behaviour; avatars are normalized to 96×96 PNG, at most 48KB each. The association minister uses the neutral portrait.',
