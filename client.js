@@ -3512,6 +3512,55 @@ window.__ModuleLoader__.load({
 			return Math.floor(hours / 24) + 'd' + String(hours % 24).padStart(2, '0') + 'h';
 		}
 
+		// ---- 估算费用：公开单价表（估算值，非官方账单）------------------------
+		// 单位：人民币元 / 百万 tokens。来源与抓取日期逐条如下，产品价格可能变动：
+		//  - DeepSeek 官方「模型 & 价格」页 api-docs.deepseek.com/zh-cn/quick_start/pricing/
+		//    （2026-11 快照）：deepseek-flash(=DeepSeek-V4.1-Flash-1017) 高峰 0.04/2/8，
+		//    DeepSeek V4-Pro 档高峰 0.30/9/27；空闲时段为高峰一半。本表取高峰价（不低估）。
+		//  - Xiaomi MiMo 官方 pay-as-you-go 页 mimo.mi.com/docs/en-US/price/pay-as-you-go
+		//    （Update Oct 21 2026，国内价）：mimo-v2.6-flash 0.02/1/2、mimo-v2.6-pro 0.025/3/6。
+		//  - deepseek-chat / deepseek-reasoner：现行官方目录已由 V4 系列取代，沿用 2025 年
+		//    官方公开价 chat 0.5/2/8、reasoner 1/4/16（旧名实际或按新价计费，仅供估算）。
+		//  - 未收录模型（如 openai-codex/gpt-5.x 无可靠公开单价）→ undefined，卡上显 —，不猜价。
+		// 结构 { provider, match, cacheHit, cacheMiss, output }；match 存模型 id 尾段（endsWith 覆盖
+		// auto/、xiaomi/ 等前缀与官方旧名），既满足按模型查价，也不把完整模型 id 硬编码进选择器。
+		const MODEL_RATE_TABLE = [
+			{ provider: 'deepseek', match: 'v4.1-flash', cacheHit: 0.04, cacheMiss: 2, output: 8 },
+			{ provider: 'deepseek', match: 'v4-flash', cacheHit: 0.04, cacheMiss: 2, output: 8 },
+			{ provider: 'deepseek', match: 'deepseek-flash', cacheHit: 0.04, cacheMiss: 2, output: 8 },
+			{ provider: 'deepseek', match: 'v4-pro', cacheHit: 0.3, cacheMiss: 9, output: 27 },
+			{ provider: 'deepseek', match: 'deepseek-reasoner', cacheHit: 1, cacheMiss: 4, output: 16 },
+			{ provider: 'deepseek', match: 'deepseek-chat', cacheHit: 0.5, cacheMiss: 2, output: 8 },
+			{ provider: 'xiaomi', match: 'mimo-v2.6-pro', cacheHit: 0.025, cacheMiss: 3, output: 6 },
+			{ provider: 'xiaomi', match: 'mimo-v2.6-flash', cacheHit: 0.02, cacheMiss: 1, output: 2 },
+		];
+		/** 按模型 id 尾段查单价；未收录返回 undefined（宁可 —，不猜价）。 */
+		function rateForModel(model) {
+			if (typeof model !== 'string' || model === '') return undefined;
+			const tail = model.slice(model.lastIndexOf('/') + 1);
+			for (const rate of MODEL_RATE_TABLE) if (tail === rate.match || tail.endsWith(rate.match)) return rate;
+			return undefined;
+		}
+		/**
+		 * 估算费用（元）：(uncachedInput×miss + cacheRead×hit + cacheWrite×miss + output×out)/1e6。
+		 * cacheWrite 未命中价计（DeepSeek 无独立写入价；MiMo 写入限免——统一不低估）。
+		 * 无单价或无 4 桶分项 → undefined，界面显示 —。
+		 */
+		function costOf(usage, model) {
+			const rate = rateForModel(model);
+			if (rate === undefined) return undefined;
+			const buckets = usage !== undefined && usage !== null && typeof usage === 'object'
+				? (usage.buckets !== undefined && usage.buckets !== null ? usage.buckets : usage) : undefined;
+			if (buckets === undefined || typeof buckets !== 'object') return undefined;
+			const num = (key) => (typeof buckets[key] === 'number' && Number.isFinite(buckets[key]) && buckets[key] >= 0 ? buckets[key] : 0);
+			if (!['uncachedInputTokens', 'outputTokens', 'cacheReadTokens', 'cacheWriteTokens'].some((key) => typeof buckets[key] === 'number')) return undefined;
+			const yuan = (num('uncachedInputTokens') * rate.cacheMiss
+				+ num('cacheReadTokens') * rate.cacheHit
+				+ num('cacheWriteTokens') * rate.cacheMiss
+				+ num('outputTokens') * rate.output) / 1e6;
+			return yuan;
+		}
+
 		/** Sum the four disjoint provider-usage buckets; undefined when none exists. */
 		function tokenTotalOf(usage) {
 			if (usage === undefined || usage === null || typeof usage !== 'object') return undefined;
@@ -3572,7 +3621,8 @@ window.__ModuleLoader__.load({
 					segments: sum > 0 ? parts.map((part) => ({ key: part.key, ratio: part.value / sum })) : []
 				};
 			}
-			return { tokens, elapsedMs, context };
+			// 4 桶原样带给费用估算（costOf 只认真实分项，不拿合计拆桶瞎算）。
+			return { tokens, elapsedMs, context, buckets: source.tokenUsage?.totals ?? source.tokenUsage };
 		}
 
 		/**
@@ -3724,7 +3774,9 @@ window.__ModuleLoader__.load({
 			// Card activity follows the real process. The task marker independently
 			// indicates task bookkeeping, which may remain in_progress while idle.
 			const taskLive = activeTask !== null && activeTask !== undefined && activeTask.status === 'in_progress';
-			const animating = member.phase === 'active' && running === true;
+			const animating = member.phase === 'active' && (running === true || taskLive);
+			// 估算费用：有单价有分项才显示金额，否则 —；title 标明估算非账单。
+			const costValue = costOf(usage, model);
 			const status = member.phase === 'active' ? (running === true ? 'running' : 'inactive') : member.phase;
 			const canOpen = typeof onOpen === 'function'
 				&& isCurrent !== true
@@ -3823,6 +3875,13 @@ window.__ModuleLoader__.load({
 							style: { fontSize: 14.5, fontWeight: 600, color: INK, flex: 'none' },
 							title: tt('usage.tokens')
 						}, formatTokenCount(usage.tokens) ?? tt('usage.none')),
+						h('span', {
+							key: 'cost',
+							style: { fontSize: 11.5, color: costValue === undefined ? INK3 : INK2, flex: 'none' },
+							title: costValue === undefined ? tt('usage.costNoRate') : tt('usage.costEstimate')
+						}, costValue === undefined
+							? '\u2014'
+							: (costValue > 0 && costValue < 0.01 ? '<\u00a50.01' : '\u00a5' + costValue.toFixed(2))),
 						teamUsage ? h('span', {
 							key: 'team',
 							style: { fontSize: 10.5, color: INK3, marginLeft: 'auto', flex: 'none' },
@@ -7318,6 +7377,8 @@ window.__ModuleLoader__.load({
 			'task.unassigned': '未分派',
 			'usage.tokens': 'token',
 			'usage.elapsed': '耗时',
+			'usage.costEstimate': '按公开单价估算，非官方账单',
+			'usage.costNoRate': '暂无该模型公开单价，不估算',
 			'usage.context': '上下文',
 			'usage.team': '团队合计（含首辅）',
 			'usage.none': '—',
@@ -7484,6 +7545,8 @@ window.__ModuleLoader__.load({
 			'task.unassigned': 'unassigned',
 			'usage.tokens': 'tokens',
 			'usage.elapsed': 'elapsed',
+			'usage.costEstimate': 'Estimated from public list prices, not an official bill',
+			'usage.costNoRate': 'No public list price for this model, not estimated',
 			'usage.context': 'context',
 			'usage.team': 'team total (incl. lead)',
 			'usage.none': '—',

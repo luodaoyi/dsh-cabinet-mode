@@ -93,7 +93,7 @@ const PAGE_NOW = Date.now();
 // ageOf 保序：原值越大 ⇒ 时间越新，且所有映射结果都落在最近 ~12 天内
 // （小于 30 天窗口，不会触发新鲜度过滤），既有排序断言的语义不变。
 const ageOf = (value) => PAGE_NOW - (1000000 - value);
-const exportList = 'return { inject, apply, avatarFor, displayName, chatBubbleName, chatBubbleNames, bureauOf, CabinetPanel, MemberCard, MemberDispatch, TaskLine, TaskEdgeLayer, buildTaskEdges, buildConnectorPaths, taskEdgesEqual, zh, en, BUREAUX, AVATARS, setMemberConfig, memberLabel, configuredAvatar, configuredPrompt, factoryPromptFor, DEFAULT_MEMBER_PROMPTS, DEFAULT_LEAD_PROMPT, CabinetMemberSettings, MemoryPluginCard, memoryPluginInstalledOf, SETTINGS_TABS, formatTokenCount, formatElapsed, tokenTotalOf, usageFor, planProjectionRequests, teamUsageOf, groupChatFold, markdownBlocksOf, markdownBlocksCached, inlineMarkdownTokens, markdownLinkHref, modelOptionsOf, modelCatalogNotice, modelSelectionOf, cabinetSessionChoices, cabinetSessionFilters, cabinetSessionGroups, defaultCabinetSession, CabinetMarkdown, CabinetPage, CabinetPanelIcon, GroupChatRow, STYLE_CSS, cabinetGroupMemberStates, mergeGroupChat, cabinetChatViewRows, chatStampNeeded, nearChatBottom, scrollChatToBottom, scrollFollowingTail, cabinetScopeRows, openCabinetSession };';
+const exportList = 'return { inject, apply, avatarFor, displayName, chatBubbleName, chatBubbleNames, bureauOf, CabinetPanel, MemberCard, MemberDispatch, TaskLine, TaskEdgeLayer, buildTaskEdges, buildConnectorPaths, taskEdgesEqual, zh, en, BUREAUX, AVATARS, setMemberConfig, memberLabel, configuredAvatar, configuredPrompt, factoryPromptFor, DEFAULT_MEMBER_PROMPTS, DEFAULT_LEAD_PROMPT, CabinetMemberSettings, MemoryPluginCard, memoryPluginInstalledOf, SETTINGS_TABS, formatTokenCount, formatElapsed, tokenTotalOf, usageFor, costOf, rateForModel, planProjectionRequests, teamUsageOf, groupChatFold, markdownBlocksOf, markdownBlocksCached, inlineMarkdownTokens, markdownLinkHref, modelOptionsOf, modelCatalogNotice, modelSelectionOf, cabinetSessionChoices, cabinetSessionFilters, cabinetSessionGroups, defaultCabinetSession, CabinetMarkdown, CabinetPage, CabinetPanelIcon, GroupChatRow, STYLE_CSS, cabinetGroupMemberStates, mergeGroupChat, cabinetChatViewRows, chatStampNeeded, nearChatBottom, scrollChatToBottom, scrollFollowingTail, cabinetScopeRows, openCabinetSession };';
 runInNewContext(source.replace(exportPoint, exportList), {
   setTimeout: (fn, ms) => setTimeout(fn, ms === 120000 ? 20 : ms), clearTimeout,
   Date: RealmDate,
@@ -853,9 +853,19 @@ const taskOnlyTree = elements(client.MemberCard({
 const taskOnlyDot = taskOnlyTree.find((node) => node.props?.['data-cabinet-status'] !== undefined);
 assert.equal(taskOnlyDot.props['data-cabinet-status'], 'inactive', 'an in_progress task cannot override the idle process status, got: ' + taskOnlyDot.props['data-cabinet-status']);
 assert.equal(taskOnlyDot.props.style.animation, undefined, 'the process dot does not animate merely because a task remains in_progress');
-assert.equal(taskOnlyTree[0].props['data-cabinet-sweep'], undefined, 'an idle process never wears the running card marker');
-assert.equal(taskOnlyTree[0].props.style.overflow, undefined, 'a task alone does not open the sweep window');
-assert.equal(taskOnlyTree[0].props.style['--cab-live-hue'], undefined, 'a task alone does not start the card animation');
+assert.equal(taskOnlyTree[0].props['data-cabinet-sweep'], '1', 'an in_progress task keeps the card marker (the task is moving)');
+assert.equal(taskOnlyTree[0].props.style.overflow, 'hidden', 'a live task opens the sweep window');
+assert.equal(taskOnlyTree[0].props.style['--cab-live-hue'], 'hsl(138 58% 52%)', 'the task-only sweep rides the family hue');
+// Only in_progress moves: a pending task on an idle process must not start the sweep.
+const idlePendingTree = elements(client.MemberCard({
+  member: { id: 'm-pend', name: 'pend', phase: 'active' },
+  running: false,
+  statusLabel: (status) => status,
+  t: zhT,
+  familyColor: 'hsl(138 58% 52%)',
+  activeTask: { id: 'pp', subject: '待办', status: 'pending' },
+}));
+assert.equal(idlePendingTree[0].props['data-cabinet-sweep'], undefined, 'a pending task does not start the sweep (only in_progress moves)');
 const taskOnlyDesc = taskOnlyTree.find((node) => node.props?.['data-cabinet-task-desc'] !== undefined);
 const findMark = (node) => {
   if (Array.isArray(node)) { for (const child of node) { const hit = findMark(child); if (hit) return hit; } return null; }
@@ -875,6 +885,40 @@ assert.ok(pulseCss.includes('@keyframes cabinetSpin'), 'cabinetSpin remains for 
 assert.ok(pulseCss.includes('[data-cabinet-sweep]::before') && pulseCss.includes('offset-path:rect(0 100% 100% 0 round 12px)'), 'the border dot follows the rounded card perimeter');
 assert.ok(pulseCss.includes('cabinetDotRun 2s linear infinite') && pulseCss.includes('@keyframes cabinetDotRun{to{offset-distance:100%}}'), 'the dot runs via offset distance');
 assert.ok(pulseCss.includes('prefers-reduced-motion'), 'the sweep stops under prefers-reduced-motion');
+const sweepBody = (pulseCss.match(/\[data-cabinet-sweep\]::before\{[^{}]*\}/) || [''])[0];
+assert.ok(sweepBody && !sweepBody.includes('conic-gradient'), 'the sweep rule body carries no conic scanner (Motion Path dot only)');
+
+// --- 费用估算（移植 f4ca9dc）：单价表、四桶、卡片 ¥ 与估算/无价文案 ---
+const RATE_1M = { uncachedInputTokens: 1000000, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 };
+assert.equal(client.costOf({ buckets: RATE_1M }, 'auto/deepseek-v4.1-flash'), 2, 'V4.1-Flash uncached input prices at 2 CNY/M, got: ' + client.costOf({ buckets: RATE_1M }, 'auto/deepseek-v4.1-flash'));
+assert.equal(client.costOf({ buckets: { uncachedInputTokens: 1000000 } }, 'xiaomi/mimo-v2.6-flash'), 1, 'MiMo flash uncached input prices at 1 CNY/M');
+assert.equal(client.costOf({ buckets: RATE_1M }, 'openai-codex/gpt-5.x'), undefined, 'an unlisted model is never given a guessed price');
+assert.equal(client.rateForModel('deepseek-chat').cacheMiss, 2, 'the legacy chat name keeps its public 2025 price');
+const bucketProbe = client.usageFor({ tokenUsage: { totals: RATE_1M } }, 112000);
+assert.equal(bucketProbe.buckets.uncachedInputTokens, 1000000, 'usageFor carries the four buckets through for costOf');
+const costCard = elements(client.MemberCard({
+  member: { id: 'm-cost', name: 'cost', phase: 'active' },
+  running: false,
+  statusLabel: (status) => status,
+  t: zhT,
+  model: 'deepseek-v4.1-flash',
+  usage: { tokens: 1000, elapsedMs: 1000, buckets: RATE_1M },
+  activity: { count: 1, time: 1700000000000 },
+}));
+const costNode = costCard.find((node) => node.props?.key === 'cost');
+assert.ok(costNode && String(costNode.children.join('')).includes('\u00a52.00'), 'the card shows the estimated CNY amount, got: ' + JSON.stringify(costNode && costNode.children));
+assert.ok(String(costNode.props.title).includes('\u4f30\u7b97'), 'the estimate title disclaims an official bill, got: ' + costNode.props.title);
+const noRateCard = elements(client.MemberCard({
+  member: { id: 'm-norate', name: 'nr', phase: 'active' },
+  running: false,
+  statusLabel: (status) => status,
+  t: zhT,
+  model: 'openai-codex/gpt-5.x',
+  usage: { tokens: 1000, elapsedMs: 1000, buckets: RATE_1M },
+  activity: { count: 1, time: 1700000000000 },
+}));
+const noRateNode = noRateCard.find((node) => node.props?.key === 'cost');
+assert.ok(noRateNode && String(noRateNode.children.join('')) === '\u2014' && !JSON.stringify(noRateNode.children).includes('\u00a5'), 'an unlisted model shows an em dash and no currency, got: ' + JSON.stringify(noRateNode && noRateNode.children));
 assert.ok(pulseCss.includes('will-change:offset-distance'), 'the dot hints only its animated offset distance');
 assert.ok(pulseCss.includes('pointer-events:none'), 'the sweep layer never blocks card clicks');
 // 成本：宿主无 ¥ 数据源（tokenUsage 投影只有 4 个分项 token，无金额字段）——卡上不出现货币符号、不编数。

@@ -156,8 +156,8 @@ if(process.argv.includes('--headless')){
     if(await mark.evaluate(el=>getComputedStyle(el).animationName)!=='none')throw Error('task pulse ignores reduced motion');
     await page.emulateMedia({reducedMotion:'no-preference'});
     if(await mark.evaluate(el=>getComputedStyle(el).animationName)!=='cabinetPulse')throw Error('task pulse failed to resume');
-    // Stale in-progress task alone must not animate an idle agent.
-    if(await page.locator('#task-fixture [data-cabinet-sweep]').count())throw Error('idle task falsely animates agent');
+    // User spec: an in_progress task keeps the card marker even while the process idles.
+    if(!(await page.locator('#task-fixture [data-cabinet-sweep]').count()))throw Error('live task does not animate the card');
     await page.evaluate(()=>window.motionMount(true));
     const runningCard=page.locator('#task-fixture [data-cabinet-sweep]');
     await runningCard.waitFor();

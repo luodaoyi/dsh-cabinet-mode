@@ -37,7 +37,7 @@ for (const [phase,running,expected] of [['active',true,'running'],['active',fals
 }
 const stale=all(client.MemberCard({member:{id:'m',name:'works',phase:'active'},running:false,activeTask:task,statusLabel:s=>s}));
 assert.ok(stale.some(n=>n.props['data-cabinet-member-status']==='inactive'));
-assert.equal(stale[0].props['data-cabinet-sweep'],undefined);
+assert.equal(stale[0].props['data-cabinet-sweep'],'1');
 // Hidden details duplicate an active task's anchor. They must not overwrite its
 // visible compact-card anchor; expanded task rows may legitimately supersede it.
 let lookedUp;
