@@ -1720,8 +1720,11 @@ assert.equal(client.usageFor({tokenUsage:{outputTokens:-1},contextPressure:{cont
   assert.equal(hubFan.length, 0, 'no member is made the parent of the next visual row, got ' + hubFan.length);
   // 总线扇出：3 fan + 1 主干 + 每后续层 1 水平段(2层) + 每卡 1 支线(6卡) = 12。
   assert.equal(connPaths.length, 12, 'lead fan(3) + trunk(1) + bus segments(2) + branches(6), got ' + connPaths.length);
-  const trunkOnly = connD.filter((d) => /^M 300 60 L 300 \d+$/.test(d));
-  assert.equal(trunkOnly.length, 1, 'exactly one neutral trunk from the lead bottom-centre, got ' + trunkOnly.length);
+  // 主干：M ax ay → L ax ay+8 → L trunkX ay+8 → L trunkX bottomY（列间隙，非中心线）。
+  const trunkOnly = connD.filter((d) => /^M 300 60 L 300 68 L (\d+) 68 L \d+ \d+$/.test(d));
+  assert.equal(trunkOnly.length, 1, 'exactly one neutral trunk with the 8px sideways step, got ' + trunkOnly.length);
+  const connTrunkX = Number((trunkOnly[0] || '').match(/^M 300 60 L 300 68 L (\d+) /)[1]);
+  assert.notEqual(connTrunkX, 300, 'the trunk leaves the lead centre-line for a column gap, got ' + connTrunkX);
   const coordReConn = /[-+]?\d*\.?\d+/g;
   const busSegs = connD.filter((d) => {
     const m = d.match(/^M (\d+) (\d+) L (\d+) (\d+)(?: L (\d+) (\d+))?$/);
@@ -1731,6 +1734,11 @@ assert.equal(client.usageFor({tokenUsage:{outputTokens:-1},contextPressure:{cont
   const branches = connD.filter((d) => d.includes(' C ') && d.indexOf('M 300 60 ') !== 0);
   assert.equal(branches.length, 6, 'one family-coloured branch per later-layer card, got ' + branches.length);
   // 旧 gutter 横穿的负断言：任何 x 都不得伸到最左卡左缘之外。
+  // trunkX 不穿卡：不得落在任何卡的 [left-1, right+1] 内。
+  for (const node of connNodes) {
+    assert.ok(connTrunkX < node.left - 1 || connTrunkX > node.left + node.width + 1,
+      'trunk x=' + connTrunkX + ' must clear card [' + node.left + ',' + (node.left + node.width) + ']');
+  }
   const minConnLeft = Math.min(...connNodes.map((node) => node.left));
   for (const d of connD) {
     const nums = d.match(coordReConn).map(Number);
@@ -1751,6 +1759,14 @@ assert.equal(client.usageFor({tokenUsage:{outputTokens:-1},contextPressure:{cont
     }
   }
   const offPaths = client.buildConnectorPaths(offBase, offLead, offNodes, -8);
+  const offTrunk = offPaths.find((path) => /^M 300 100 L 300 108 L (\d+) 108 L \d+ \d+$/.test(path.d));
+  assert.ok(offTrunk, 'the non-zero-base trunk keeps the 8px step form, got: ' + JSON.stringify(offPaths.map((path) => path.d)));
+  const offTrunkX = Number(offTrunk.d.match(/^M 300 100 L 300 108 L (\d+) /)[1]);
+  assert.notEqual(offTrunkX, 300, 'the trunk leaves the lead centre-line, got ' + offTrunkX);
+  for (const node of offNodes) {
+    assert.ok(offTrunkX < node.left - 1 || offTrunkX > node.left + node.width + 1,
+      'trunk x=' + offTrunkX + ' must clear card [' + node.left + ',' + (node.left + node.width) + ']');
+  }
   assert.ok(Array.isArray(offPaths) && offPaths.length === 8, 'fan(3)+trunk(1)+bus(1)+branches(3) build against a non-zero base, got ' + JSON.stringify(offPaths && offPaths.length));
   const coordRe = /[-+]?\d*\.?\d+/g;
   for (const path of offPaths) {

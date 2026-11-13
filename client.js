@@ -4168,8 +4168,38 @@ window.__ModuleLoader__.load({
 			if (tail.length > 0) {
 				const busY = (layer) => layer.top - 16;
 				const bottomY = busY(tail[tail.length - 1]);
-				// Trunk: neutral line colour, shared x, straight down (overlaps are fine).
-				paths.push({ d: 'M ' + ax + ' ' + ay + ' L ' + ax + ' ' + bottomY, color: LINE });
+				// Trunk x rides a COLUMN GAP, never the lead centre-line: a centre-line
+				// trunk would slide behind the middle-column card and read as a broken
+				// line. Take the card nearest ax, step out over the edge closer to ax by
+				// 8px; if that lands inside any card's [left, right] projection (2-card
+				// rows make this easy), push out by half that card's width — repeat at
+				// most once per card, and fall back to ax if a pathological layout
+				// still cannot clear every card (never worse than the old centre run).
+				const allCards = tail.flatMap((layer) => layer.cards);
+				let trunkX = ax;
+				if (allCards.length > 0) {
+					let nearest = allCards[0];
+					let nearestDist = Math.abs((nearest.left + nearest.width / 2) - ax);
+					for (const card of allCards) {
+						const dist = Math.abs((card.left + card.width / 2) - ax);
+						if (dist < nearestDist) { nearest = card; nearestDist = dist; }
+					}
+					const nearLeft = Math.abs(ax - nearest.left);
+					const nearRight = Math.abs(ax - (nearest.left + nearest.width));
+					trunkX = nearLeft <= nearRight ? nearest.left - 8 : nearest.left + nearest.width + 8;
+					for (let guard = 0; guard < allCards.length; guard += 1) {
+						const hit = allCards.find((card) => trunkX >= card.left - 1 && trunkX <= card.left + card.width + 1);
+						if (!hit) break;
+						// 兜底：2 卡无居中卡时按上面选边会落进另一张卡——再往外推半个卡宽。
+						trunkX = trunkX <= hit.left + hit.width / 2
+							? hit.left - hit.width / 2
+							: hit.left + hit.width + hit.width / 2;
+					}
+					if (allCards.some((card) => trunkX >= card.left - 1 && trunkX <= card.left + card.width + 1)) trunkX = ax;
+				}
+				// Neutral trunk: drop8px under the Lead, step sideways into the gap in
+				// that blank band, then straight down to the lowest bus line.
+				paths.push({ d: 'M ' + ax + ' ' + ay + ' L ' + ax + ' ' + (ay + 8) + ' L ' + trunkX + ' ' + (ay + 8) + ' L ' + trunkX + ' ' + bottomY, color: LINE });
 				for (const layer of tail) {
 					const y = busY(layer);
 					const centres = layer.cards.map((card) => card.left + card.width / 2);
@@ -4177,7 +4207,7 @@ window.__ModuleLoader__.load({
 					const maxX = Math.max(...centres);
 					// One horizontal segment per layer, from the trunk to both ends.
 					paths.push({
-						d: 'M ' + ax + ' ' + y + ' L ' + minX + ' ' + y + (maxX !== minX ? ' L ' + maxX + ' ' + y : ''),
+						d: 'M ' + trunkX + ' ' + y + ' L ' + minX + ' ' + y + (maxX !== minX ? ' L ' + maxX + ' ' + y : ''),
 						color: LINE
 					});
 					// One branch per card, family colour, from the bus down to the top centre.
