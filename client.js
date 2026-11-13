@@ -3623,7 +3623,11 @@ window.__ModuleLoader__.load({
 		// 卡高固定：阁臣卡只显示当前一个任务（activeTask），不再挂任务列表。
 		function MemberCard({ member, running, model, isCurrent, lead, statusLabel, t, size, onOpen, usage, teamUsage, familyColor, activity, activeTask, children }) {
 			const tt = typeof t === 'function' ? t : (key) => key;
-			const status = member.phase === 'active' ? (running ? 'running' : 'inactive') : member.phase;
+			// 「任务在动」判定合并：agent 进程在跑，或卡上挂着 in_progress 任务——
+			// 用户看的是活在动，不只看进程（activeTaskOf 只回 in_progress，双保险再判一次）。
+			const taskLive = activeTask !== null && activeTask !== undefined && activeTask.status === 'in_progress';
+			const animating = running === true || taskLive;
+			const status = member.phase === 'active' ? (animating ? 'running' : 'inactive') : member.phase;
 			const canOpen = typeof onOpen === 'function'
 				&& isCurrent !== true
 				&& member.phase !== 'failed'
@@ -3640,8 +3644,8 @@ window.__ModuleLoader__.load({
 				onClick: canOpen ? () => onOpen(member) : undefined,
 				style: {
 					position: 'relative', zIndex: 1, cursor: canOpen ? 'pointer' : undefined,
-					// 运行中的卡加成员色低透明外发光，一眼跳出；空闲保持原样。
-					boxShadow: running
+					// 「在动」的卡（进程在跑或任务在跑）加成员色低透明外发光，一眼跳出。
+					boxShadow: animating
 						? '0 0 0 1.5px ' + (hasHue ? (familyColor.indexOf('hsl(') === 0 ? familyColor.replace(')', ' / 0.55)') : familyColor.replace(/[\d.]+\)$/, '0.55)')) : 'rgba(34,197,94,.55)')
 							+ ', 0 0 12px ' + (hasHue ? (familyColor.indexOf('hsl(') === 0 ? familyColor.replace(')', ' / 0.28)') : familyColor.replace(/[\d.]+\)$/, '0.28)')) : 'rgba(34,197,94,.28)')
 						: undefined,
@@ -3687,7 +3691,15 @@ window.__ModuleLoader__.load({
 					title: activeTask && typeof activeTask.subject === 'string' ? activeTask.subject : undefined,
 					style: { fontSize: 13, color: activeTask ? INK2 : INK3, marginTop: 6, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }
 				}, activeTask && typeof activeTask.subject === 'string' && activeTask.subject !== ''
-					? [h('span', { key: 'mark', style: { color: hasHue ? familyColor : '#22c55e', marginRight: 4 } }, '\u25cf'), activeTask.subject]
+					? [h('span', {
+						key: 'mark',
+						style: {
+							color: hasHue ? familyColor : '#22c55e',
+							marginRight: 4,
+							// 任务在跑时 ● 带光晕呼吸，与状态点同 keyframes。
+							animation: taskLive ? 'cabinetPulse 1.7s ease-out infinite' : undefined
+						}
+					}, '\u25cf'), activeTask.subject]
 					: '\u7a7a\u95f2'),
 				// 故障必须可见：member.error 整行红字（模型行已按截图移除）。
 				member.error ? h('div', {

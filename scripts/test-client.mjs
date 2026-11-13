@@ -816,6 +816,43 @@ assert.notDeepEqual(calmDot.props.style, busyDot.props.style, 'running and idle 
 assert.equal(calmTree[0].props.style.boxShadow, undefined, 'an idle card keeps its plain border (no glow)');
 assert.equal(busyDot.props.style.width, 8, 'both dots are 8px');
 assert.equal(calmDot.props.style.width, 8, 'both dots are 8px (idle matches)');
+// 「任务在动」不只看进程：agent 没跑但有 in_progress 任务 → 点/卡/● 全部动起来。
+const taskOnlyTree = elements(client.MemberCard({
+  member: { id: 'm-taskonly', name: 'tasker', phase: 'active' },
+  running: false,
+  statusLabel: (status) => status,
+  t: zhT,
+  familyColor: 'hsl(138 58% 52%)',
+  activeTask: { id: 'tt', subject: '任务在动', status: 'in_progress' },
+}));
+const taskOnlyDot = taskOnlyTree.find((node) => node.props?.['data-cabinet-status'] !== undefined);
+assert.equal(taskOnlyDot.props['data-cabinet-status'], 'running', 'an in_progress task alone lights the dot to running (agent idle), got: ' + taskOnlyDot.props['data-cabinet-status']);
+assert.ok(String(taskOnlyDot.props.style.animation).includes('cabinetPulse'), 'the dot breathes while the task runs even with running=false');
+assert.ok(typeof taskOnlyTree[0].props.style.boxShadow === 'string' && taskOnlyTree[0].props.style.boxShadow.includes('hsl(138 58% 52% / 0.55)'), 'the card glows while its task runs, agent idle');
+const taskOnlyDesc = taskOnlyTree.find((node) => node.props?.['data-cabinet-task-desc'] !== undefined);
+const findMark = (node) => {
+  if (Array.isArray(node)) { for (const child of node) { const hit = findMark(child); if (hit) return hit; } return null; }
+  if (node && typeof node === 'object') {
+    if (node.props && node.props.key === 'mark') return node;
+    if (Array.isArray(node.children)) return findMark(node.children);
+  }
+  return null;
+};
+const taskMark = findMark(taskOnlyDesc && taskOnlyDesc.children);
+assert.ok(taskMark, 'the in-progress marker renders');
+assert.ok(String(taskMark.props.style.animation).includes('cabinetPulse'), 'the ● marker breathes with the same keyframes, got: ' + JSON.stringify(taskMark.props.style));
+// keyframes 必须真的在 STYLE_CSS 里——只有 animation 没有 @keyframes 会被浏览器静默忽略。
+const pulseCss = Array.isArray(client.STYLE_CSS) ? client.STYLE_CSS.join('\n') : String(client.STYLE_CSS || '');
+assert.ok(pulseCss.includes('@keyframes cabinetPulse'), 'cabinetPulse keyframes are injected via STYLE_CSS (no silent-ignore)');
+// 成本：宿主无 ¥ 数据源（tokenUsage 投影只有 4 个分项 token，无金额字段）——卡上不出现货币符号、不编数。
+const costProbe = elements(client.MemberCard({
+  member: { id: 'm-cost', name: 'coster', phase: 'active' },
+  statusLabel: (status) => status,
+  t: zhT,
+  usage: { tokens: 3000000, elapsedMs: 1000, context: { percent: 40, segments: [] } },
+}));
+assert.ok(!JSON.stringify(costProbe).includes('¥'), 'the card shows no fabricated currency (host exposes no cost source)');
+assert.ok(JSON.stringify(costProbe).includes('3M'), 'token total still renders as the cost-free figure');
 
 // 家族色：不同成员的卡片边框色不同（黄金角散列，同色即错）。
 const huePanel = elements(client.CabinetPanel({
