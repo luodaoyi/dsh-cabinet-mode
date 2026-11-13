@@ -115,12 +115,7 @@ jobs:
         env:
           DSH_MODULE_ROOT: ${{ runner.temp }}/cabinet-runtime/node_modules
         run: node scripts/test-dsh-protocol-fixture.mjs
-      - name: Real Cabinet team with deterministic loopback protocol (not inference)
-        if: matrix.dsh == '0.2.2-rc.1'
-        env:
-          DSH_MODULE_ROOT: ${{ runner.temp }}/cabinet-runtime/node_modules
-        run: node scripts/test-dsh-team-protocol-fixture.mjs
-      - name: Isolated real DSH host browser smoke (no model)
+      - name: Real DSH host browser: empty profile and deterministic team
         if: matrix.dsh == '0.2.2-rc.1'
         env:
           DSH_MODULE_ROOT: ${{ runner.temp }}/cabinet-runtime/node_modules
@@ -131,12 +126,15 @@ jobs:
           export DSH_BROWSER_TEST_ROOT="$RUNNER_TEMP/cabinet-host-browser"
           export CHROME_PATH="$(command -v google-chrome || command -v chromium)"
           CABINET_HOST_SCREENSHOT="$RUNNER_TEMP/cabinet-host.png" node scripts/test-dsh-web-smoke.mjs --headless
-      - name: Preserve isolated empty-profile host screenshot
+          CABINET_TEAM_SCREENSHOT="$RUNNER_TEMP/cabinet-team.png" node scripts/test-dsh-team-protocol-fixture.mjs --headless
+      - name: Preserve isolated real-host screenshots
         if: always() && matrix.dsh == '0.2.2-rc.1'
         uses: actions/upload-artifact@v4
         with:
           name: cabinet-real-host-evidence
-          path: ${{ runner.temp }}/cabinet-host.png
+          path: |
+            ${{ runner.temp }}/cabinet-host.png
+            ${{ runner.temp }}/cabinet-team.png
           if-no-files-found: ignore
 
 

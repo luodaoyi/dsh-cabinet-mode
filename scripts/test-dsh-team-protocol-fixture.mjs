@@ -1,5 +1,6 @@
 // Real official Cabinet preset/Team runtime with a local deterministic Messages
-// fixture and a test-only host driver. NOT a real model or Cabinet browser test.
+// fixture and a test-only host driver. Optional --headless reads the real Team
+// through the installed Cabinet client. Never a real-model inference test.
 // Requires DSH_MODULE_ROOT; no credentials or user profiles are inherited.
 import {createServer} from 'node:http';
 import {spawn} from 'node:child_process';
@@ -7,6 +8,8 @@ import {mkdtemp,mkdir,readFile,readdir,rm,writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join,resolve,dirname} from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {teamBrowser} from './fixtures/protocol-team-browser.mjs';
+const headless=process.argv.includes('--headless');
 const repo=resolve(dirname(fileURLToPath(import.meta.url)),'..');
 const modules=process.env.DSH_MODULE_ROOT;
 if(!modules)throw Error('DSH_MODULE_ROOT is required');
@@ -36,7 +39,21 @@ try{
  env.DSH_MODULE_ROOT=resolve(modules);env.CABINET_FIXTURE_CWD=cwd;env.CABINET_FIXTURE_RESULT=join(root,'result.json');
  const patch=join(root,'fixture.patch.yml');
  // Background title generation is outside the single conversation request under test.
- await writeFile(patch,'- id: session-title-llm\n  disabled: true\n- id: session-persistence-jsonl\n  config:\n    compression: none\n    root: '+JSON.stringify(join(env.DSH_HOME,'sessions'))+'\n- id: cabinet-ui\n  name: '+JSON.stringify(join(repo,'index.js'))+'\n- insert:\n    - id: protocol-team-driver\n      name: '+JSON.stringify(join(repo,'scripts/fixtures/protocol-team-driver.mjs'))+'\n');
+ await writeFile(patch,'- id: session-title-llm\n  disabled: true\n- id: session-persistence-jsonl\n  config:\n    compression: none\n    root: '+JSON.stringify(join(env.DSH_HOME,'sessions'))+'\n'+(headless?'':'- id: cabinet-ui\n  name: '+JSON.stringify(join(repo,'index.js'))+'\n')+'- insert:\n    - id: protocol-team-driver\n      name: '+JSON.stringify(join(repo,'scripts/fixtures/protocol-team-driver.mjs'))+'\n');
+ if(headless){
+  // Install the real bundle normally so the host discovers package client metadata.
+  // Do not apply its patch twice and do not replace cabinet-ui with a host-only file.
+  for(const args of [['--profile','web','--dump-config'],['plugin','--profile','web','add',repo]]){
+   output='';done=false;exitCode=null;
+   child=spawn(join(resolve(modules),'.bin','dsh'),args,{cwd,env,detached:true,stdio:['ignore','pipe','pipe']});
+   for(const stream of [child.stdout,child.stderr])stream.on('data',b=>{output=(output+b.toString()).slice(-4*1024*1024)});
+   child.on('error',()=>{done=true;exitCode=-1});child.on('close',code=>{done=true;exitCode=code});
+   const deadline=Date.now()+180000;while(!done&&Date.now()<deadline)await pause(100);
+   assert(done&&exitCode===0,'official Cabinet bundle installation failed');
+   try{process.kill(-child.pid,'SIGKILL')}catch{}
+  }
+ }
+ output='';done=false;exitCode=null;
  server=createServer(async(req,res)=>{
   try{
    if(req.method==='POST'&&req.url==='/fixture/release-member'){
@@ -81,7 +98,7 @@ try{
  server.requestTimeout=10000;server.headersTimeout=10000;
  await new Promise((yes,no)=>{server.once('error',no);server.listen(0,'127.0.0.1',yes)});
  env.DEEPSEEK_BASE_URL=`http://127.0.0.1:${server.address().port}`;env.CABINET_FIXTURE_ENDPOINT=env.DEEPSEEK_BASE_URL;
- child=spawn(join(resolve(modules),'.bin','dsh'),['--profile','web','--patch',join(repo,'cordis.patch.yml'),'--patch',join(resolve(modules),'@deepseek-ai/dsh-experimental-agent-team-profile/cordis.patch.yml'),'--patch',patch,'--host','127.0.0.1','--port','0','--no-open'],{cwd,env,detached:true,stdio:['ignore','pipe','pipe']});
+ child=spawn(join(resolve(modules),'.bin','dsh'),['--profile','web',...(headless?[]:['--patch',join(repo,'cordis.patch.yml')]),'--patch',join(resolve(modules),'@deepseek-ai/dsh-experimental-agent-team-profile/cordis.patch.yml'),'--patch',patch,'--host','127.0.0.1','--port','0','--no-open'],{cwd,env,detached:true,stdio:['ignore','pipe','pipe']});
  for(const stream of [child.stdout,child.stderr])stream.on('data',b=>{output=(output+b.toString()).slice(-4*1024*1024)});
  child.on('error',()=>{done=true;exitCode=-1});child.on('close',code=>{done=true;exitCode=code});
  const deadline=Date.now()+90000;let report;
@@ -103,7 +120,16 @@ try{
  const leadCalls=calls.filter(c=>c.role==='lead');
  assert(!leadCalls[0].priorLeadAnswer&&leadCalls[0].toolResults===0&&!leadCalls[1].priorLeadAnswer&&leadCalls[1].toolResults===1&&leadCalls[2].priorLeadAnswer&&leadCalls[2].memberReply,'expected fixed spawn/result/completion-notification sequence');
  console.log('PASS real official Cabinet preset + Team runtime + Messages fixture: spawn tool loop, one member reply, both settled turns and real persisted sessions');
- console.log('BOUNDARY: deterministic protocol fixture, not real model inference or browser/UI-created sessions');
+ if(headless){
+  const match=output.match(/dsh web: (http:\/\/127\.0\.0\.1:\d+\/[^\s]*)/);
+  assert(match,'official host authentication URL absent');
+  const auth=new URL(match[1]);
+  assert(auth.hostname==='127.0.0.1'&&auth.protocol==='http:'&&auth.port&&!auth.username&&!auth.password&&auth.pathname==='/','official host endpoint unexpected');
+  await teamBrowser({auth,env,repo,members:report.members});
+  assert(!violation&&requests===4,'expected browser reads not to trigger model requests');
+ }
+ console.log('BOUNDARY: deterministic protocol fixture, not real model inference or UI-created sessions'+(headless?'; real browser read/navigation tested':'; browser not tested'));
+
  if(process.env.CABINET_PROTOCOL_REPORT)await writeFile(process.env.CABINET_PROTOCOL_REPORT,JSON.stringify({fixture:'team-v1',requests,persistedRows:rows.length,members:report.members.map(({id,role})=>({id,role,preset:'cabinet',turnEnded:true})),modelInference:false},null,2)+'\n');
 }catch(error){
  console.error('DIAGNOSTIC fixture: '+JSON.stringify({requests,calls,rejections:[...rejected],hostAnnounced:/dsh web:/.test(output),driverMentioned:/protocol-team-driver/.test(output),stages:['driver applied','resolve cabinet preset','create real cabinet agent','real lead tool loop','real teammate completion','flush real session persistence'].filter(s=>output.includes('FIXTURE_STAGE '+s))}));
