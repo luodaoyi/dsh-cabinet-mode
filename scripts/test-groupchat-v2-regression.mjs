@@ -27,9 +27,9 @@ console.log("PASS actual memo tool-result update and workspace move");
 const wrapper=src.slice(src.indexOf('const promptSession = (id, content, mode)'),src.indexOf('React.useEffect(() => {',src.indexOf('const promptSession = (id, content, mode)')));
 const submit=src.slice(src.indexOf('const submit = () => {',src.indexOf('const insertMention')),src.indexOf('const composer =',src.indexOf('const submit = () => {',src.indexOf('const insertMention'))));
 
-for (const failure of ['rejection','transport','no-ack']) {
+for (const failure of ['rejection','transport','no-ack','gateway/internal','gateway/cancelled']) {
  const accepted=[],messages=[],clears=[];
- const ctx={Promise,sessionOf:id=>({prompt:async(content)=>{accepted.push({id,content});if(failure==='transport')throw Error('response lost after accept');if(failure==='no-ack')return undefined;return {ok:false,error:'rejected'};}}),draft:'@Member do task',sendingRef:{current:false},sendable:true,mentionTargetOf:()=>({id:'member',label:'Member'}),target:'lead',tt:k=>k==='groupchat.composer.failed'?'FAILED: {error}':k,setMentionNotice(){},setSending(){},setSendError:e=>messages.push(e),setDraft:v=>clears.push(v),setMentions(){},setMentionOpen(){}};
+ const ctx={Promise,sessionOf:id=>({prompt:async(content)=>{accepted.push({id,content});if(failure==='transport')throw Error('response lost after accept');if(failure==='no-ack')return undefined;if(failure.startsWith('gateway/'))return {ok:false,error:{code:failure,message:'carrier fault'}};return {ok:false,error:'rejected'};}}),draft:'@Member do task',sendingRef:{current:false},sendable:true,mentionTargetOf:()=>({id:'member',label:'Member'}),target:'lead',tt:k=>k==='groupchat.composer.failed'?'FAILED: {error}':k,setMentionNotice(){},setSending(){},setSendError:e=>messages.push(e),setDraft:v=>clears.push(v),setMentions(){},setMentionOpen(){}};
  vm.createContext(ctx);vm.runInContext(wrapper+'\nglobalThis.group={promptSession,canPrompt:()=>true};\n'+submit+'\nsubmit();',ctx);await new Promise(r=>setTimeout(r,20));
  assert.deepEqual(accepted.map(x=>x.id),['member']);assert.deepEqual(clears,[]);assert.equal(ctx.sendingRef.current,false);
  assert.ok(messages.some(m=>failure==='rejection'?String(m).includes('rejected'):String(m).includes('groupchat.composer.unknown')));

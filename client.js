@@ -4185,7 +4185,13 @@ window.__ModuleLoader__.load({
 				let pending;
 				try { pending = session.prompt(content, mode); } catch (error) { resolve({ ok: false, unknown: true, error: String(error && error.message ? error.message : error) }); return; }
 				Promise.resolve(pending).then(
-					(result) => { resolve(result !== null && typeof result === 'object' && typeof result.ok === 'boolean' ? result : { ok: false, unknown: true, error: 'No delivery acknowledgement' }); },
+					(result) => {
+						if (result === null || typeof result !== 'object' || typeof result.ok !== 'boolean') { resolve({ ok: false, unknown: true, error: 'No delivery acknowledgement' }); return; }
+						// The official Remote face folds transport faults/aborts into failed
+						// results instead of rejecting. They cannot prove non-delivery.
+						const code = result.error && result.error.code;
+						resolve(!result.ok && (code === 'gateway/internal' || code === 'gateway/cancelled') ? { ...result, unknown: true } : result);
+					},
 					(error) => { resolve({ ok: false, unknown: true, error: String(error && error.message ? error.message : error) }); }
 				);
 			});

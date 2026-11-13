@@ -18,7 +18,7 @@ const root=await mkdtemp(join(tmpdir(),'cabinet-protocol-fixture-'));
 const prompt='CABINET_PROTOCOL_TEAM_V1';
 const answer='CABINET_PROTOCOL_TEAM_REPLY_V1';
 const sentinel='local-protocol-fixture-not-a-real-credential';
-let child,server,requests=0,violation=false;const rejected=new Set();const calls=[];let releaseCount=0,releaseMember;const memberGate=new Promise(resolve=>{releaseMember=resolve});
+let child,server,requests=0,violation=false;const rejected=new Set();const calls=[];const uiCalls={};const uiMarkers=['CABINET_UI_SEND_V1','CABINET_UI_ACK_LOST_V1'];let releaseCount=0,releaseMember;const memberGate=new Promise(resolve=>{releaseMember=resolve});
 let output='',exitCode=null,done=false;
 const env={PATH:dirname(process.execPath)+':'+join(resolve(modules),'.bin')+':'+(process.env.PATH||'/usr/bin:/bin'),HOME:join(root,'home'),DSH_HOME:join(root,'dsh'),XDG_CONFIG_HOME:join(root,'config'),XDG_DATA_HOME:join(root,'data'),XDG_CACHE_HOME:join(root,'cache'),XDG_STATE_HOME:join(root,'state'),TMPDIR:join(root,'tmp'),NPM_CONFIG_USERCONFIG:join(root,'empty-npmrc'),NPM_CONFIG_CACHE:join(root,'npm-cache'),CI:'true',NO_COLOR:'1',LANG:'C.UTF-8',DEEPSEEK_API_KEY:sentinel};
 const pause=ms=>new Promise(r=>setTimeout(r,ms));
@@ -60,8 +60,7 @@ try{
     assert(req.socket.remoteAddress==='127.0.0.1'&&req.headers['x-fixture-key']===sentinel&&releaseCount===0,'release control');
     releaseCount++;releaseMember();res.writeHead(204);res.end();return;
    }
-   requests++;
-   assert(requests<=4,'request budget');
+
    assert(req.socket.remoteAddress==='127.0.0.1','loopback peer');
    assert(req.method==='POST'&&req.url==='/v1/messages','endpoint');
    assert(req.headers['x-api-key']===sentinel,'fixture authentication');
@@ -70,6 +69,17 @@ try{
    assert(request.stream===true&&request.model==='deepseek-flash','protocol');
    const lead=req.headers['x-deepseek-harness-session-id']==='session-cabinet-protocol-lead';
    assert(Array.isArray(request.messages),'fixed input');
+   const lastUser=[...request.messages].reverse().find(m=>m.role==='user');
+   const uiMarker=uiMarkers.find(marker=>lastUser?.content?.some(c=>c.type==='text'&&c.text===marker));
+   if(uiMarker){
+    assert(headless&&lead&&(uiCalls[uiMarker]??0)===0,'UI request budget');
+    uiCalls[uiMarker]=1;
+    const events=[{type:'message_start',message:{id:'fixture-ui-'+uiMarker,type:'message',role:'assistant',model:'deepseek-flash',content:[],usage:{input_tokens:1,output_tokens:0}}},{type:'content_block_start',index:0,content_block:{type:'text',text:uiMarker+'_REPLY'}},{type:'content_block_stop',index:0},{type:'message_delta',delta:{stop_reason:'end_turn'},usage:{output_tokens:1}},{type:'message_stop'}];
+    res.writeHead(200,{'content-type':'text/event-stream','cache-control':'no-store'});
+    for(const event of events)res.write(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
+    res.end();return;
+   }
+   requests++;assert(requests<=4,'request budget');
    const results=request.messages.flatMap(m=>m.content||[]).filter(c=>c.type==='tool_result');
    const spawning=lead&&results.length===0;
    assert(request.messages.some(m=>m.role==='user'&&m.content?.some(c=>c.type==='text'&&c.text===(lead?prompt:'CABINET_PROTOCOL_MEMBER_V1'))),'fixed input');
@@ -93,7 +103,7 @@ try{
    res.writeHead(200,{'content-type':'text/event-stream','cache-control':'no-store'});
    for(const event of events)res.write(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
    res.end();
-  }catch(error){violation=true;rejected.add(['request budget','loopback peer','endpoint','fixture authentication','body budget','protocol','fixed input','fixed tool availability','fixed tool result','release control','single spawn','single teammate request'].includes(error.message)?error.message:'parse');res.writeHead(400,{'content-type':'application/json'});res.end(JSON.stringify({type:'error',error:{type:'invalid_request_error',message:'fixture request rejected'}}))}
+  }catch(error){violation=true;rejected.add(['request budget','loopback peer','endpoint','fixture authentication','body budget','protocol','fixed input','fixed tool availability','fixed tool result','release control','single spawn','single teammate request','UI request budget'].includes(error.message)?error.message:'parse');res.writeHead(400,{'content-type':'application/json'});res.end(JSON.stringify({type:'error',error:{type:'invalid_request_error',message:'fixture request rejected'}}))}
  });
  server.requestTimeout=10000;server.headersTimeout=10000;
  await new Promise((yes,no)=>{server.once('error',no);server.listen(0,'127.0.0.1',yes)});
@@ -125,14 +135,26 @@ try{
   assert(match,'official host authentication URL absent');
   const auth=new URL(match[1]);
   assert(auth.hostname==='127.0.0.1'&&auth.protocol==='http:'&&auth.port&&!auth.username&&!auth.password&&auth.pathname==='/','official host endpoint unexpected');
-  await teamBrowser({auth,env,repo,members:report.members});
-  assert(!violation&&requests===4,'expected browser reads not to trigger model requests');
+  const proofs=await teamBrowser({auth,env,repo,members:report.members});
+  assert(!violation&&requests===4&&uiMarkers.every(marker=>uiCalls[marker]===1),'expected independent UI model budgets');
+  // Graceful official Host shutdown drains its own persistence. Never write or
+  // fabricate log entries, and read the new evidence only after browser sends.
+  process.kill(-child.pid,'SIGTERM');
+  const flushDeadline=Date.now()+15000;while(!done&&Date.now()<flushDeadline)await pause(100);
+  assert(done,'official host did not shut down for persistence verification');
+  const persisted=[];for(const log of await files(join(env.DSH_HOME,'sessions')))persisted.push(...(await readFile(log,'utf8')).trim().split('\n').map(line=>JSON.parse(line)));
+  for(const proof of proofs){
+   const accepted=persisted.filter(row=>row.type==='user/message'&&row.data?.source?.kind==='user'&&row.data.source.rpcId===proof.requestId);
+   assert(accepted.length===1&&accepted[0].data.content.some(c=>c.type==='text'&&c.text===proof.marker),'persisted UI prompt must appear exactly once with real request identity');
+  }
+  assert(persisted.filter(r=>r.type==='tool/call').length===1,'persisted unexpected tool during UI sends');
+  console.log('PASS browser-send persistence: normal and ACK-lost Lead prompts each accepted exactly once with real RPC identity');
  }
- console.log('BOUNDARY: deterministic protocol fixture, not real model inference or UI-created sessions'+(headless?'; real browser read/navigation tested':'; browser not tested'));
+ console.log('BOUNDARY: deterministic protocol fixture, not real model inference or UI-created sessions'+(headless?'; real browser read/navigation, normal send and accepted-ACK-loss tested':'; browser not tested'));
 
  if(process.env.CABINET_PROTOCOL_REPORT)await writeFile(process.env.CABINET_PROTOCOL_REPORT,JSON.stringify({fixture:'team-v1',requests,persistedRows:rows.length,members:report.members.map(({id,role})=>({id,role,preset:'cabinet',turnEnded:true})),modelInference:false},null,2)+'\n');
 }catch(error){
- console.error('DIAGNOSTIC fixture: '+JSON.stringify({requests,calls,rejections:[...rejected],hostAnnounced:/dsh web:/.test(output),driverMentioned:/protocol-team-driver/.test(output),stages:['driver applied','resolve cabinet preset','create real cabinet agent','real lead tool loop','real teammate completion','flush real session persistence'].filter(s=>output.includes('FIXTURE_STAGE '+s))}));
+ console.error('DIAGNOSTIC fixture: '+JSON.stringify({requests,uiCalls,calls,rejections:[...rejected],hostAnnounced:/dsh web:/.test(output),driverMentioned:/protocol-team-driver/.test(output),stages:['driver applied','resolve cabinet preset','create real cabinet agent','real lead tool loop','real teammate completion','flush real session persistence'].filter(s=>output.includes('FIXTURE_STAGE '+s))}));
  console.error('FAIL protocol fixture: '+(error instanceof Error&&/^(official |expected |persisted |text fixture)/.test(error.message)?error.message:'fixture setup or validation failed (raw diagnostics withheld)'));
  process.exitCode=1;
 }finally{

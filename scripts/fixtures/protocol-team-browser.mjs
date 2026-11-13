@@ -1,11 +1,12 @@
 // Real browser against the same official host and persisted deterministic Team.
-// No host API mocking, synthetic services, prompt submission or model inference.
+// Real fixed prompt submissions; no synthetic host services or real model inference.
+// ACK-loss injection forwards the real request before suppressing its accepted response.
 import {createRequire} from 'node:module';
 import {join,resolve} from 'node:path';
 import {readFile} from 'node:fs/promises';
 export async function teamBrowser({auth,env,repo,members}){
  let browser,page,stage='browser setup',pageErrors=0,consoleErrors=0,assetSeen=false;
- const origin=auth.origin,assetReads=[];
+ const origin=auth.origin,assetReads=[],proofs=[],promptCounts=new Map();let routeFailed=false;
  const stopBrowser=()=>{browser?.close().catch(()=>{})};
  process.once('SIGTERM',stopBrowser);process.once('SIGINT',stopBrowser);
  const screenshot=async()=>{if(!page||!process.env.CABINET_TEAM_SCREENSHOT)return false;const url=new URL(page.url());if(url.origin!==origin||url.search||url.hash)return false;await page.screenshot({path:process.env.CABINET_TEAM_SCREENSHOT,fullPage:true});return true};
@@ -66,11 +67,50 @@ export async function teamBrowser({auth,env,repo,members}){
   stage='real persisted spawn tool in history';
   const tool=group.locator('[data-cabinet-groupchat-tools]').first();await tool.click();
   await group.locator('[data-cabinet-groupchat-tool]').filter({hasText:'spawn_teammate'}).waitFor({state:'visible'});
-  if(pageErrors)throw Error('browser runtime error');
+  const promptRoute=async route=>{
+   let marker;
+   try{
+    const envelope=route.request().postDataJSON();
+    const request=envelope?.payload?.args?.request;
+    marker=request?.content?.length===1&&request.content[0].type==='text'?request.content[0].text:undefined;
+    if(!['CABINET_UI_SEND_V1','CABINET_UI_ACK_LOST_V1'].includes(marker)){await route.continue();return}
+    promptCounts.set(marker,(promptCounts.get(marker)||0)+1);
+    if(envelope.type!=='client-request'||envelope.method!=='session/prompt'||request.sessionId!==lead.id||request.mode!=='queue'||typeof request.requestId!=='string'||promptCounts.get(marker)!==1)throw Error('unexpected prompt');
+    // Forward exactly once, then inspect the REAL Host acknowledgement BEFORE
+    // suppressing it. No abort-before-admission, retries, synthetic ACK or replay.
+    const response=await route.fetch({maxRetries:0,maxRedirects:0,timeout:30000});
+    const ack=await response.json();
+    if(response.status()!==200||ack.type!=='server-response'||ack.rpcId!==envelope.rpcId||ack.result?.ok!==true||ack.result.value?.accepted!==true)throw Error('host did not accept');
+    proofs.push({marker,requestId:request.requestId});
+    if(marker==='CABINET_UI_ACK_LOST_V1')await route.abort('failed');
+    else await route.fulfill({response});
+   }catch{routeFailed=true;try{await route.abort('failed')}catch{}}
+  };
+  await context.route(origin+'/api/session/prompt',promptRoute);
+  const input=page.locator('[data-cabinet-groupchat-input]');
+  for(const marker of ['CABINET_UI_SEND_V1','CABINET_UI_ACK_LOST_V1']){
+   stage=marker==='CABINET_UI_SEND_V1'?'normal Cabinet prompt acknowledgement':'accepted Lead prompt with acknowledgement lost';
+   await input.fill(marker);await page.locator('[data-cabinet-groupchat-send]').click();
+   await page.waitForFunction(()=>document.querySelector('[data-cabinet-groupchat-send]')?.getAttribute('data-cabinet-groupchat-sending')==='0');
+   await group.locator('[data-cabinet-groupchat-row="assistant"]').filter({has:page.locator(`[data-cabinet-open-session=${JSON.stringify(lead.id)}]`)}).filter({hasText:marker+'_REPLY'}).first().waitFor({state:'visible'});
+   if(routeFailed||promptCounts.get(marker)!==1||proofs.filter(p=>p.marker===marker).length!==1)throw Error('prompt acceptance proof failed');
+   if(marker==='CABINET_UI_SEND_V1'){
+    if(await input.inputValue()!=='')throw Error('acknowledged draft not cleared');
+   }else{
+    if(await input.inputValue()!==marker)throw Error('uncertain draft not retained');
+    const hint=page.locator('[data-cabinet-groupchat-composer-hint]');
+    await hint.waitFor({state:'visible'});
+    if(!/Delivery outcome unknown; not resent|发送结果未知，未自动重发/.test(await hint.innerText()))throw Error('missing explicit uncertain-delivery warning');
+   }
+  }
+  if(pageErrors||routeFailed||[...promptCounts.values()].some(n=>n!==1))throw Error('browser prompt runtime or duplication failure');
   await screenshot();
-  console.log('PASS real official host Chromium: installed exact Cabinet client, real lead selection, persisted lead/member output and spawn tool history');
+  console.log('PASS real Cabinet sends: normal ACK and accepted-then-lost Lead ACK, one request per fixed prompt');
+  return proofs;
+
+
  }catch(error){
-  const diagnostic={stage,pageErrors,consoleErrors,assetSeen,screenshotSaved:false};
+  const diagnostic={stage,pageErrors,consoleErrors,assetSeen,screenshotSaved:false,acceptedPromptCount:proofs.length,promptCounts:Object.fromEntries(promptCounts),routeFailed};
   if(page){try{Object.assign(diagnostic,await page.evaluate(()=>({dialogs:document.querySelectorAll('[role="dialog"]').length,conversations:document.querySelectorAll('[data-cabinet-conversation-item]').length,historyRows:document.querySelectorAll('[data-cabinet-groupchat-row]').length,historyErrors:document.querySelectorAll('[data-cabinet-groupchat-error]').length})));diagnostic.screenshotSaved=await screenshot()}catch{}}
   console.error('DIAGNOSTIC team browser: '+JSON.stringify(diagnostic));
   // Never expose Playwright messages, which may include launch tokens/URLs.
