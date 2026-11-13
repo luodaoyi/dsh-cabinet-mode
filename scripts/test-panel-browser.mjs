@@ -22,7 +22,12 @@ const timers=new Set(),originalSet=window.setInterval,originalClear=window.clear
 window.setInterval=(fn,ms)=>{const id=originalSet(fn,ms);timers.add(id);return id};
 window.clearInterval=id=>{timers.delete(id);originalClear(id)};
 const members=[{id:'lead',name:'lead',role:'lead',phase:'active'},{id:'mate',name:'works',role:'teammate',phase:'active'}];
-const tasks=[{id:'task',ownerName:'works',subject:'Open task session',status:'pending',blockedBy:['other']},{id:'other',ownerName:'works',subject:'Blocker task',status:'pending'}];
+const tasks=[
+ {id:'task',ownerName:'works',subject:'Open task session',status:'pending',blockedBy:['other'],description:'Assigned pending instructions',writeScopes:['pending.txt']},
+ {id:'other',ownerName:'works',subject:'Blocker task',status:'pending'},
+ {id:'active',ownerName:'works',subject:'Assigned active work',status:'in_progress',updatedAt:20,description:'Assigned active instructions',writeScopes:['active.txt']},
+ {id:'unassigned',subject:'Unassigned work',status:'pending',description:'Unassigned instructions',writeScopes:['unassigned.txt']}
+];
 const root=createRoot(document.getElementById('panel'));
 const taskRoot=createRoot(document.getElementById('task-fixture'));
 const stats=()=>document.getElementById('stats').textContent=JSON.stringify({opens,calls,timers:timers.size,errors});
@@ -44,8 +49,33 @@ document.getElementById('run').onclick=async()=>{const passed=[];try{
   team=undefined;render();await wait();assert(!errors.length,'team disappears');passed.push('team disappears');
   team={members,tasks};render();await wait();
   assert(!document.querySelector('button button'),'no nested buttons');passed.push('no nested buttons');
-  // Current-task-only member cards do not contain pending TaskLine rows.
-  // Test the retained TaskLine navigation/disclosure independently.
+  // Exercise actual CabinetPanel owner grouping, not only a standalone leaf.
+  const details=document.querySelector('[data-cabinet-member-tasks="mate"]');
+  assert(details&&details.tagName==='DETAILS'&&!details.open,'assigned tasks start collapsed');
+  const card=details.closest('.cabinet-card');
+  assert(card.querySelector('[data-cabinet-task-desc]').textContent.includes('Assigned active work'),'active assigned task is current');
+  assert(card.querySelector('[data-cabinet-task-desc]').getAttribute('data-cabinet-task')==='active','active task has a visible dependency anchor');
+  const active=details.querySelector('[data-cabinet-task="active"]');
+  const assigned=details.querySelector('[data-cabinet-task="task"]');
+  const unassigned=document.querySelector('#panel [data-cabinet-task="unassigned"]');
+  assert(active&&assigned&&unassigned&&!details.contains(unassigned),'assigned and unassigned tasks remain correctly grouped');
+  opens=[];details.querySelector('summary').click();await wait();assert(details.open&&opens.length===0,'assigned task disclosure does not navigate');
+  for(const [row,description,scope] of [[active,'Assigned active instructions','active.txt'],[assigned,'Assigned pending instructions','pending.txt'],[unassigned,'Unassigned instructions','unassigned.txt']]){
+    const toggle=row.querySelector('[data-cabinet-task-sheet-toggle]');toggle.click();await wait();
+    assert(row.querySelector('[data-cabinet-task-sheet="description"]').textContent===description,'real grouped task description');
+    assert(row.querySelector('[data-cabinet-task-sheet="writeScopes"]').textContent===scope,'real grouped task scopes');
+    toggle.click();await wait();
+  }
+  assert(opens.length===0,'all grouped task disclosures remain local');
+  const assignedSubject=Array.from(assigned.querySelectorAll('button')).find(button=>button.textContent==='Open task session');
+  assignedSubject.click();assert(opens.length===1&&opens[0][0]?.childSessionId==='mate'&&opens[0][0]?.parentSessionId==='lead'&&opens[0][0]?.mode==='continuable','assigned pending task opens actual member once');
+  const activeSubject=Array.from(active.querySelectorAll('button')).find(button=>button.textContent==='Assigned active work');
+  activeSubject.click();assert(opens.length===2&&opens[1][0]?.childSessionId==='mate'&&opens[1][0]?.parentSessionId==='lead'&&opens[1][0]?.mode==='continuable','assigned active task opens actual member once');
+  assert(!Array.from(unassigned.querySelectorAll('button')).some(button=>button.textContent==='Unassigned work'),'unassigned task has no invented owner navigation');
+  unassigned.click();assert(opens.length===2,'unassigned task row never navigates');
+  details.querySelector('summary').click();await wait();assert(!details.open,'member details close normally');
+  passed.push('assigned active, assigned pending and unassigned task grouping, disclosures and navigation');
+  // Keep the independent TaskLine navigation/disclosure contract as well.
   taskRoot.render(React.createElement(cabinet.TaskLine,{task:tasks[0],blockerOf:id=>tasks.find(t=>t.id===id),t:k=>cabinet.en[k]||k,taskLabel:s=>s,onOpenOwner:()=>opens.push(['mate'])}));await wait();
   assert(!document.querySelector('button button'),'task controls are not nested');
   const button=Array.from(document.querySelectorAll('#task-fixture button')).find(e=>e.textContent==='Open task session');
@@ -92,9 +122,19 @@ if(process.argv.includes('--headless')){
     const summary=allTasks.locator('summary');
     await summary.focus();await page.keyboard.press('Enter');
     await page.waitForFunction(()=>document.querySelector('[data-cabinet-member-tasks="mate"]')?.open===true);
-    await allTasks.locator('[data-cabinet-task-sheet-toggle="task"]').focus();
-    await page.keyboard.press('Enter');
-    await allTasks.locator('[data-cabinet-task-sheet="description"]').first().waitFor({state:'visible'});
+    const nativeBefore=await page.evaluate(()=>window.taskNavigationCount());
+    for(const [id,description,scope] of [['active','Assigned active instructions','active.txt'],['task','Assigned pending instructions','pending.txt'],['unassigned','Unassigned instructions','unassigned.txt']]){
+      const row=(id==='unassigned'?page.locator('#panel'):allTasks).locator('[data-cabinet-task="'+id+'"]');
+      const toggle=row.locator('[data-cabinet-task-sheet-toggle]');
+      await toggle.focus();await page.keyboard.press('Enter');
+      const text=row.locator('[data-cabinet-task-sheet="description"]');await text.waitFor({state:'visible'});
+      if(await text.textContent()!==description||await row.locator('[data-cabinet-task-sheet="writeScopes"]').textContent()!==scope)throw Error('grouped task sheet mismatch');
+      await toggle.focus();await page.keyboard.press('Space');await text.waitFor({state:'hidden'});
+    }
+    if(await page.evaluate(()=>window.taskNavigationCount())!==nativeBefore)throw Error('grouped task keyboard disclosure navigated');
+    await allTasks.getByRole('button',{name:'Open task session',exact:true}).focus();await page.keyboard.press('Enter');
+    await allTasks.getByRole('button',{name:'Assigned active work',exact:true}).focus();await page.keyboard.press('Space');
+    if(await page.evaluate(()=>window.taskNavigationCount())!==nativeBefore+2)throw Error('assigned task keyboard navigation not exactly once each');
     await summary.focus();await page.keyboard.press('Space');
     await page.waitForFunction(()=>document.querySelector('[data-cabinet-member-tasks="mate"]')?.open===false);
     const navigationBefore=await page.evaluate(()=>window.taskKeyboardMount());
