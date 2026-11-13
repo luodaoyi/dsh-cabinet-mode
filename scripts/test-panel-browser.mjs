@@ -22,7 +22,9 @@ const timers=new Set(),originalSet=window.setInterval,originalClear=window.clear
 window.setInterval=(fn,ms)=>{const id=originalSet(fn,ms);timers.add(id);return id};
 window.clearInterval=id=>{timers.delete(id);originalClear(id)};
 const members=[{id:'lead',name:'lead',role:'lead',phase:'active'},{id:'mate',name:'works',role:'teammate',phase:'active'}];
-const tasks=[{id:'task',ownerName:'works',subject:'Open task session',status:'pending',blockedBy:['other']},{id:'other',ownerName:'works',subject:'Blocker task',status:'pending'}];
+// 未分派（不写 ownerName）：成员卡按用户规格「一卡只显当前任务、不挂任务列表」，
+// 任务行只在组卡渲染——点击下钻断言依赖组卡的 TaskLine。
+const tasks=[{id:'task',subject:'Open task session',status:'pending',blockedBy:['other']},{id:'other',subject:'Blocker task',status:'pending'}];
 const root=createRoot(document.getElementById('panel'));
 const stats=()=>document.getElementById('stats').textContent=JSON.stringify({opens,calls,timers:timers.size,errors});
 cabinet.setOpener((...args)=>{opens.push(args);stats()});
@@ -43,9 +45,26 @@ document.getElementById('run').onclick=async()=>{const passed=[];try{
   team=undefined;render();await wait();assert(!errors.length,'team disappears');passed.push('team disappears');
   team={members,tasks};render();await wait();
   assert(!document.querySelector('button button'),'no nested buttons');passed.push('no nested buttons');
-  const button=Array.from(document.querySelectorAll('#panel button')).find(e=>e.textContent==='Open task session');
-  opens=[];button.click();assert(opens.length===1,'subject bubbles once');passed.push('subject click opens once');
-  opens=[];document.querySelector('[data-cabinet-task="task"]').click();assert(opens.length===1,'row click');passed.push('row click opens once');
+  // 新规格（用户：一卡一任务、任务行只在组卡）：组卡任务没有 member 会话可开
+  // （TaskLine 注释明说 unassigned/foreign/lead-owner 一律 onOpenOwner===null），
+  // subject 收成纯文本、行不可导航；点击行内只展开任务书 sheet。
+  const subj=Array.from(document.querySelectorAll('#panel *')).find(e=>e.children.length===0&&e.textContent==='Open task session');
+  assert(subj,'group task subject renders');
+  assert(subj.tagName!=='BUTTON','group subject is plain text (no owner session to open), got '+subj.tagName);
+  opens=[];subj.click();await wait();
+  assert(opens.length===0,'plain subject does not navigate');
+  assert(document.querySelector('[data-cabinet-task-sheet="description"]'),'subject click expands the task sheet; parentRow='+String(subj.parentElement.getAttribute('data-cabinet-task-row'))+' sheets='+document.querySelectorAll('[data-cabinet-task-sheet]').length);
+  passed.push('group subject is plain and expands the sheet');
+  const anchor=document.querySelector('[data-cabinet-task="task"]');
+  assert(anchor,'the task row anchor renders for the edge overlay');
+  assert(!String(anchor.className||'').includes('cabinet-clickable'),'an unassigned row carries no navigation opener');
+  passed.push('unassigned row carries no opener');
+  // 新规格锁死：任务行只在组卡（未分派等），成员卡内一个都不许有。
+  const memberCards=Array.from(document.querySelectorAll('.cabinet-card')).filter(c=>c.querySelector('[data-cabinet-status]'));
+  assert(memberCards.length>=1,'member cards render');
+  assert(memberCards.every(c=>!c.querySelector('[data-cabinet-task]')),'member cards carry no task rows');
+  assert(document.querySelectorAll('[data-cabinet-task]').length>=1,'the unassigned group card still lists tasks');
+  passed.push('task rows live in group cards only');
   opens=[];const toggle=Array.from(document.querySelectorAll('#panel button')).find(e=>e.textContent.includes('blocked by'));toggle.click();assert(opens.length===0,'blocker toggle inert');passed.push('blocker toggle does not navigate');
   live=true;render();await wait();mounted=false;render();await wait();assert(timers.size===0,'unmount cleanup');assert(!errors.length,'no React errors');passed.push('unmount cleanup');
   mounted=true;live=false;render();await wait();document.getElementById('result').textContent='PASS '+passed.length+' '+passed.join('; ');stats();
