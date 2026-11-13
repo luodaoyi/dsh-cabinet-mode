@@ -260,10 +260,10 @@ for (const [i, group] of groups.entries()) {
   assert.equal(group.children[0], labels[i]);
   assert.equal(group.props.title, labels[i]);
 }
-// The actual panel leaf renderer uses the same asset for every supported alias.
+// 方块头像新规格：每个别名渲染圆角方块头像节点（字母由名字派生）。
 for (const name of ['lead', 'hanlin-bianxiu', 'gongbu-zhushi', 'dalisi-pingshi', 'jiancha-yushi', 'unknown-person']) {
   const card = elements(client.MemberCard({member:{name,phase:'active'},statusLabel:s=>s}));
-  assert.ok(card.some(n=>n.type==='img' && n.props.src===client.avatarFor(name)), name);
+  assert.ok(card.some(n=>n.props?.['data-cabinet-avatar-block'] !== undefined), name + ' renders the rounded-square avatar block');
 }
 // --- task dependency edges: cross-member blockedBy wires with three states ---
 const edgeRect = (left, top) => ({ left, top, right: left + 140, bottom: top + 26, width: 140, height: 26 });
@@ -354,9 +354,17 @@ const depTeam = {
   tasks: edgeTasks,
 };
 const depEls = elements(render(depTeam, client.zh));
+// 新规格：阁臣卡只显示当前一个任务（其行带锚供依赖边测量），组卡任务行照旧带锚；
+// 组件层契约（每条 TaskLine 都带锚）由直调断言单独覆盖。
 const anchored = depEls.filter((node) => node.props && 'data-cabinet-task' in node.props);
-assert.equal(anchored.length, edgeTasks.length, 'every task row carries a data-cabinet-task anchor');
-assert.deepEqual(anchored.map((node) => node.props['data-cabinet-task']).sort(), edgeTasks.map((task) => task.id).sort());
+const panelTaskLines = depEls.filter((node) => node.props && ('data-cabinet-task' in node.props || node.props?.['data-cabinet-task-desc'] !== undefined));
+assert.ok(anchored.length > 0, 'rendered task rows still expose measurement anchors, got ' + anchored.length);
+assert.ok(anchored.length <= panelTaskLines.length && panelTaskLines.length > 0, 'every rendered task line is either anchored or the single-task card line');
+assert.ok(anchored.every((node) => typeof node.props['data-cabinet-task'] === 'string'), 'anchors carry the task id');
+const directAnchored = edgeTasks.flatMap((task) => elements(client.TaskLine({ task, blockerOf: () => false, t: (key) => key, taskLabel: (status) => status })))
+  .filter((node) => node.props && 'data-cabinet-task' in node.props);
+assert.equal(directAnchored.length, edgeTasks.length, 'every TaskLine row carries a data-cabinet-task anchor (component contract)');
+assert.deepEqual(directAnchored.map((node) => node.props['data-cabinet-task']).sort(), edgeTasks.map((task) => task.id).sort());
 assert.ok(!depEls.some((node) => node.props && 'data-cabinet-edge' in node.props),
   'edges are drawn only after measurement, never from stale render state');
 // TaskLine forwards the anchor id through Row onto the row element
@@ -438,16 +446,21 @@ const clickTeam = {
 const clickEls = elements(render(clickTeam, client.zh));
 const subjectByTitle = new Map();
 for (const node of clickEls) if (node.props?.key === 'subj') subjectByTitle.set(node.props.title, node);
-assert.equal(subjectByTitle.size, clickTeam.tasks.length, 'every task subject rendered');
+// 新规格：阁臣卡不挂任务列表——own 任务（works/dali/yushi）不再上卡，lead/unassigned
+// 仍走组卡；opener 分配规则（mate 可开/failed·provisioning·lead·未分派不开）由
+// TaskLine 直调按组件契约覆盖。
+assert.equal(subjectByTitle.size, 2, 'only the lead/unassigned group cards still mount task subjects, got ' + subjectByTitle.size + ': ' + [...subjectByTitle.keys()].join(','));
 assert.equal(subjectByTitle.get('lead owns this').props.onClick, undefined, 'lead task: panel hands no opener');
 assert.equal(subjectByTitle.get('no owner').props.onClick, undefined, 'unassigned task: panel hands no opener');
-assert.equal(typeof subjectByTitle.get('works owns this').props.onClick, 'function', 'teammate task binds');
-assert.equal(subjectByTitle.get('dali owns this').props.onClick, undefined, 'failed-owner task: no opener');
-assert.equal(subjectByTitle.get('yushi owns this').props.onClick, undefined, 'provisioning-owner task: no opener');
-assert.equal(subjectByTitle.get('works owns this').props.style.cursor, 'pointer', 'clickable subject shows the pointer');
 assert.equal(subjectByTitle.get('lead owns this').props.style.cursor, undefined, 'lead task keeps the plain cursor');
+const directSubject = (task, opener) => elements(client.TaskLine({ task, blockerOf: () => false, t: (key) => key, taskLabel: (status) => status, onOpenOwner: opener })).find((node) => node.props?.key === 'subj');
+const worksTask = { id: 'k-works', subject: 'works owns this', ownerName: 'works', status: 'pending' };
+assert.equal(typeof directSubject(worksTask, () => true).props.onClick, 'function', 'teammate task binds');
+assert.equal(directSubject({ id: 'k-dali', subject: 'dali owns this', ownerName: 'dali', status: 'pending' }, null).props.onClick, undefined, 'failed-owner task: no opener');
+assert.equal(directSubject({ id: 'k-yushi', subject: 'yushi owns this', ownerName: 'yushi', status: 'pending' }, null).props.onClick, undefined, 'provisioning-owner task: no opener');
+assert.equal(directSubject(worksTask, () => true).props.style.cursor, 'pointer', 'clickable subject shows the pointer');
 // a bound click with no uiWorkspace channel must degrade silently, never throw
-assert.equal(subjectByTitle.get('works owns this').props.onClick(), false, 'missing channel → silent false, no throw');
+assert.equal(directSubject(worksTask, () => false).props.onClick(), false, 'missing channel → silent false, no throw');
 // member cards: same inert rule as the native roster row (self / failed / provisioning)
 const cardWho = (member, extra) => elements(client.MemberCard({
   member, statusLabel: (status) => status, ...extra,
@@ -693,8 +706,9 @@ const usageCard = elements(client.MemberCard({
 })).find((node) => node.props?.key === 'usage');
 assert.ok(usageCard, 'the card renders a usage line');
 const usageText = JSON.stringify(usageCard);
-assert.ok(usageText.includes(client.zh['usage.tokens'] + ' 3M'), 'token total is rendered compactly: ' + usageText.slice(0, 160));
-assert.ok(usageText.includes(client.zh['usage.elapsed'] + ' 17s'), 'elapsed time is rendered');
+const bareTok = elements(usageCard).find((node) => node.props?.key === 'tok');
+assert.ok(bareTok && bareTok.children.join('') === '3M', 'token renders as a bare number without the label, got: ' + JSON.stringify(bareTok && bareTok.children));
+assert.ok(usageText.includes('17s'), 'elapsed time is rendered in the foot row');
 assert.ok(usageText.includes('30%'), 'context percent is rendered');
 assert.ok(usageText.includes(client.zh['usage.team'] + ' 3K'), 'the lead card shows the team total');
 const bars = elements(usageCard).filter((node) => node.props?.className === 'cabinet-ctxbar-system');
@@ -704,10 +718,13 @@ const dashCard = elements(client.MemberCard({
   statusLabel: (status) => status,
   t: zhT,
   usage: empty,
+  activity: { time: 0, count: 0 },
 })).find((node) => node.props?.key === 'usage');
 const dashText = JSON.stringify(dashCard);
-assert.ok(dashText.includes(client.zh['usage.tokens'] + ' ' + client.zh['usage.none']), 'a missing token projection renders the em dash');
-assert.ok(dashText.includes(client.zh['usage.elapsed'] + ' ' + client.zh['usage.none']), 'a missing timing projection renders the em dash');
+const dashTok = elements(dashCard).find((node) => node.props?.key === 'tok');
+assert.ok(dashTok && dashTok.children.join('') === client.zh['usage.none'], 'a missing token projection renders the em dash');
+const dashTime = elements(dashCard).find((node) => node.props?.key === 'time');
+assert.ok(dashTime && dashTime.children.join('') === client.zh['usage.none'], 'a missing timing projection renders the em dash');
 assert.ok(!dashText.includes('cabinet-ctxbar'), 'no context bar without a pressure projection');
 const noUsageCard = elements(client.MemberCard({ member: { name: 'works', phase: 'active' }, statusLabel: (status) => status, t: (key) => key }))
   .filter((node) => node.props?.key === 'usage');
@@ -726,11 +743,36 @@ const meterNode = dressed.find((node) => node.props?.['data-cabinet-meter'] !== 
 assert.ok(meterNode, 'the card renders the segmented context meter (data-cabinet-meter)');
 const dressedText = JSON.stringify(dressed);
 assert.ok(dressedText.includes('30%'), 'the card shows the context percent text');
-assert.ok(dressedText.includes(client.zh['usage.tokens'] + ' 3M') && dressedText.includes(client.zh['usage.elapsed'] + ' 17s'), 'the card keeps the token · 耗时 text row');
-const ringNode = dressed.find((node) => typeof node.props?.style?.boxShadow === 'string' && node.props.style.boxShadow.includes('hsl(138 58% 52%)'));
-assert.ok(ringNode, 'the avatar wears the family-color ring');
+assert.ok(dressedText.includes('3M') && dressedText.includes('17s'), 'the card keeps the token · 耗时 data points');
+const blockNode = dressed.find((node) => node.props?.['data-cabinet-avatar-block'] !== undefined);
+assert.ok(blockNode, 'the avatar is a rounded square block (data-cabinet-avatar-block)');
+assert.equal(blockNode.props.style.borderRadius, 9, 'the avatar block uses a 9px rounded square, not a circle');
+assert.ok(typeof blockNode.props.style.border === 'string' && blockNode.props.style.border.includes('hsl(138 58% 52%)'), 'the avatar block wears the family-color border');
+const dotNode = dressed.find((node) => node.props?.['data-cabinet-status'] !== undefined);
+assert.ok(dotNode, 'the head row carries the status dot');
+const descNode = dressed.find((node) => node.props?.['data-cabinet-task-desc'] !== undefined);
+assert.ok(descNode && descNode.children.join('') === '\u2014', 'a card without tasks shows the em dash on its task line');
+const meterStyled = dressed.find((node) => node.props?.['data-cabinet-meter'] !== undefined);
+assert.equal(meterStyled.props.style.width, '42%', 'the segmented bar is left-aligned at ~42% card width');
 const footNode = dressed.find((node) => node.props?.key === 'foot');
-assert.ok(footNode && JSON.stringify(footNode).includes('12 条'), 'the foot row carries the real message count');
+const footTime = footNode && elements(footNode).find((node) => node.props?.key === 'time');
+assert.ok(footTime && footTime.children.join('') === '17s \u00b7 12 步', 'the foot row reads 时间 · N 步, got: ' + JSON.stringify(footTime && footTime.children));
+assert.ok(footNode && JSON.stringify(footNode).includes('30%'), 'the foot row carries the context percent');
+const pctNode = footNode && elements(footNode).find((node) => node.props?.key === 'pct');
+assert.ok(pctNode && pctNode.props.style.color === '#22c55e', 'a ≤60% percent stays green, got: ' + JSON.stringify(pctNode && pctNode.props.style));
+const pctColorOf = (percent) => {
+  const card = elements(client.MemberCard({
+    member: { id: 'm-pct', name: 'pct', phase: 'active' },
+    statusLabel: (status) => status,
+    t: zhT,
+    usage: { tokens: 1, elapsedMs: 1, context: { percent, segments: [] } },
+  })).find((node) => node.props?.key === 'foot');
+  const node = card && elements(card).find((child) => child.props?.key === 'pct');
+  return node ? node.props.style.color : undefined;
+};
+assert.equal(pctColorOf(70), '#f59e0b', 'a >60% percent turns amber');
+assert.equal(pctColorOf(90), '#ef4444', 'a >85% percent turns red');
+assert.equal(pctColorOf(80), '#f59e0b', 'the screenshot 80.2% case stays amber under the >85 red threshold');
 
 // 家族色：不同成员的卡片边框色不同（黄金角散列，同色即错）。
 const huePanel = elements(client.CabinetPanel({
@@ -853,6 +895,10 @@ const factsUsageText = (nodes) => nodes
   .filter((node) => node.props?.key === 'usage')
   .map((node) => JSON.stringify(node))
   .join('|');
+const factsTokText = (nodes) => nodes
+  .filter((node) => node.props?.key === 'tok')
+  .map((node) => node.children.join(''))
+  .join('|');
 
 clockState.now = 2000000;
 recordedEffects.length = 0;
@@ -862,7 +908,7 @@ resetHookCursor();
 const factsFirst = factsPanel(2000);
 const factsStop = factsRunEffects();
 assert.deepEqual(Array.from(factsReads).sort(), ['lead-session', 'm-works'], 'the first pass ensures every member once (an idle one included)');
-assert.ok(factsUsageText(factsFirst).includes(' 2K'), 'the first read paints the member total');
+assert.ok(factsTokText(factsFirst).includes('2K'), 'the first read paints the member total');
 const factsCallsAfterFirst = factsCalls.length;
 const factsReadsAfterFirst = factsReads.length;
 await new Promise((resolve) => setTimeout(resolve, 0));
@@ -886,8 +932,8 @@ const factsCallsBeforePush = factsCalls.length;
 resetHookCursor();
 const factsPushed = factsPanel(5000);
 factsRunEffects();
-assert.ok(factsUsageText(factsPushed).includes(' 5K'), 'a Host-pushed projection frame updates the card to the new total');
-assert.ok(!factsUsageText(factsPushed).includes(' 2K'), 'the card shows the pushed value, not the stale one');
+assert.ok(factsTokText(factsPushed).includes('5K'), 'a Host-pushed projection frame updates the card to the new total');
+assert.ok(!factsTokText(factsPushed).includes('2K'), 'the card shows the pushed value, not the stale one');
 assert.equal(factsReads.length, factsReadsAfterFirst, 'the update came from the push, not from re-reading the session');
 assert.equal(factsCalls.length, factsCallsBeforePush, 'a push never re-reads or re-requests on its own');
 factsStop();
@@ -1401,9 +1447,19 @@ assert.equal(client.usageFor({tokenUsage:{outputTokens:-1},contextPressure:{cont
     members: [{ id: 'm-works', name: 'works', role: 'mate', phase: 'active' }],
     tasks: [{ id: 'panel-1', subject: '面板任务', status: 'pending', ownerName: 'works', description: '目标：改右栏', writeScopes: ['client.js'] }],
   }, client.zh));
-  assert.ok(!panelNodes.some((node) => node.props?.['data-cabinet-task-sheet'] !== undefined), 'panel folds the task sheet by default');
-  assert.ok(!panelNodes.some((node) => node.props?.key === 'scopes'), 'panel hides the write scopes by default');
-  assert.ok(panelNodes.some((node) => node.props?.['data-cabinet-task-row'] !== undefined), 'panel renders the compact single-line task row');
+  // 单任务行新规格：阁臣卡不挂任务行，卡上只显示当前一个任务的标题。
+  assert.ok(!panelNodes.some((node) => node.props?.['data-cabinet-task-row'] !== undefined), 'roster cards no longer mount task rows');
+  assert.ok(panelNodes.some((node) => node.props?.['data-cabinet-task-desc'] !== undefined), 'the card shows its single current-task line');
+  assert.ok(JSON.stringify(panelNodes).includes('面板任务'), 'the task subject stays visible on the card');
+  const pickTree = JSON.stringify(elements(render({
+    members: [{ id: 'm-pick', name: 'pick', role: 'mate', phase: 'active' }],
+    tasks: [
+      { id: 't-old', subject: '最近的旧任务', status: 'pending', ownerName: 'pick' },
+      { id: 't-now', subject: '进行中的任务', status: 'in_progress', ownerName: 'pick' },
+    ],
+  }, client.zh)));
+  assert.ok(pickTree.includes('进行中的任务'), 'the in_progress task title wins on the card');
+  assert.ok(!pickTree.includes('最近的旧任务'), 'non-active tasks stay off the card');
   const english = client.TaskLine({
     task: { id: 'en-1', subject: 'sheet', status: 'pending' },
     t: (key) => client.en[key] || key,
@@ -1415,41 +1471,7 @@ assert.equal(client.usageFor({tokenUsage:{outputTokens:-1},contextPressure:{cont
 }
 
 
-// 任务书默认折叠：初始渲染不含任务书正文；点任务行展开、再点收起（单行 ~24px）。
-{
-  persistentRefs = { cursor: 0, slots: [] };
-  hookStates.slots.length = 0;
-  recordedEffects.length = 0;
-  resetHookCursor();
-  const foldTask = { id: 'fold-1', subject: '折叠任务', status: 'in_progress', ownerName: 'works', description: '目标：折叠起来才出现', writeScopes: ['client.js'] };
-  const foldArgs = { task: foldTask, t: (key) => client.zh[key] || key, taskLabel: (status) => status };
-  const fakeClick = () => ({ stopped: false, stopPropagation() { this.stopped = true; } });
-  let foldTree = elements(client.TaskLine(foldArgs));
-  const foldRow0 = elements(foldTree).find((node) => node.props?.['data-cabinet-task-row'] !== undefined);
-  assert.ok(foldRow0, 'the compact task row renders (data-cabinet-task-row)');
-  assert.equal(foldRow0.props.style.height, 24, 'the task row is a single 24px line');
-  assert.ok(foldRow0.props.style.whiteSpace === 'nowrap' && foldRow0.props.style.overflow === 'hidden', 'the row clips to one line with ellipsis');
-  assert.ok(!elements(foldTree).some((node) => node.props?.['data-cabinet-task-sheet'] !== undefined), 'the task sheet nodes are not rendered by default');
-  assert.ok(!JSON.stringify(foldTree).includes('目标：折叠起来才出现'), 'no sheet text in the initial render');
-  const foldEvent = fakeClick();
-  foldRow0.props.onClick(foldEvent);
-  assert.equal(foldEvent.stopped, true, 'the row click stops propagation so the card opener stays out');
-  resetHookCursor();
-  foldTree = elements(client.TaskLine(foldArgs));
-  assert.ok(JSON.stringify(foldTree).includes('目标：折叠起来才出现'), 'clicking the row reveals the task sheet');
-  const foldRow1 = elements(foldTree).find((node) => node.props?.['data-cabinet-task-row'] !== undefined);
-  foldRow1.props.onClick(fakeClick());
-  resetHookCursor();
-  foldTree = elements(client.TaskLine(foldArgs));
-  assert.ok(!JSON.stringify(foldTree).includes('目标：折叠起来才出现'), 'clicking again hides the task sheet');
-  // 收尾：交还 null + 清槽，别把本块布局泄漏给后续块（3b47d6a2 教训）。
-  persistentRefs = null;
-  hookStates.slots.length = 0;
-  recordedEffects.length = 0;
-  resetHookCursor();
-}
-
-// 家族树分层：每层最多 3 个、层内居中（9/4/2 个阁臣 → 3/2/1 层），分层连线几何实测。
+// 家族树分层：每层最多 3 个、层内居中（9/4/2 个阁臣 → 3/2/1 层），弧线连线几何实测。
 {
   const layerTeam = (count) => ({
     members: [
@@ -1466,6 +1488,8 @@ assert.equal(client.usageFor({tokenUsage:{outputTokens:-1},contextPressure:{cont
   for (const [rowIndex, row] of rows9.entries()) {
     assert.equal(cardsIn(row).length, 3, 'row ' + (rowIndex + 1) + ' holds three cards, got ' + cardsIn(row).length);
     assert.equal(row.props.style.justifyContent, 'center', 'row ' + (rowIndex + 1) + ' centers its cards');
+    const flexStyles = new Set(cardsIn(row).map((card) => JSON.stringify(card.props.style)));
+    assert.equal(flexStyles.size, 1, 'row ' + (rowIndex + 1) + ' cards share one width style (equal width), got ' + flexStyles.size);
   }
   const rows4 = treeRows(4);
   assert.equal(rows4.length, 2, 'four ministers lay out in two rows (3+1), got ' + rows4.length);
@@ -1474,8 +1498,10 @@ assert.equal(client.usageFor({tokenUsage:{outputTokens:-1},contextPressure:{cont
   const rows2 = treeRows(2);
   assert.equal(rows2.length, 1, 'two ministers share one row, got ' + rows2.length);
   assert.equal(cardsIn(rows2[0]).length, 2, 'the single row holds both cards');
-  // 分层连线几何实测（buildConnectorPaths 真跑合成矩形）：按 top 聚类成行，
-  // 每卡一条支线落本层母线、lead 竖线落首层、行间有折线相连。
+  const gridBox = elements(render(layerTeam(9), client.zh)).find((node) => node.props?.key === 'grid');
+  assert.ok(gridBox && gridBox.props.style.rowGap >= 90, 'layers keep a 90px+ vertical gap for the arcs, got ' + JSON.stringify(gridBox && gridBox.props.style.rowGap));
+  // 弧线连线几何实测（buildConnectorPaths 真跑合成矩形）：lead 扇形同点出发、
+  // 每卡一条贝塞尔止于顶中点、每层居中卡扇形连下一层、线色随目标卡。
   const connBase = { left: 0, top: 0, width: 600, height: 900 };
   const connLead = { left: 260, top: 0, width: 80, height: 60 };
   const connNodes = [];
@@ -1485,22 +1511,21 @@ assert.equal(client.usageFor({tokenUsage:{outputTokens:-1},contextPressure:{cont
     }
   }
   const connPaths = client.buildConnectorPaths(connBase, connLead, connNodes, -8);
-  assert.ok(Array.isArray(connPaths) && connPaths.length > 0, 'connector paths build for a 3x3 layered tree');
+  assert.ok(Array.isArray(connPaths) && connPaths.length > 0, 'connector arcs build for a 3x3 layered tree');
   const connD = connPaths.map((path) => (typeof path === 'string' ? path : path.d));
-  let stubCount = 0;
+  const leadFan = connD.filter((d) => d.indexOf('M 300 60 L 300 74 C ') === 0);
+  assert.equal(leadFan.length, 3, 'lead fans out to layer 1 from one point after a vertical stub, got ' + leadFan.length);
+  let arrived = 0;
   for (const node of connNodes) {
     const cx = node.left + node.width / 2;
-    const busY = node.top - 8;
-    if (connD.some((d) => d.indexOf('M ' + cx + ' ' + busY + ' L ' + cx + ' ' + node.top) === 0)) stubCount += 1;
+    if (connD.some((d) => d.includes(' C ') && d.endsWith(' ' + cx + ' ' + node.top))) arrived += 1;
   }
-  assert.equal(stubCount, 9, 'every layered card gets a drop line to its own row bus, got ' + stubCount);
-  const busCount = connD.filter((d) => /^M (\d+) (\d+) L (\d+) \2$/.test(d)).length;
-  assert.ok(busCount >= 3, 'each layer keeps a horizontal bus, got ' + busCount);
-  assert.ok(connD.some((d) => d.indexOf('M 300 60 L 300 192') === 0), 'lead drops a line to the first layer bus');
-  // 无跨行折线时上限 13 条（1 lead + 3×(1 bus + 3 stub)）；更多即行间折线存在。
-  assert.ok(connPaths.length > 13, 'polylines join the layers, got ' + connPaths.length + ' paths');
+  assert.equal(arrived, 9, 'every layered card receives an arc ending at its top centre, got ' + arrived);
+  const hubFan = connD.filter((d) => d.indexOf('M 300 320 L 300 334 C ') === 0);
+  assert.equal(hubFan.length, 3, 'the layer-1 middle card fans out to layer 2, got ' + hubFan.length);
+  assert.equal(connPaths.length, 9, 'topology is lead→L1 + hub→L2 + hub→L3 = 9 arcs, got ' + connPaths.length);
   const colored = connPaths.filter((path) => typeof path === 'object' && typeof path.color === 'string' && path.color.indexOf('hsl(') === 0);
-  assert.ok(colored.length >= 9, 'drop lines carry the family colors, got ' + colored.length);
+  assert.ok(colored.length >= 9, 'arcs carry the target cards family colors, got ' + colored.length);
   // 收尾：清 CabinetPanel 入队的 effect，防泄漏给后续块（3b47d6a2 教训）。
   recordedEffects.length = 0;
 }
@@ -3569,7 +3594,7 @@ assert.ok(!/background:\s*'(#fff|white)'/.test(source), 'no bare white backgroun
       assert.ok(cellNodes.length > 0, 'roster grid cells render');
       for (const cell of cellNodes) assert.equal(cell.props.style?.flex, '0 1 calc((100% - 24px) / 3)', 'every cell wrapper uses the 3-per-row flex basis');
       // 成员名必须单行省略——竖排 = whiteSpace 没锁（御史第15轮实测症状）。
-      const nameSpans = ofTree.filter((node) => node.props?.style?.fontSize === 13 && node.props?.style?.fontWeight === 600 && typeof node.props?.title === 'string' && node.props.title.includes('·'));
+      const nameSpans = ofTree.filter((node) => node.props?.style?.fontSize === 14 && node.props?.style?.fontWeight === 600 && typeof node.props?.title === 'string' && node.props.title.includes('·'));
       assert.ok(nameSpans.length > 0, 'roster member name spans render');
       for (const nameSpan of nameSpans) {
         assert.equal(nameSpan.props.style.whiteSpace, 'nowrap', 'roster member names stay on one line (nowrap), never stacked per character');
@@ -3583,7 +3608,14 @@ assert.ok(!/background:\s*'(#fff|white)'/.test(source), 'no bare white backgroun
         assert.equal(senderSpan.props.style.textOverflow, 'ellipsis', 'chat sender names ellipsize, got ' + senderSpan.props.title);
       }
       // Owner 标签（带成员名的长文本）必须可收缩 + 单行省略，否则窄卡内被固有宽度撑破。
-      const ownerTags = ofTree.filter((node) => node.props?.style?.fontSize === 10 && typeof node.props?.title === 'string' && node.props.title.includes('·'));
+      // 新规格下阁臣 own 任务不挂卡——Owner tag 由 TaskLine 直调按组件契约覆盖。
+      const ownerTags = elements(client.TaskLine({
+        task: { id: 'o-1', subject: 'x', status: 'pending', ownerName: 'gongbu-shangshu-2' },
+        blockerOf: () => false,
+        t: (key) => pageClient.zh[key] || key,
+        taskLabel: (status) => status,
+        onOpenOwner: null,
+      })).filter((node) => node.props?.style?.fontSize === 10 && typeof node.props?.title === 'string' && node.props.title.includes('·'));
       assert.ok(ownerTags.length > 0, 'the Owner tag carrying a member name renders');
       for (const ownerTag of ownerTags) {
         assert.equal(ownerTag.props.style.minWidth, 0, 'the Owner tag can shrink (minWidth:0)');

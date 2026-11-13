@@ -3592,27 +3592,32 @@ window.__ModuleLoader__.load({
 		// line one; status dot + state text (+ live dots / model) on line two.
 		// State text carries a theme-aware class so 11px copy clears 3:1 in both
 		// themes; the badge keeps lead's formula with a light-theme dark amber.
-		function MemberCard({ member, running, model, isCurrent, lead, statusLabel, t, size, onOpen, usage, teamUsage, familyColor, activity, children }) {
+		// 首字母方块：hanlin-bianxiu → HB、gongbu-shangshu-2 → GS2（尾段纯数字附加）。
+		function memberInitials(name) {
+			const parts = String(name || '').split(/[-_\s]+/).filter(Boolean);
+			if (parts.length === 0) return '?';
+			let out = parts.slice(0, 2).map((part) => part[0].toUpperCase()).join('');
+			const tail = parts[parts.length - 1];
+			if (parts.length > 2 && /^\d+$/.test(tail)) out += tail;
+			return out;
+		}
+		// 卡片按 dsh-context 高清截图分5层：方块头像+状态点+粗名 / 任务描述 /
+		// token 数字(不带字样) / 42% 宽分段条 / 时间·N步 + 百分比(>60橙 >80红)。
+		// 卡高固定：阁臣卡只显示当前一个任务（activeTask），不再挂任务列表。
+		function MemberCard({ member, running, model, isCurrent, lead, statusLabel, t, size, onOpen, usage, teamUsage, familyColor, activity, activeTask, children }) {
 			const tt = typeof t === 'function' ? t : (key) => key;
 			const status = member.phase === 'active' ? (running ? 'running' : 'inactive') : member.phase;
-			// Availability mirrors the native roster row (agent-team TeamMemberRow):
-			// the session you are already viewing, and failed/provisioning members,
-			// are inert — no click, no pointer cursor. Opening also needs a real
-			// session id, which is what member.id is (sessionIdSchema).
 			const canOpen = typeof onOpen === 'function'
 				&& isCurrent !== true
 				&& member.phase !== 'failed'
 				&& member.phase !== 'provisioning'
 				&& typeof member.id === 'string' && member.id !== '';
-			// 家族色只上头像环与（非主控卡的）边框+8% 淡底；主控卡仍走
-			// .cabinet-card-lead 金边。底色一律来自 --dsw-* 令牌（.cabinet-card），
-			// 这里只叠半透明家族色，浅色主题下同样成立、不写死深底。
 			const hasHue = typeof familyColor === 'string' && familyColor !== '';
 			const tint = hasHue && familyColor.indexOf('hsl(') === 0 ? familyColor.replace(')', ' / 0.08)') : undefined;
-			// The whole card is a click target now, not just the who row: one click
-			// anywhere on a member card enters that member's child session. `canOpen`
-			// keeps its exemptions untouched; the who row and the card's own task
-			// lines stop propagation so a nested target opens only once.
+			// 百分比配色：>80 红、>60 橙、其余绿（截图 gongbu-shangshu-7 的 80.2% 橙系）。
+			const pctValue = typeof usage === 'object' && usage !== null && typeof usage.context === 'object' && usage.context !== null && usage.context.percent !== undefined ? usage.context.percent : undefined;
+			// 红阈值 >85：截图 gongbu-shangshu-7 的 80.2% 是橙色（用户视觉为准）。
+			const pctColor = pctValue === undefined ? INK2 : (pctValue > 85 ? '#ef4444' : (pctValue > 60 ? '#f59e0b' : '#22c55e'));
 			return h('div', {
 				className: (lead ? 'cabinet-card cabinet-card-lead' : 'cabinet-card') + (canOpen ? ' cabinet-card-clickable' : ''),
 				onClick: canOpen ? () => onOpen(member) : undefined,
@@ -3622,69 +3627,69 @@ window.__ModuleLoader__.load({
 					backgroundImage: !lead && tint ? 'linear-gradient(' + tint + ',' + tint + ')' : undefined
 				}
 			}, [
-				// 第一行：圆形头像（同色描边）+ 粗体名字 + 右贴状态点（绿=运行中、灰=空闲）。
+				// 行1：圆角方块头像(家族色细边框) + 状态点 + 粗体名 + 主控标签 + 右贴「当前」。
 				h(canOpen ? 'button' : 'div', {
 					type: canOpen ? 'button' : undefined,
 					key: 'who',
-					// Same opener as the card, so the who row stops the click instead
-					// of letting the card forward it a second time.
 					onClick: canOpen ? (event) => { stopPropagation(event); return onOpen(member); } : undefined,
-					style: { font: 'inherit', textAlign: 'left', padding: 0, border: 0, background: 'transparent', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', minWidth: 0, cursor: canOpen ? 'pointer' : undefined }
+					style: { font: 'inherit', textAlign: 'left', padding: 0, border: 0, background: 'transparent', display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, cursor: canOpen ? 'pointer' : undefined }
 				}, [
-					h(Avatar, { key: 'avatar', name: member.name, size: size || 22, live: status === 'running', ring: hasHue ? familyColor : undefined }),
+					h('span', {
+						key: 'avatar',
+						'data-cabinet-avatar-block': memberInitials(member.name),
+						title: memberLabel(member.name),
+						style: {
+							width: 34, height: 34, borderRadius: 9, boxSizing: 'border-box',
+							border: '1.5px solid ' + (hasHue ? familyColor : 'rgba(127,127,127,.45)'),
+							background: 'rgba(127,127,127,.12)', color: INK, fontSize: 11, fontWeight: 600,
+							display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none',
+							letterSpacing: '.02em', overflow: 'hidden'
+						}
+					}, memberInitials(member.name)),
+					h(StatusDot, { key: 'dot', status, size: 6 }),
 					h('span', {
 						key: 'n',
 						title: memberLabel(member.name),
-						style: { fontSize: 13, fontWeight: 600, color: INK, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }
+						style: { fontSize: 14, fontWeight: 600, color: INK, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: '1 1 auto' }
 					}, memberLabel(member.name)),
 					lead ? h('span', { key: 'lead', className: 'cabinet-badge-lead' }, tt('lead.tag')) : null,
-					isCurrent ? h(Tag, { key: 'cur', background: 'rgba(127,127,127,.2)', color: INK }, tt('current')) : null,
-					h('span', {
-						key: 'state',
-						style: { marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 4, flex: 'none' }
-					}, [
-						h(StatusDot, { key: 'dot', status }),
-						h('span', { key: 'st', className: 'cabinet-status-' + status, style: { fontSize: 11 } }, statusLabel(status)),
-						status === 'running' ? h('span', {
-							key: 'dots',
-							className: 'cabinet-dots cabinet-status-' + status,
-							'aria-hidden': 'true'
-						}, [h('i', { key: 0 }), h('i', { key: 1 }), h('i', { key: 2 })]) : null
-					])
+					isCurrent ? h('span', {
+						key: 'cur',
+						style: { marginLeft: 'auto', flex: 'none', fontSize: 10, padding: '1px 6px', borderRadius: 6, border: '1px dashed rgba(127,127,127,.7)', color: INK2, whiteSpace: 'nowrap' }
+					}, tt('current')) : null
 				]),
-				// 第二行：模型名（灰色小字、超长省略）；错误行整行红字跟随。
-				model || member.error ? h('div', {
-					key: 'model',
-					style: { display: 'flex', gap: 6, flexWrap: 'wrap', minWidth: 0 }
-				}, [
-					model ? h('span', {
-						key: 'mn',
-						title: model,
-						style: { fontSize: 11, color: INK2, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: '1 1 auto' }
-					}, model) : null,
-					member.error ? h('span', {
-						key: 'err',
-						style: { fontSize: 11, color: '#f25a5a', width: '100%', wordBreak: 'break-all' }
-					}, member.error) : null
-				]) : null,
-				// 第三行 token（亮）· 耗时（灰）+ 团队合计；随后 3px 多色分段计量条；
-				// 底行 左=最后消息时间·消息数、右=上下文百分比。全部来自 DSH 会话
-				// 投影与群聊折叠行，缺投影打短横线，不编数。
+				// 行2：当前进行中任务的标题（无则最近一个、否则 —），单行省略。
+				h('div', {
+					key: 'taskdesc',
+					'data-cabinet-task-desc': '1',
+					title: activeTask && typeof activeTask.subject === 'string' ? activeTask.subject : undefined,
+					style: { fontSize: 13, color: INK2, marginTop: 6, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }
+				}, activeTask && typeof activeTask.subject === 'string' && activeTask.subject !== '' ? activeTask.subject : '\u2014'),
+				// 故障必须可见：member.error 整行红字（模型行已按截图移除）。
+				member.error ? h('div', {
+					key: 'err',
+					style: { fontSize: 11, color: '#f25a5a', marginTop: 4, wordBreak: 'break-all' }
+				}, member.error) : null,
+				// 行3-5：token 数字(不带字样) + 42% 分段条 + 时间·N步与百分比。
 				usage ? h('div', {
 					key: 'usage',
 					className: 'cabinet-usage',
-					style: { display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0, fontSize: 10, color: INK2 }
+					style: { display: 'flex', flexDirection: 'column', gap: 5, minWidth: 0, marginTop: 6 }
 				}, [
 					h('div', {
 						key: 'line',
-						style: { display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', minWidth: 0 }
+						style: { display: 'flex', alignItems: 'baseline', gap: 8, minWidth: 0 }
 					}, [
-						h('span', { key: 'tok', style: { color: INK, fontWeight: 600, flex: 'none' }, title: tt('usage.tokens') },
-							tt('usage.tokens') + ' ' + (formatTokenCount(usage.tokens) ?? tt('usage.none'))),
-						h('span', { key: 'el', style: { color: INK2, flex: 'none' }, title: tt('usage.elapsed') },
-							tt('usage.elapsed') + ' ' + (formatElapsed(usage.elapsedMs) ?? tt('usage.none'))),
-						teamUsage ? h('span', { key: 'team', style: { color: INK3, flex: 'none', marginLeft: 'auto' }, title: tt('usage.team') },
-							tt('usage.team') + ' ' + (formatTokenCount(teamUsage.tokens) ?? tt('usage.none'))) : null
+						h('span', {
+							key: 'tok',
+							style: { fontSize: 14.5, fontWeight: 600, color: INK, flex: 'none' },
+							title: tt('usage.tokens')
+						}, formatTokenCount(usage.tokens) ?? tt('usage.none')),
+						teamUsage ? h('span', {
+							key: 'team',
+							style: { fontSize: 10.5, color: INK3, marginLeft: 'auto', flex: 'none' },
+							title: tt('usage.team')
+						}, tt('usage.team') + ' ' + (formatTokenCount(teamUsage.tokens) ?? tt('usage.none'))) : null
 					]),
 					typeof usage.context === 'object' && usage.context !== null && usage.context.percent !== undefined
 						? h('div', {
@@ -3692,6 +3697,8 @@ window.__ModuleLoader__.load({
 							'data-cabinet-meter': '1',
 							className: 'cabinet-ctxbar',
 							'aria-hidden': 'true',
+							// 分段条左对齐、约42% 卡宽（inline 覆盖 CSS 的 width:100%）。
+							style: { width: '42%' },
 							title: tt('usage.context') + ' ' + usage.context.percent + '%'
 						}, usage.context.segments.map((segment) => h('i', {
 							key: segment.key,
@@ -3701,26 +3708,21 @@ window.__ModuleLoader__.load({
 					activity || usage.context
 						? h('div', {
 							key: 'foot',
-							style: { display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }
+							style: { display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, fontSize: 11.5 }
 						}, [
-							activity && typeof activity.time === 'number' && activity.time > 0
-								? h('span', {
-									key: 'clock',
-									style: { color: INK3, flex: 'none' }
-								}, (function () { const d = new Date(activity.time); return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'); })())
-								: null,
-							activity && typeof activity.count === 'number'
-								? h('span', { key: 'cnt', style: { color: INK3, flex: 'none' } }, activity.count + ' 条')
-								: null,
-							h('span', { key: 'pct', style: { color: '#22c55e', fontWeight: 600, marginLeft: 'auto', flex: 'none' } },
-								typeof usage.context === 'object' && usage.context !== null
-									? (usage.context.percent !== undefined
-										? usage.context.percent + '%'
-										: (formatTokenCount(usage.context.projectedTokens) ?? tt('usage.none')))
-									: tt('usage.none'))
+							h('span', {
+								key: 'time',
+								style: { color: INK2, flex: 'none', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+								title: tt('usage.elapsed')
+							}, (formatElapsed(usage.elapsedMs) ?? tt('usage.none'))
+								+ (activity && typeof activity.count === 'number' && activity.count > 0 ? ' \u00b7 ' + activity.count + ' \u6b65' : '')),
+							h('span', { key: 'pct', style: { color: pctColor, fontWeight: 600, marginLeft: 'auto', flex: 'none' } },
+								pctValue !== undefined
+									? pctValue + '%'
+									: (formatTokenCount(usage.context && usage.context.projectedTokens) ?? tt('usage.none')))
 						]) : null
 				]) : null,
-				// the member's own task list hangs inside the card (品字形 layout)
+				// 组卡（未分派/首辅自办/不在册）仍可挂任务列表；阁臣卡不挂（activeTask 单行）。
 				children
 			]);
 		}
@@ -3914,97 +3916,40 @@ window.__ModuleLoader__.load({
 		// line ever crosses a card. Returns null while the panel is hidden
 		// (zero-size rects) so a collapsed pane keeps no stale drawing.
 		function buildConnectorPaths(base, lead, nodes, channelX) {
-			if (!base || !lead || base.width === 0 || base.height === 0 || lead.width === 0) return null;
-			const live = nodes.filter((node) => node.width > 0 && node.height > 0);
-			if (live.length === 0) return [];
-			const channel = typeof channelX === 'number' ? channelX : -8;
-			const cards = live.map((rect) => {
-				const left = rect.left - base.left;
-				const top = rect.top - base.top;
-				return { left, top, right: left + rect.width, bottom: top + rect.height, cx: left + rect.width / 2, color: typeof rect.color === 'string' ? rect.color : '' };
-			});
-			const ax = lead.left + lead.width / 2 - base.left;
-			const ay = lead.top + lead.height - base.top;
-
-			// Cluster cards into grid rows by their top edge (8px tolerance); the
-			// auto-fill grid is row-major, so DOM order already walks rows.
-			const rowTops = [];
-			const rows = [];
-			for (const card of cards) {
-				let index = rowTops.findIndex((top) => Math.abs(top - card.top) <= 8);
-				if (index === -1) {
-					rowTops.push(card.top);
-					rows.push([]);
-					index = rows.length - 1;
-				}
-				rows[index].push(card);
+			// 弧线版（dsh-context 截图）：每条线从来源卡底部中点出发，先走 14px
+			// 竖直小段，再以三次贝塞尔 S 形弯到目标卡顶部中点；控制点分居两侧、
+			// 弧度明显。拓扑：首辅扇形连第一层全部；每层的居中卡扇形连下一层
+			// 全部（单卡层即该卡）。线色跟随目标卡（path.color），无箭头。
+			if (!base || typeof base !== 'object' || !lead || typeof lead !== 'object') return null;
+			if (!Array.isArray(nodes) || nodes.length === 0) return null;
+			const valid = nodes.filter((node) => node && isFinite(node.left) && isFinite(node.top) && isFinite(node.width) && isFinite(node.height) && node.width > 0 && node.height > 0);
+			if (valid.length === 0) return null;
+			// 按 top 聚类成层（8px 容差，与旧 bus 同规则）。
+			const sorted = valid.slice().sort((a, b) => (a.top - b.top) || (a.left - b.left));
+			const layers = [];
+			for (const node of sorted) {
+				const last = layers[layers.length - 1];
+				if (last && Math.abs(node.top - last.top) <= 8) last.cards.push(node);
+				else layers.push({ top: node.top, cards: [node] });
 			}
-			const info = rows.map((row, index) => {
-				const sorted = row.slice().sort((a, b) => a.cx - b.cx);
-				const top = Math.min.apply(null, row.map((card) => card.top));
-				// Row bus sits 8px above the cards. Row 0 additionally keeps the bus
-				// below the lead card's bottom edge (never through it) and above the
-				// cards (never inside them); the midpoint handles a squeezed gap.
-				let busY = top - 8;
-				if (index === 0 && busY < ay + 2) busY = Math.min(top - 2, Math.max(ay + 2, (ay + top) / 2));
-				return { cards: sorted, busY, left: sorted[0].cx, right: sorted[sorted.length - 1].cx };
-			});
-
-			const hits = (x1, y1, x2, y2) => {
-				const loX = Math.min(x1, x2);
-				const hiX = Math.max(x1, x2);
-				const loY = Math.min(y1, y2);
-				const hiY = Math.max(y1, y2);
-				return cards.some((r) => hiX > r.left && loX < r.right && hiY > r.top && loY < r.bottom);
-			};
-			const maxRight = Math.max.apply(null, cards.map((r) => r.right));
-			const minLeft = Math.min.apply(null, cards.map((r) => r.left));
-
 			const paths = [];
-			// 每条路径携带颜色：卡片支线跟被连卡片的家族色，公共母线与跨行折线
-			// 留空（渲染层回退中性 LINE 色）。
-			const push = (d, color) => paths.push({ d, color: color || '' });
-			const first = info[0];
-			// lead → row 0 bus; horizontal join first when the axis is off-span.
-			push('M ' + ax + ' ' + ay + ' L ' + ax + ' ' + first.busY);
-			if (ax < first.left - 0.5) push('M ' + ax + ' ' + first.busY + ' L ' + first.left + ' ' + first.busY);
-			else if (ax > first.right + 0.5) push('M ' + ax + ' ' + first.busY + ' L ' + first.right + ' ' + first.busY);
-
-			for (let index = 0; index < info.length; index++) {
-				const row = info[index];
-				// (1) this row's bus + (2) one stub per card down to its top centre.
-				if (row.right - row.left > 0.5) push('M ' + row.left + ' ' + row.busY + ' L ' + row.right + ' ' + row.busY);
-				for (const card of row.cards) push('M ' + card.cx + ' ' + row.busY + ' L ' + card.cx + ' ' + card.top, card.color);
-				if (index === 0) continue;
-
-				// (4) row N → row N-1: a polyline off the row bus's END. Candidates run
-				// right side first, then left (lead's order), with clear air beyond the
-				// cards and the margin channel last; the first whose segments clear
-				// every card rect wins.
-				const prev = info[index - 1];
-				const candidates = [
-					row.right, prev.right, maxRight + 10,
-					row.left, prev.left, minLeft - 10,
-					channel
-				];
-				const plan = (side) => {
-					const segs = [[side, row.busY, side, prev.busY]];
-					if (side > row.right + 0.5) segs.push([row.right, row.busY, side, row.busY]);
-					else if (side < row.left - 0.5) segs.push([row.left, row.busY, side, row.busY]);
-					if (side > prev.right + 0.5) segs.push([side, prev.busY, prev.right, prev.busY]);
-					else if (side < prev.left - 0.5) segs.push([side, prev.busY, prev.left, prev.busY]);
-					return segs;
-				};
-				let chosen = null;
-				for (const candidate of candidates) {
-					const segs = plan(candidate);
-					if (segs.every((s) => !hits(s[0], s[1], s[2], s[3]))) {
-						chosen = segs;
-						break;
-					}
+			const fan = (from, targets) => {
+				const stub = 14;
+				const y1 = from.y + stub;
+				for (const target of targets) {
+					const cx = target.left + target.width / 2;
+					const top = target.top;
+					const bow = Math.max(24, (top - y1) * 0.6);
+					const d = 'M ' + from.x + ' ' + from.y + ' L ' + from.x + ' ' + y1
+						+ ' C ' + from.x + ' ' + (y1 + bow) + ', ' + cx + ' ' + (top - bow) + ', ' + cx + ' ' + top;
+					paths.push({ d, color: typeof target.color === 'string' ? target.color : '' });
 				}
-				if (chosen === null) chosen = plan(channel); // margin channel never hits (x < every card)
-				for (const s of chosen) push('M ' + s[0] + ' ' + s[1] + ' L ' + s[2] + ' ' + s[3]);
+			};
+			fan({ x: lead.left + lead.width / 2, y: lead.top + lead.height }, layers[0].cards);
+			for (let index = 0; index < layers.length - 1; index += 1) {
+				const layer = layers[index];
+				const hub = layer.cards[Math.floor((layer.cards.length - 1) / 2)];
+				fan({ x: hub.left + hub.width / 2, y: hub.top + hub.height }, layers[index + 1].cards);
 			}
 			return paths;
 		}
@@ -5691,7 +5636,12 @@ window.__ModuleLoader__.load({
 				usage: leadUsage,
 				teamUsage: teamUsageOf([leadUsage, ...mateUsages]),
 				familyColor: 'rgba(245,197,24,.9)',
-				activity: activityOf(leadShown)
+				activity: activityOf(leadShown),
+				// 首辅卡同样只显示当前一个任务（截图同款单行）。
+				activeTask: (function () {
+					const inProgress = leadOwn.find((task) => task !== null && task !== undefined && task.status === 'in_progress');
+					return inProgress !== undefined ? inProgress : leadOwn[0];
+				})()
 			});
 
 			// Cells: every minister first, then 未分派 / 首辅自办 / 不在册 as
@@ -5742,7 +5692,9 @@ window.__ModuleLoader__.load({
 						zIndex: 1,
 						display: 'flex',
 						flexDirection: 'column',
-						gap: 12,
+						// 层间 96px 给弧线留走线空间（任务书 90-110）；列距由行容器 12 承担。
+						rowGap: 96,
+						columnGap: 12,
 						width: '100%'
 					}
 				}, cellRows.map((rowCells, rowIndex) => h('div', {
@@ -5767,17 +5719,12 @@ window.__ModuleLoader__.load({
 							familyColor: cell.familyColor,
 							activity: cell.activity,
 							// tasks live inside the card, elbow-connected by RailList
-							children: own.length > 0
-								? h(RailList, { key: 'tasks', style: { marginTop: 4 } }, own.map((task) => h(TaskLine, {
-									key: task.id,
-									task,
-									blockerOf,
-									t: tt,
-									taskLabel,
-									ownerRunning: memberRunning,
-									onOpenOwner: ownerOpener(task)
-								})))
-								: h('div', { key: 'tasks', style: { fontSize: 11, color: INK3, padding: '2px 0' } }, tt('task.none'))
+							// 阁臣卡不再挂任务列表（用户：「不要一个很长的卡片」）——
+							// 卡上只显示当前一个任务（in_progress 优先，否则最近一个）。
+							activeTask: (function () {
+								const inProgress = own.find((task) => task !== null && task !== undefined && task.status === 'in_progress');
+								return inProgress !== undefined ? inProgress : own[0];
+							})()
 						});
 					} else {
 						content = h('div', { className: 'cabinet-card', style: { position: 'relative', zIndex: 1 } }, [
