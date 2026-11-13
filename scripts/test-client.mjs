@@ -849,14 +849,21 @@ assert.ok(String(taskMark.props.style.animation).includes('cabinetPulse'), 'the 
 // keyframes 必须真的在 STYLE_CSS 里——只有 animation 没有 @keyframes 会被浏览器静默忽略。
 const pulseCss = Array.isArray(client.STYLE_CSS) ? client.STYLE_CSS.join('\n') : String(client.STYLE_CSS || '');
 assert.ok(pulseCss.includes('@keyframes cabinetPulse'), 'cabinetPulse keyframes are injected via STYLE_CSS (no silent-ignore)');
-assert.ok(pulseCss.includes('@keyframes cabinetSpin'), 'cabinetSpin keyframes are injected (the sweep must not silently ignore)');
-assert.ok(pulseCss.includes('[data-cabinet-sweep]::before') && pulseCss.includes('conic-gradient'), 'the border sweep is a conic-gradient rule scoped to the live marker');
-assert.ok(pulseCss.includes('cabinetSpin 2.0s linear infinite'), 'the sweep runs on the shared spin animation');
-assert.ok(pulseCss.includes('1.2%') && pulseCss.includes('2.8%'), 'the sweep is a tiny bright dot (1.2%→2.8% arc), not a haze');
-assert.ok(pulseCss.includes('blur(0.6px)'), 'the dot edge is softened without becoming fog');
+assert.ok(pulseCss.includes('@keyframes cabinetSpin'), 'cabinetSpin keyframes stay injected (the avatar ring still uses them)');
+// 第三次纠正：扫描(conic)换成沿框线跑的实心圆点——负断言限定在 sweep 规则行
+// （STYLE_CSS 里上游头像活动环仍合法使用 conic-gradient，不能全局禁）。
+assert.ok(pulseCss.includes('@keyframes cabinetDotRun'), 'cabinetDotRun keyframes are injected (the dot must not silently ignore)');
+const sweepRule = (pulseCss.match(/\[data-cabinet-sweep\]::before\{[^{}]*\}/) || [''])[0];
+assert.ok(sweepRule !== '', 'the sweep pseudo-element rule exists');
+assert.ok(!sweepRule.includes('conic-gradient'), 'the sweep rule is no longer a conic scanner (regression guard), got: ' + JSON.stringify(sweepRule.slice(0, 200)));
+assert.ok(sweepRule.includes('offset-path:rect(') && sweepRule.includes('round 10px'), 'the dot rides the card-corner motion path (round 10px matches .cabinet-card), got: ' + sweepRule.slice(0, 140));
+assert.ok(sweepRule.includes('width:6px') && sweepRule.includes('height:6px') && sweepRule.includes('border-radius:50%'), 'one solid 6px round dot, not a bar or gradient');
+assert.ok(sweepRule.includes('box-shadow:0 0 6px'), 'the dot carries only a small halo');
+assert.ok(sweepRule.includes('cabinetDotRun 2s linear infinite'), 'the dot laps the border in 2s');
+assert.ok(pulseCss.includes('@keyframes cabinetDotRun{to{offset-distance:100%}}'), 'motion animates offset-distance (compositor-friendly displacement)');
+assert.ok(sweepRule.includes('will-change:offset-distance'), 'will-change hints the motion property actually animated');
+assert.ok(sweepRule.includes('pointer-events:none'), 'the dot layer never blocks card clicks');
 assert.ok(pulseCss.includes('prefers-reduced-motion'), 'the sweep stops under prefers-reduced-motion');
-assert.ok(pulseCss.includes('will-change:transform'), 'the sweep animates transform only (GPU compositing), will-change hinted');
-assert.ok(pulseCss.includes('pointer-events:none'), 'the sweep layer never blocks card clicks');
 // 费用规格已变（lead：公开单价估算 + 标注，取代上轮「无源不显示」负断言）。
 const rateBuckets = { uncachedInputTokens: 1000000, outputTokens: 100000, cacheReadTokens: 0, cacheWriteTokens: 0 };
 assert.equal(client.costOf({ buckets: rateBuckets }, 'auto/deepseek-v4.1-flash'), 2.8,

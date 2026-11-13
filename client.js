@@ -2389,11 +2389,16 @@ window.__ModuleLoader__.load({
 		const STYLE_CSS = [
 			// status dot pulse (panel)
 			'@keyframes cabinetPulse{0%{box-shadow:0 0 0 0 rgba(34,197,94,.55)}70%{box-shadow:0 0 0 7px rgba(34,197,94,0)}100%{box-shadow:0 0 0 0 rgba(34,197,94,0)}}',
-			// 走马灯边框（方案B 旋转大圆 · 小点版）：亮段压到 1.2%→2.8%（周长 ~1.6%），
-			// blur(0.6px) 软边不糊成雾——边框上只见一个小光点绕跑；卡自身 overflow:hidden
-			// 当裁窗，conic 大圆只转 transform（GPU 合成）。@property 旧内核静默失效，不用方案A。
-			'[data-cabinet-sweep]{position:relative;overflow:hidden;border-radius:12px}',
-			'[data-cabinet-sweep]::before{content:"";position:absolute;inset:-60%;background:conic-gradient(from 0deg, transparent 0%, var(--cab-live-hue, rgba(127,127,127,.55)) 1.2%, transparent 2.8%);filter:blur(0.6px);animation:cabinetSpin 2.0s linear infinite;will-change:transform;pointer-events:none}',
+			// 走马灯边框（方案A · CSS Motion Path）：一个 6px 实心小圆点沿边框线跑——
+			// offset-path: rect() 贴卡圆角（.cabinet-card border-radius:10px，故 round 10px）
+			// 跑一圈，offset-distance 0→100%。本机 Chrome/157 实测 CSS.supports(
+			// "offset-path","rect(0 100% 100% 0 round 12px)")=true（urlgo 2026-11-13）。
+			// 不是渐变不是扫描；只动 offset-distance（合成器），pointer-events 不拦截点击。
+			'[data-cabinet-sweep]{position:relative;overflow:hidden}',
+			'[data-cabinet-sweep]::before{content:"";position:absolute;top:0;left:0;width:6px;height:6px;border-radius:50%;background:var(--cab-live-hue, rgba(127,127,127,.55));box-shadow:0 0 6px var(--cab-live-hue, rgba(127,127,127,.55));offset-path:rect(0 100% 100% 0 round 10px);offset-distance:0%;animation:cabinetDotRun 2s linear infinite;will-change:offset-distance;pointer-events:none}',
+			'@keyframes cabinetDotRun{to{offset-distance:100%}}',
+			// 内核不支持 motion path 时藏点（不留静止的错位圆点误导）。
+			'@supports not (offset-path:rect(0 100% 100% 0 round 10px)){[data-cabinet-sweep]::before{display:none}}',
 			'[data-cabinet-sweep] > *{position:relative;z-index:1}',
 			// cabinetSpin keyframes 上游已有（头像活动环 :2403 同名复用，勿重复定义）。
 			'@media (prefers-reduced-motion: reduce){[data-cabinet-sweep]::before{animation:none}}',
