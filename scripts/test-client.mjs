@@ -888,6 +888,21 @@ assert.ok(String(taskMark.props.style.animation).includes('cabinetPulse'), 'the 
 // keyframes 必须真的在 STYLE_CSS 里——只有 animation 没有 @keyframes 会被浏览器静默忽略。
 const pulseCss = Array.isArray(client.STYLE_CSS) ? client.STYLE_CSS.join('\n') : String(client.STYLE_CSS || '');
 assert.ok(pulseCss.includes('@keyframes cabinetPulse'), 'cabinetPulse keyframes are injected via STYLE_CSS (no silent-ignore)');
+
+// 悬停才显示（用户方案A）：派活入口 + 全部任务折叠四态 CSS——默认浮层隐藏不占位、
+// hover 淡入、键盘 focus 与展开态常显、无 hover 设备常显。
+assert.ok(pulseCss.includes('.cabinet-card:hover [data-cabinet-dispatch]'), 'hover fades the dispatch entry in');
+assert.ok(pulseCss.includes(':focus-within'), 'keyboard focus keeps both entries visible');
+assert.ok(pulseCss.includes('[data-cabinet-dispatch]:has([data-cabinet-dispatch-input])') && pulseCss.includes('[data-cabinet-member-tasks][open]'), 'an open dispatch editor or an open details stays visible');
+assert.ok(pulseCss.includes('@media (hover:none)'), 'touch/no-hover devices see both entries by default');
+const defaultHidden = (pulseCss.match(/\.cabinet-card \[data-cabinet-dispatch\],\.cabinet-card \[data-cabinet-member-tasks\]\{[^{}]*\}/) || [''])[0];
+assert.ok(defaultHidden.includes('opacity:0') && defaultHidden.includes('pointer-events:none'), 'the default state fades both entries out without detaching them, got: ' + defaultHidden);
+assert.ok(defaultHidden.includes('position:absolute'), 'the default state parks both entries as overlays so no vertical row is left blank, got: ' + defaultHidden);
+assert.ok(pulseCss.includes('.cabinet-card [data-cabinet-member-tasks][open]{position:static}'), 'an open details returns to flow so its task list is never clipped by the sweep card');
+// 功能负断言：默认隐藏只是可见性层——派活钩子仍在源码里，点击流程由
+// test-dispatch-browser 真 React 全流程锁定（本静态层只锁节点不消失）。
+assert.ok(source.includes("'data-cabinet-dispatch-open'") && source.includes("'data-cabinet-dispatch-panel'"), 'dispatch hooks stay in the source (CSS hides, never unmounts)');
+assert.ok(pulseCss.includes('[data-cabinet-dispatch]:has([data-cabinet-dispatch-input])'), 'the open editor row (dispatch-panel) is what keeps the entry up');
 assert.ok(pulseCss.includes('@keyframes cabinetSpin'), 'cabinetSpin remains for the avatar ring');
 assert.ok(pulseCss.includes('[data-cabinet-sweep]::before') && pulseCss.includes('offset-path:rect(0 100% 100% 0 round 12px)'), 'the border dot follows the rounded card perimeter');
 assert.ok(pulseCss.includes('cabinetDotRun 2s linear infinite') && pulseCss.includes('@keyframes cabinetDotRun{to{offset-distance:100%}}'), 'the dot runs via offset distance');

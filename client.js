@@ -2447,7 +2447,20 @@ window.__ModuleLoader__.load({
 			'@keyframes cabinetBarPulse{0%,100%{opacity:.3;transform:scaleY(.55)}50%{opacity:1;transform:scaleY(1)}}',
 			'.cabinet-task-live::after{content:"";position:absolute;left:-9px;top:5px;bottom:5px;width:2px;border-radius:2px;background:#3b82f6;transform-origin:center;animation:cabinetBarPulse 1.6s ease-in-out infinite}',
 			// org-chart cards + first-class lead badge
-			'.cabinet-card{box-sizing:border-box;display:flex;flex-direction:column;gap:4px;min-width:0;padding:8px 10px;border-radius:10px;border:1px solid var(--dsw-alias-border-l3,light-dark(#0000001f,#ffffff29));background:var(--dsw-alias-bg-layer-1,light-dark(#ffffff,#232324))}',
+			'.cabinet-card{box-sizing:border-box;display:flex;flex-direction:column;gap:4px;min-width:0;position:relative;padding:8px 10px;border-radius:10px;border:1px solid var(--dsw-alias-border-l3,light-dark(#0000001f,#ffffff29));background:var(--dsw-alias-bg-layer-1,light-dark(#ffffff,#232324))}',
+			// 悬停才显示：派活入口与「全部任务」折叠——平时绝对定位成浮层（opacity:0
+			// + pointer-events:none，不占纵向空间），hover 卡淡入。必须保持可见的态：
+			// 键盘 :focus-within、派活已展开（:has 输入行）、details[open]；触屏/无
+			// hover 设备用 @media (hover:none) 常显，否则点不到。details 展开时回流内
+			// 占位（列表长，absolute 会被 sweep 卡的 overflow:hidden 裁掉）。
+			'.cabinet-card [data-cabinet-dispatch],.cabinet-card [data-cabinet-member-tasks]{position:absolute;right:6px;z-index:3;opacity:0;pointer-events:none;transition:opacity .15s ease}',
+			'.cabinet-card [data-cabinet-dispatch]{bottom:6px}',
+			'.cabinet-card [data-cabinet-member-tasks]{top:6px}',
+			'.cabinet-card:hover [data-cabinet-dispatch],.cabinet-card:hover [data-cabinet-member-tasks]{opacity:1;pointer-events:auto}',
+			'.cabinet-card [data-cabinet-dispatch]:focus-within,.cabinet-card [data-cabinet-member-tasks]:focus-within{opacity:1;pointer-events:auto}',
+			'.cabinet-card [data-cabinet-dispatch]:has([data-cabinet-dispatch-input]),.cabinet-card [data-cabinet-member-tasks][open]{opacity:1;pointer-events:auto}',
+			'.cabinet-card [data-cabinet-member-tasks][open]{position:static}',
+			'@media (hover:none){.cabinet-card [data-cabinet-dispatch],.cabinet-card [data-cabinet-member-tasks]{opacity:1;pointer-events:auto}}',
 			'.cabinet-card-lead{border-color:rgba(245,197,24,.8);background-image:linear-gradient(rgba(245,197,24,.14),rgba(245,197,24,.14))}',
 			// click-through affordance: the whole card, the whole task row and the
 			// Owner tag are targets, so hover has to say so. An inset ring leaves
@@ -3758,7 +3771,7 @@ window.__ModuleLoader__.load({
 			return h('div', { 'data-cabinet-dispatch': memberId, onClick: stopPropagation, onKeyDown: stopPropagation, style: { marginTop: 4, fontSize: 11 } }, [
 				h('button', { key: 'toggle', type: 'button', 'data-cabinet-dispatch-open': '1', 'aria-expanded': open, disabled: phase === 'pending' || (!open && !eligible), onClick: () => { if (!state.current.pending) setOpen(value => !value); } }, tt(open ? 'dispatch.close' : 'dispatch.open')),
 				h('span', { key: 'status', role: 'status', 'data-cabinet-dispatch-status': '1', 'data-cabinet-dispatch-phase': phase }, message),
-				open ? h('div', { key: 'editor' }, [
+				open ? h('div', { key: 'editor', 'data-cabinet-dispatch-panel': '1' }, [
 					h('input', { key: 'input', 'data-cabinet-dispatch-input': '1', 'aria-label': tt('dispatch.placeholder'), value: draft, disabled: locked,
 						onChange: event => { if (state.current.pending || state.current.unknown) return; draftRef.current = event.target.value; setDraft(event.target.value); },
 						onKeyDown: event => { if (event.key === 'Enter' && !event.repeat && !event.isComposing && !event.nativeEvent?.isComposing && event.keyCode !== 229) { event.preventDefault(); submit('queue'); } } }),
