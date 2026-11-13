@@ -55,6 +55,7 @@ const React = {
   useCallback: (callback) => callback,
   useLayoutEffect: () => {}, useEffect: (fn, deps) => { recordedEffects.push({ fn, deps }); },
 };
+const structuralHookSurfaces = [React];
 // The panel decides whether to mount its usage ticker; the spy observes the real
 // setInterval/clearInterval call the component makes (not a proxy assertion).
 const recordedEffects = [];
@@ -92,7 +93,7 @@ const PAGE_NOW = Date.now();
 // ageOf 保序：原值越大 ⇒ 时间越新，且所有映射结果都落在最近 ~12 天内
 // （小于 30 天窗口，不会触发新鲜度过滤），既有排序断言的语义不变。
 const ageOf = (value) => PAGE_NOW - (1000000 - value);
-const exportList = 'return { inject, apply, avatarFor, displayName, chatBubbleName, chatBubbleNames, bureauOf, CabinetPanel, MemberCard, TaskLine, TaskEdgeLayer, buildTaskEdges, buildConnectorPaths, taskEdgesEqual, zh, en, BUREAUX, AVATARS, setMemberConfig, memberLabel, configuredAvatar, configuredPrompt, factoryPromptFor, DEFAULT_MEMBER_PROMPTS, DEFAULT_LEAD_PROMPT, CabinetMemberSettings, MemoryPluginCard, memoryPluginInstalledOf, SETTINGS_TABS, formatTokenCount, formatElapsed, tokenTotalOf, usageFor, planProjectionRequests, teamUsageOf, groupChatFold, markdownBlocksOf, markdownBlocksCached, inlineMarkdownTokens, markdownLinkHref, modelOptionsOf, modelCatalogNotice, modelSelectionOf, cabinetSessionChoices, cabinetSessionFilters, cabinetSessionGroups, defaultCabinetSession, CabinetMarkdown, CabinetPage, CabinetPanelIcon, GroupChatRow, STYLE_CSS, cabinetGroupMemberStates, mergeGroupChat, cabinetChatViewRows, chatStampNeeded, nearChatBottom, scrollChatToBottom, scrollFollowingTail, cabinetScopeRows, openCabinetSession };';
+const exportList = 'return { inject, apply, avatarFor, displayName, chatBubbleName, chatBubbleNames, bureauOf, CabinetPanel, MemberCard, MemberDispatch, TaskLine, TaskEdgeLayer, buildTaskEdges, buildConnectorPaths, taskEdgesEqual, zh, en, BUREAUX, AVATARS, setMemberConfig, memberLabel, configuredAvatar, configuredPrompt, factoryPromptFor, DEFAULT_MEMBER_PROMPTS, DEFAULT_LEAD_PROMPT, CabinetMemberSettings, MemoryPluginCard, memoryPluginInstalledOf, SETTINGS_TABS, formatTokenCount, formatElapsed, tokenTotalOf, usageFor, planProjectionRequests, teamUsageOf, groupChatFold, markdownBlocksOf, markdownBlocksCached, inlineMarkdownTokens, markdownLinkHref, modelOptionsOf, modelCatalogNotice, modelSelectionOf, cabinetSessionChoices, cabinetSessionFilters, cabinetSessionGroups, defaultCabinetSession, CabinetMarkdown, CabinetPage, CabinetPanelIcon, GroupChatRow, STYLE_CSS, cabinetGroupMemberStates, mergeGroupChat, cabinetChatViewRows, chatStampNeeded, nearChatBottom, scrollChatToBottom, scrollFollowingTail, cabinetScopeRows, openCabinetSession };';
 runInNewContext(source.replace(exportPoint, exportList), {
   setTimeout: (fn, ms) => setTimeout(fn, ms === 120000 ? 20 : ms), clearTimeout,
   Date: RealmDate,
@@ -236,6 +237,27 @@ function elements(tree) {
   if (typeof tree.type === 'function') {
     const props = { ...tree.props };
     if (tree.children.length) props.children = tree.children.flat();
+    if (tree.type.name === 'MemberDispatch') {
+      // This structural renderer historically flattens child hooks into the
+      // panel's slots. Dispatch has its own React fiber, not a continuation of
+      // the panel hook list. Render its collapsed initial structure with fresh
+      // refs/state and its own effect scope. Its interactive lifecycle is tested
+      // with actual React in test-dispatch-browser, not this static renderer.
+      const savedRefs = persistentRefs;
+      const effectStart = recordedEffects.length;
+      const savedHooks = structuralHookSurfaces.map(surface => ({ surface, useState: surface.useState, useRef: surface.useRef, useEffect: surface.useEffect }));
+      for (const { surface } of savedHooks) {
+        surface.useState = initial => [typeof initial === 'function' ? initial() : initial, () => {}];
+        surface.useRef = initial => ({ current: initial });
+        surface.useEffect = () => {};
+      }
+      persistentRefs = null;
+      try { return elements(tree.type(props)); }
+      finally {
+        for (const { surface, ...hooks } of savedHooks) Object.assign(surface, hooks);
+        persistentRefs = savedRefs; recordedEffects.splice(effectStart);
+      }
+    }
     return elements(tree.type(props));
   }
   return [tree, ...tree.children.flatMap(elements)];
@@ -1091,6 +1113,7 @@ const SettingsReact = {
     return [settingsState[index], (next) => { settingsState[index] = typeof next === 'function' ? next(settingsState[index]) : next; }];
   },
 };
+structuralHookSurfaces.push(SettingsReact);
 runInNewContext(source.replace(exportPoint, exportList), {
   setTimeout: (fn, ms) => setTimeout(fn, ms === 120000 ? 20 : ms), clearTimeout, localStorage: pluginSpecStorage, window: { __ModuleLoader__: { load: ({ factory }) => { settingsClient = factory((name) => { assert.equal(name, 'react'); return SettingsReact; }); } } },
 });

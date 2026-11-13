@@ -3629,7 +3629,97 @@ window.__ModuleLoader__.load({
 		// 卡片按 dsh-context 高清截图分5层：方块头像+状态点+粗名 / 任务描述 /
 		// token 数字(不带字样) / 42% 宽分段条 / 时间·N步 + 百分比(>60橙 >80红)。
 		// 卡高固定：阁臣卡只显示当前一个任务（activeTask），不再挂任务列表。
-		function MemberCard({ member, running, model, isCurrent, lead, statusLabel, t, size, onOpen, usage, teamUsage, familyColor, activity, activeTask, children }) {
+		// Dispatch owns only its explicitly opened target, not the roster's history.
+		// UI state belongs to this instance; late results cannot mutate another card.
+		function MemberDispatch({ memberId, running, service, t, disabled = false }) {
+			const tt = typeof t === 'function' ? t : key => key;
+			const [open, setOpen] = React.useState(false);
+			const [draft, setDraft] = React.useState('');
+			const [phase, setPhase] = React.useState('closed');
+			const [message, setMessage] = React.useState('');
+			const draftRef = React.useRef('');
+			const state = React.useRef({ id: memberId, generation: 0, pending: false, unknown: false, channel: null });
+			React.useEffect(() => {
+				const current = state.current;
+				const generation = ++current.generation;
+				const changedMember = current.id !== memberId;
+				if (changedMember) {
+					current.id = memberId; current.pending = false; current.unknown = false;
+					draftRef.current = ''; setDraft(''); setMessage(''); setOpen(false);
+				} else if (current.pending) {
+					// Losing a service is not evidence that an already submitted request failed.
+					current.pending = false; current.unknown = true;
+					setMessage(tt('dispatch.unknown'));
+				}
+				current.channel = null;
+				let disposed = false, reference = null, released = false;
+				const release = () => {
+					if (released || !reference) return;
+					released = true;
+					try { reference.release(); } catch (_) { /* disposed host */ }
+				};
+				const valid = () => !disposed && state.current.generation === generation;
+				const cleanup = () => { disposed = true; if (current.generation === generation) current.channel = null; release(); };
+				if (!open || changedMember) { setPhase('closed'); return cleanup; }
+				if (disabled || typeof memberId !== 'string' || !memberId || !service || typeof service.retain !== 'function') {
+					setPhase('unavailable'); setMessage(tt('dispatch.unavailable')); return cleanup;
+				}
+				setPhase('loading');
+				try {
+					reference = service.retain(memberId, { source: 'cabinetDispatch' });
+					if (!reference || typeof reference.release !== 'function' || !reference.ready || typeof reference.ready.then !== 'function') throw new Error('Invalid session reference');
+					Promise.resolve(reference.ready).then(() => {
+						if (!valid()) return;
+						try {
+							const session = reference.binding && reference.binding.session;
+							if (!session || typeof session.prompt !== 'function') throw new Error('Missing prompt channel');
+							current.channel = { session, generation, memberId, service };
+							setPhase(current.unknown ? 'unknown' : 'ready');
+							setMessage(current.unknown ? tt('dispatch.unknown') : '');
+						} catch (_) { setPhase('unavailable'); setMessage(tt('dispatch.unavailable')); release(); }
+					}, () => { if (valid()) { setPhase('unavailable'); setMessage(tt('dispatch.unavailable')); release(); } });
+				} catch (_) { setPhase('unavailable'); setMessage(tt('dispatch.unavailable')); release(); }
+				return cleanup;
+			}, [open, memberId, service, disabled]);
+			const submit = mode => {
+				const current = state.current, channel = current.channel;
+				const text = draftRef.current.trim();
+				if (!open || disabled || current.pending || current.unknown || !text || !channel
+					|| channel.memberId !== memberId || channel.service !== service || (mode !== 'queue' && mode !== 'steer') || (mode === 'steer' && running !== true)) return;
+				// Synchronous lock protects double clicks and Enter before React commits.
+				current.pending = true; setPhase('pending'); setMessage(tt('dispatch.pending'));
+				const finish = result => {
+					if (current.generation !== channel.generation || current.channel !== channel) return;
+					current.pending = false;
+					const code = result && result.error && result.error.code;
+					const unknown = !result || typeof result.ok !== 'boolean' || result.unknown === true
+						|| (result.ok === true && result.value?.accepted !== true)
+						|| (!result.ok && (code === 'gateway/internal' || code === 'gateway/cancelled'));
+					if (unknown) { current.unknown = true; setPhase('unknown'); setMessage(tt('dispatch.unknown')); }
+					else if (result.ok) { draftRef.current = ''; setDraft(''); setPhase('accepted'); setMessage(tt(mode === 'steer' ? 'dispatch.steered' : 'dispatch.queued')); }
+					else { setPhase('rejected'); setMessage(tt('dispatch.rejected')); }
+				};
+				try { Promise.resolve(channel.session.prompt([{ type: 'text', text }], mode)).then(finish, () => finish({ ok: false, unknown: true })); }
+				catch (_) { finish({ ok: false, unknown: true }); }
+			};
+			const ready = open && state.current.channel !== null && !disabled;
+			const locked = phase === 'pending' || phase === 'unknown';
+			const eligible = !disabled && typeof memberId === 'string' && memberId !== '' && service && typeof service.retain === 'function';
+			return h('div', { 'data-cabinet-dispatch': memberId, onClick: stopPropagation, onKeyDown: stopPropagation, style: { marginTop: 4, fontSize: 11 } }, [
+				h('button', { key: 'toggle', type: 'button', 'data-cabinet-dispatch-open': '1', 'aria-expanded': open, disabled: phase === 'pending' || (!open && !eligible), onClick: () => { if (!state.current.pending) setOpen(value => !value); } }, tt(open ? 'dispatch.close' : 'dispatch.open')),
+				h('span', { key: 'status', role: 'status', 'data-cabinet-dispatch-status': '1', 'data-cabinet-dispatch-phase': phase }, message),
+				open ? h('div', { key: 'editor' }, [
+					h('input', { key: 'input', 'data-cabinet-dispatch-input': '1', 'aria-label': tt('dispatch.placeholder'), value: draft, disabled: locked,
+						onChange: event => { if (state.current.pending || state.current.unknown) return; draftRef.current = event.target.value; setDraft(event.target.value); },
+						onKeyDown: event => { if (event.key === 'Enter' && !event.repeat && !event.isComposing && !event.nativeEvent?.isComposing && event.keyCode !== 229) { event.preventDefault(); submit('queue'); } } }),
+					h('button', { key: 'send', type: 'button', 'data-cabinet-dispatch-send': '1', disabled: !ready || locked || !draft.trim(), onClick: () => submit('queue') }, tt('dispatch.send')),
+					running === true ? h('button', { key: 'steer', type: 'button', 'data-cabinet-dispatch-interrupt': '1', disabled: !ready || locked || !draft.trim(), onClick: () => submit('steer') }, tt('dispatch.interrupt')) : null,
+					phase === 'unknown' ? h('button', { key: 'confirm', type: 'button', 'data-cabinet-dispatch-confirm': '1', onClick: () => { if (!state.current.pending) { state.current.unknown = false; setPhase('ready'); setMessage(''); } } }, tt('dispatch.confirm')) : null
+				]) : null
+			]);
+		}
+
+		function MemberCard({ member, running, model, isCurrent, lead, statusLabel, t, size, onOpen, usage, teamUsage, familyColor, activity, activeTask, dispatchService, children }) {
 			const tt = typeof t === 'function' ? t : (key) => key;
 			// Card activity follows the real process. The task marker independently
 			// indicates task bookkeeping, which may remain in_progress while idle.
@@ -3771,7 +3861,8 @@ window.__ModuleLoader__.load({
 						]) : null
 				]) : null,
 				activity && activity.known === false ? h('span', { key: 'activity-unknown', 'data-cabinet-activity-state': 'unknown', title: '名册未订阅消息历史，活动记录数未知', style: { fontSize: 11, color: INK3 } }, '活动 —') : null,
-				// 组卡（未分派/首辅自办/不在册）仍可挂任务列表；阁臣卡不挂（activeTask 单行）。
+				h(MemberDispatch, { key: 'dispatch:' + member.id, memberId: member.id, running, service: dispatchService, t: tt, disabled: member.phase === 'failed' || member.phase === 'provisioning' }),
+				// Collapsed task details remain independent from dispatch.
 				children
 			]);
 		}
@@ -5757,7 +5848,8 @@ window.__ModuleLoader__.load({
 				familyColor: 'rgba(245,197,24,.9)',
 				activity: activityOf(leadShown),
 				// 首辅卡同样只显示当前一个任务（截图同款单行）。
-				activeTask: activeTaskOf(leadOwn)
+				activeTask: activeTaskOf(leadOwn),
+				dispatchService: groupService
 			});
 
 			// Cells: every minister first, then 未分派 / 首辅自办 / 不在册 as
@@ -5838,6 +5930,7 @@ window.__ModuleLoader__.load({
 							// 阁臣卡不再挂任务列表（用户：「不要一个很长的卡片」）——
 							// 卡上只显示当前一个任务（in_progress 优先，否则最近一个）。
 							activeTask: activeTaskOf(own),
+							dispatchService: groupService,
 							children: own.length > 0 ? h('details', {
 								key: 'all-tasks', 'data-cabinet-member-tasks': member.id,
 								onClick: stopPropagation,
@@ -7169,6 +7262,18 @@ window.__ModuleLoader__.load({
 			'section.roster': '首辅与阁臣 · 派活与任务',
 			'lead.tag': '内阁首辅',
 			'current': '当前',
+			'dispatch.open': "派活",
+			'dispatch.close': "收起",
+			'dispatch.placeholder': "派活内容",
+			'dispatch.send': "排队发送",
+			'dispatch.interrupt': "插话",
+			'dispatch.queued': "已排队",
+			'dispatch.steered': "已提交插话",
+			'dispatch.pending': "提交中，请勿重复发送",
+			'dispatch.unknown': "投递结果未知，未自动重发。请先核对目标会话。",
+			'dispatch.confirm': "我已核对会话，允许再次手动发送",
+			'dispatch.rejected': "请求被明确拒绝，草稿已保留",
+			'dispatch.unavailable': "发送通道不可用",
 			'status.running': '干活中',
 			'status.inactive': '空闲',
 			'status.provisioning': '启动中',
@@ -7318,6 +7423,18 @@ window.__ModuleLoader__.load({
 			'section.roster': 'Lead and ministers · dispatch',
 			'lead.tag': '内阁首辅',
 			'current': 'current',
+			'dispatch.open': "Dispatch",
+			'dispatch.close': "Close",
+			'dispatch.placeholder': "Dispatch message",
+			'dispatch.send': "Queue message",
+			'dispatch.interrupt': "Steer",
+			'dispatch.queued': "Queued",
+			'dispatch.steered': "Steer request accepted",
+			'dispatch.pending': "Submitting; do not resend",
+			'dispatch.unknown': "Delivery outcome unknown; not resent. Check the target conversation first.",
+			'dispatch.confirm': "I checked the conversation; allow another manual send",
+			'dispatch.rejected': "Request rejected; draft retained",
+			'dispatch.unavailable': "Send channel unavailable",
 			'status.running': 'working',
 			'status.inactive': 'idle',
 			'status.provisioning': 'starting',
