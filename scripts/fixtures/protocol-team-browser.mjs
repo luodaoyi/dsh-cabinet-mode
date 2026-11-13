@@ -43,11 +43,13 @@ export async function teamBrowser({auth,env,repo,members}){
   const lead=members.find(m=>m.role==='lead'),member=members.find(m=>m.role==='teammate');
   if(!lead||!member)throw Error('validated team absent');
   stage='real lead listed and selected';
-  // The fixture has an isolated cwd but no Workspace membership. The native
-  // Cabinet ungrouped section starts collapsed; expand via its real button.
-  const ungrouped=page.locator('[data-cabinet-conversation-group-title="ungrouped"]');
-  await ungrouped.waitFor({state:'visible'});
-  if(await ungrouped.getAttribute('aria-expanded')==='false')await ungrouped.click();
+  // Official host may create a Workspace for the isolated cwd. Do not assume
+  // the team belongs to Ungrouped: expand actual groups via their normal buttons.
+  const groupTitles=page.locator('[data-cabinet-conversation-group-title]');
+  await groupTitles.first().waitFor({state:'visible'});
+  const collapsedTitles=page.locator('[data-cabinet-conversation-group-title][aria-expanded="false"]');
+  const groupBudget=await groupTitles.count();
+  for(let i=0;i<groupBudget&&await collapsedTitles.count()>0;i++)await collapsedTitles.first().click();
   const leadRow=page.locator(`[data-cabinet-conversation-item][data-cabinet-conversation-id=${JSON.stringify(lead.id)}]`);
   await leadRow.waitFor({state:'visible'});await leadRow.click();
   await page.waitForFunction(id=>document.querySelector('[data-cabinet-page-session]')?.value===id,lead.id);

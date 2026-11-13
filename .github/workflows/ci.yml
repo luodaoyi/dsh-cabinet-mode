@@ -123,6 +123,8 @@ jobs:
         run: |
           set -euo pipefail
           npm install --prefix "$RUNNER_TEMP/cabinet-host-browser" --ignore-scripts --no-audit --no-fund playwright-core@1.65.0
+          sudo apt-get update
+          sudo apt-get install --yes fonts-noto-cjk
           export DSH_BROWSER_TEST_ROOT="$RUNNER_TEMP/cabinet-host-browser"
           export CHROME_PATH="$(command -v google-chrome || command -v chromium)"
           CABINET_HOST_SCREENSHOT="$RUNNER_TEMP/cabinet-host.png" node scripts/test-dsh-web-smoke.mjs --headless
