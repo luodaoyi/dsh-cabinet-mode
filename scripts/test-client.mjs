@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 import { runInNewContext } from 'node:vm';
 
 let client;
@@ -1680,11 +1682,11 @@ console.log('PASS 内阁 Bot section removal: no section box, office rows, 现�
   };
   const leadEntries = [
     durable('tool/call', 1, 1000, { callId: 'c-lead', name: 'bash', arguments: '{"cmd":"ls"}' }),
-    durable('user/message', 2, 2000, { role: 'user', content: [{ type: 'text', text: '请调研' }] }),
+    durable('user/message', 2, 2000, { role: 'user', source: { kind: 'user', rpcId: 'fixture' }, content: [{ type: 'text', text: '请调研' }] }),
     durable('assistant/message', 3, 3000, { message: { role: 'assistant', content: [{ type: 'text', text: '调研结论A' }] } }),
   ];
   const worksEntries = [
-    durable('user/message', 1, 2500, { role: 'user', content: [{ type: 'text', text: '请实现' }] }),
+    durable('user/message', 1, 2500, { role: 'user', source: { kind: 'user', rpcId: 'fixture' }, content: [{ type: 'text', text: '请实现' }] }),
     durable('tool/call', 2, 2600, { callId: 'c-works', name: 'read', arguments: '{"path":"client.js"}' }),
     transient(2.5, 2900, { attemptId: 'att-1', turn: 1, step: 1, chunk: { type: 'text-delta', text: '实现中' } }),
     transient(2.6, 2950, { attemptId: 'att-1', turn: 1, step: 1, chunk: { type: 'text-delta', text: '…' } }),
@@ -2105,7 +2107,7 @@ console.log('PASS 内阁 Bot section removal: no section box, office rows, 现�
 
   // 6) Incremental append: the next window adds one more message without
   //    another retain, and the 5s tick folds it into the merged view.
-  sources['lead-session'].push([...leadEntries, durable('user/message', 4, 5000, { role: 'user', content: [{ type: 'text', text: '追加消息' }] })]);
+  sources['lead-session'].push([...leadEntries, durable('user/message', 4, 5000, { role: 'user', source: { kind: 'user', rpcId: 'fixture' }, content: [{ type: 'text', text: '追加消息' }] })]);
   const ticked = groupRender();
   // The unmount above ended the previous mount, so this render mounts again
   // (one retain per member); the very next render with the same roster must
@@ -2419,7 +2421,7 @@ console.log('PASS 内阁 Bot section removal: no section box, office rows, 现�
   // 11) Long histories page: the newest 30 rows render by default, 「显示更早」
   //     adds one page, and the hidden count is exposed for the assertion.
   const manyEntries = [
-    durable('user/message', 1, 1000, { message: { role: 'user', content: [{ type: 'text', text: '最早一句' }] } }),
+    durable('user/message', 1, 1000, { role: 'user', source: { kind: 'user', rpcId: 'fixture' }, content: [{ type: 'text', text: '最早一句' }] }),
     ...Array.from({ length: 34 }, (_, index) => durable('assistant/message', index + 2, 2000 + index, {
       message: { role: 'assistant', content: [{ type: 'text', text: '批量' + index }] },
     })),
@@ -2725,12 +2727,12 @@ console.log('PASS 内阁 Bot section removal: no section box, office rows, 现�
     // works：3 条不带 taskId（全部写序号）；
     // quiet：没有 source → 快照读取失败 → 不可用行（time 0）→ 无事件 → 不画泳道。
     sources['lead-session'] = makeSource([
-      durable('user/message', 1, 1000, { role: 'user', content: [{ type: 'text', text: '第一问' }], taskId: '7' }),
+      durable('user/message', 1, 1000, { role: 'user', content: [{ type: 'text', text: '第一问' }], source: { kind: 'user', rpcId: 'r-lead-1' }, taskId: '7' }),
       durable('assistant/message', 2, 2000, { message: { role: 'assistant', content: [{ type: 'text', text: '答一' }] }, taskId: '7' }),
-      durable('user/message', 3, 3000, { role: 'user', content: [{ type: 'text', text: '第二问' }] })
+      durable('user/message', 3, 3000, { role: 'user', content: [{ type: 'text', text: '第二问' }], source: { kind: 'user', rpcId: 'r-lead-3' } })
     ]);
     sources['m-works'] = makeSource([
-      durable('user/message', 1, 1500, { role: 'user', content: [{ type: 'text', text: '开工' }] }),
+      durable('user/message', 1, 1500, { role: 'user', content: [{ type: 'text', text: '开工' }], source: { kind: 'user', rpcId: 'r-works-1' } }),
       durable('assistant/message', 2, 2500, { message: { role: 'assistant', content: [{ type: 'text', text: '在做' }] } }),
       durable('assistant/message', 3, 3500, { message: { role: 'assistant', content: [{ type: 'text', text: '完成' }] } })
     ]);
@@ -3302,15 +3304,13 @@ console.log('PASS 群聊 tab: the right pane keeps the roster only (no 群聊 ta
     assert.ok(/\.cabinet-chat-bubble\.cabinet-chat-other\{[^}]*color:var\(--dsw-alias-label-primary/.test(css), 'the light bubble uses the theme label colour');
     assert.ok(/\.cabinet-chat-bubble\.cabinet-chat-self\{[^}]*light-dark\(#95EC69, #2c5a2f\)[^}]*light-dark\(#0f1115, #eaf6e8\)/.test(css), 'the self bubble pairs its background and text colours in both schemes');
     // D1 增强：插件用到的每个 --dsw-* 变量都必须在宿主产物里真实存在（读装机前端）。
-    // 环境自适应（不删断言）：本机装有资产 → 逐个严格核对（本地保护价值不变）；
-    // CI 等无资产环境 → 显式打一行 SKIP，绝不静默通过。DSH_TEST_HOST_ASSETS=absent
-    // 可短路探测路径，用于模拟无资产环境的自测。
-    const hostDirs = process.env.DSH_TEST_HOST_ASSETS === 'absent'
-      ? []
-      : [
-          '/var/opt/node24/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-web-frontend/dist/assets',
-          process.env.HOME + '/.dsh/profiles/web/node_modules/@deepseek-ai/dsh-web-frontend/dist/assets',
-        ];
+    const hostDirs = process.env.DSH_TEST_HOST_ASSETS === 'absent' ? [] : [
+      process.env.DSH_FRONTEND_ASSETS,
+      process.env.DSH_MODULE_ROOT && join(process.env.DSH_MODULE_ROOT, '@deepseek-ai/dsh-web-frontend/dist/assets'),
+      fileURLToPath(new URL('../node_modules/@deepseek-ai/dsh-web-frontend/dist/assets', import.meta.url)),
+      '/var/opt/node24/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-web-frontend/dist/assets',
+      process.env.HOME + '/.dsh/profiles/web/node_modules/@deepseek-ai/dsh-web-frontend/dist/assets',
+    ].filter(Boolean);
     const hostFiles = [];
     for (const dir of hostDirs) {
       if (!existsSync(dir)) continue;

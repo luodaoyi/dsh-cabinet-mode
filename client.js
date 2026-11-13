@@ -2780,7 +2780,7 @@ window.__ModuleLoader__.load({
 			if (!Array.isArray(content)) return '';
 			const parts = [];
 			for (const block of content) {
-				if (block && typeof block === 'object' && typeof block.text === 'string') parts.push(block.text);
+				if (block && typeof block === 'object' && block.type === 'text' && typeof block.text === 'string') parts.push(block.text);
 			}
 			return parts.join('\n');
 		}
@@ -2798,6 +2798,7 @@ window.__ModuleLoader__.load({
 			const openCalls = new Map();
 			const resultOrder = new Map();
 			const live = { byAttempt: new Map() };
+			const stepKey = data => Number.isInteger(data.turn) && Number.isInteger(data.step) ? data.turn + ':' + data.step : null;
 			const push = (message) => {
 				if (message.time === undefined) return;
 				messages.push(message);
@@ -2834,39 +2835,20 @@ window.__ModuleLoader__.load({
 						if (data.turn !== undefined && data.step !== undefined && delta.turn === data.turn && delta.step === data.step) live.byAttempt.delete(id);
 					}
 					const text = groupChatText(message.content);
-					if (text === '') continue;
-					push({ kind: 'assistant', time: event.time, seq: event.seq, text, tools: [], taskId: typeof data.taskId === 'string' && data.taskId !== '' ? data.taskId : undefined });
+					// Keep empty/tool-only steps until ownership is resolved (upstream),
+					// with our taskId carried for the right-rail task projection.
+					push({ kind: 'assistant', time: event.time, seq: event.seq, step: stepKey(data), text, tools: [], taskId: typeof data.taskId === 'string' && data.taskId !== '' ? data.taskId : undefined });
 					continue;
 				}
 				if (type === 'user/message') {
-					// The durable user/message envelope carries role/content/source
-					// directly on `data` (live session journal:
-					// data = { role:'user', content:[{type:'text',text}],
-					//          source:{kind:'user'} }), while assistant/message and
-					// tool/result nest theirs under `data.message`. Reading only
-					// `data.message` here dropped every user line, which is why the
-					// group chat showed the cabinet but never the user.
-					const nested = data.message;
-					const message = nested !== null && typeof nested === 'object' ? nested : data;
-					// Injected user-role rows (respire, runtime-context, time-context,
-					// model-selection, subagent-settled) are not the user speaking.
-					// Deliberate deviation from the host "fall through unknown kind"
-					// contract (source.kind is merge-extensible; dsh-llm
-					// types/message.d.ts:94-99): the group chat shows only the
-					// conversation between the person and the officers, so an unknown
-					// producer stays out instead of being guessed into the view.
-					const source = data.source;
-					if (source !== null && typeof source === 'object' && typeof source.kind === 'string' && source.kind !== 'user') continue;
-					// `kind === 'user'` is wider than "a person": the Lead's spawn
-					// prompts and relayed text also carry kind:'user'. The Host marks
-					// a real submission with `'rpcId' in source`
-					// (dsh-api-session-controller/lib/client.js:2809,2822;
-					// types/commands.js:544,553), so a user-kind row without rpcId is
-					// machine text and never renders as 「你」.
-					if (source !== null && typeof source === 'object' && !('rpcId' in source)) continue;
+					const message = data;
+					if (!message || typeof message !== 'object') continue;
 					const text = groupChatText(message.content);
-					if (text === '') continue;
-					push({ kind: 'user', time: event.time, seq: event.seq, text, tools: [], taskId: typeof data.taskId === 'string' && data.taskId !== '' ? data.taskId : undefined });
+					// Only an explicit user source represents a human; other producers
+					// are context input. Empty inputs still break legacy ownership.
+					const source = message.source;
+					const kind = source?.kind === 'user' && 'rpcId' in source ? 'user' : 'input';
+					push({ kind, time: event.time, seq: event.seq, text, tools: [], taskId: typeof data.taskId === 'string' && data.taskId !== '' ? data.taskId : undefined });
 					continue;
 				}
 				if (type === 'tool/call') {
@@ -2874,6 +2856,7 @@ window.__ModuleLoader__.load({
 					if (id !== null && !openCalls.has(id)) {
 						openCalls.set(id, {
 							callId: id,
+							step: stepKey(data),
 							name: typeof data.name === 'string' && data.name !== '' ? data.name : 'tool',
 							args: typeof data.arguments === 'string' ? data.arguments : '',
 							time: event.time,
@@ -2905,23 +2888,37 @@ window.__ModuleLoader__.load({
 			for (const [attemptId, delta] of live.byAttempt) {
 				rows.push({ kind: 'live', attemptId, time: delta.time, seq: delta.seq, text: delta.text, tools: [] });
 			}
-			// Each call belongs to the latest assistant in this user turn, once.
+			// Official turn/step identity wins even for tool-only steps. Never
+			// borrow a different step when a partial event window omits its owner.
+			// Legacy calls without identity use the preceding message boundary.
 			const bySeq = messages.slice().sort((a, b) => a.seq - b.seq);
+			const byStep = new Map(bySeq.filter(message => message.kind === 'assistant' && message.step !== null).map(message => [message.step, message]));
 			let cursor = 0, owner;
 			for (const tool of tools) {
 				while (cursor < bySeq.length && bySeq[cursor].seq <= tool.seq) {
 					const message = bySeq[cursor++];
 					owner = message.kind === 'assistant' ? message : undefined;
 				}
-				if (owner !== undefined) owner.tools.push(tool);
+				const exactOwner = tool.step === null ? owner : byStep.get(tool.step);
+				if (exactOwner !== undefined) exactOwner.tools.push(tool);
 			}
-			rows.push(...messages);
+			rows.push(...messages.filter(message => message.text !== '' || message.tools.length > 0));
 			const attached = new Set();
 			for (const row of rows) for (const tool of Array.isArray(row.tools) ? row.tools : []) attached.add(tool.callId);
 			const leftovers = tools.filter((tool) => !attached.has(tool.callId));
 			if (leftovers.length > 0) {
-				const anchor = rows.reduce((last, row) => (row.time > last ? row.time : last), -Infinity);
-				rows.push({ kind: 'tools', time: Number.isFinite(anchor) ? anchor : 0, seq: Number.MAX_SAFE_INTEGER, text: '', tools: leftovers });
+				const groups = new Map();
+				for (const tool of leftovers) {
+					// Unidentified calls are independent rather than falsely grouped.
+					const key = tool.step ?? 'call:' + tool.callId;
+					let row = groups.get(key);
+					if (!row) {
+						row = { kind: 'tools', time: tool.time, seq: tool.seq, text: '', tools: [] };
+						groups.set(key, row);
+						rows.push(row);
+					}
+					row.tools.push(tool);
+				}
 			}
 			// Assistant/user/tool rows merge into one time-ordered view. A settled
 			// message is written after its own transient suffixes, so a live delta
@@ -4144,6 +4141,13 @@ window.__ModuleLoader__.load({
 		 * `ready` settles; `error` marks the member 不可用 (single-channel failure
 		 * never throws into the panel).
 		 */
+		const groupFoldTokens = new WeakMap();
+		let nextGroupFoldToken = 0;
+		function groupFoldToken(fold) {
+			if (!fold || typeof fold !== 'object') return 0;
+			if (!groupFoldTokens.has(fold)) groupFoldTokens.set(fold, ++nextGroupFoldToken);
+			return groupFoldTokens.get(fold);
+		}
 		function groupChatEmptyView() { return { fold: null, error: null, liveText: '' }; }
 		/**
 		 * Retain + subscribe every roster member while the 群聊 tab is active.
@@ -4152,11 +4156,14 @@ window.__ModuleLoader__.load({
 		 * panel unmount. A member that cannot be retained renders its own 不可用
 		 * row; the other members keep working.
 		 */
-		function useCabinetGroupChat(members, activeTab, service) {
+		function useCabinetGroupChat(members, activeTab, service, notify) {
 			const [, setRevision] = React.useState(0);
-			const key = JSON.stringify(members.map((member) => member.id));
-			// Keep one map across roster changes so the timer reads current records.
-			const stateRef = React.useRef({ views: new Map(), records: new Map() });
+
+			const key = JSON.stringify(members.map((member) => (member && typeof member.id === 'string' ? member.id : '')).filter((id) => id !== ''));
+			// One stable state object lets an existing timer read current records.
+			// The effect owns references and clears all per-reference revision caches.
+			const stateRef = React.useRef(null);
+			if (stateRef.current === null) stateRef.current = { views: new Map(), records: new Map() };
 			const state = stateRef.current;
 			stateRef.current.key = key;
 			// One fold per window revision. The feed's `revision` moves only when
@@ -4168,21 +4175,25 @@ window.__ModuleLoader__.load({
 				if (record === undefined || record.released) return false;
 				const previous = state.views.get(id);
 				if (onlyMissing && previous !== undefined) return false;
-				let channel = null;
 				try {
-					const binding = record.reference.binding;
-					channel = binding && binding.eventSource ? binding.eventSource : null;
-				} catch (error) { return false; }
-				if (!channel || typeof channel.getSnapshot !== 'function') return false;
-				let snapshot;
-				try { snapshot = channel.getSnapshot(); } catch (error) { return false; }
-				if (snapshot === null || typeof snapshot !== 'object') return false;
-				const revision = typeof snapshot.revision === 'number' ? snapshot.revision : undefined;
-				if (previous !== undefined && revision !== undefined && previous.revision === revision) return false;
-				const entries = Array.isArray(snapshot.entries) ? snapshot.entries : [];
-				const fold = groupChatFold(entries);
-				state.views.set(id, { fold, error: null, liveText: fold.liveText, revision });
-				return true;
+					const channel = record.reference.binding?.eventSource;
+					if (!channel || typeof channel.getSnapshot !== 'function' || typeof channel.subscribe !== 'function') throw new Error(GROUP_UNAVAILABLE);
+					const snapshot = channel.getSnapshot();
+					if (snapshot === null || typeof snapshot !== 'object') throw new Error(GROUP_UNAVAILABLE);
+					const revision = typeof snapshot.revision === 'number' ? snapshot.revision : undefined;
+					if (previous !== undefined && !previous.error && revision !== undefined && previous.revision === revision) return false;
+					const fold = groupChatFold(Array.isArray(snapshot.entries) ? snapshot.entries : []);
+					state.views.set(id, { fold, error: null, liveText: fold.liveText, revision });
+					return true;
+				} catch (error) {
+					// A not-yet-bound reference may legitimately wait for ready. Once
+					// bound, failures must never leave old content looking current.
+					if (!record.ready && previous === undefined) return false;
+					const message = String(error?.message || error);
+					if (previous?.error === message && previous.fold === null) return false;
+					state.views.set(id, { fold: null, error: message, liveText: '', revision: undefined });
+					return true;
+				}
 			};
 			// The send channel: the retained reference's SessionFace is the only
 			// public prompt entry (contract/session.d.ts ISession.prompt). Absence
@@ -4202,19 +4213,28 @@ window.__ModuleLoader__.load({
 				const session = sessionOf(id);
 				if (session === null) { resolve({ ok: false, error: 'cabinet-groupchat: 发送通道不可用' }); return; }
 				let pending;
-				try { pending = session.prompt(content, mode); } catch (error) { resolve({ ok: false, error: String(error && error.message ? error.message : error) }); return; }
+				try { pending = session.prompt(content, mode); } catch (error) { resolve({ ok: false, unknown: true, error: String(error && error.message ? error.message : error) }); return; }
 				Promise.resolve(pending).then(
-					(result) => { resolve(result !== null && typeof result === 'object' ? result : { ok: true }); },
-					(error) => { resolve({ ok: false, error: String(error && error.message ? error.message : error) }); }
+					(result) => {
+						if (result === null || typeof result !== 'object' || typeof result.ok !== 'boolean') { resolve({ ok: false, unknown: true, error: 'No delivery acknowledgement' }); return; }
+						// The official Remote face folds transport faults/aborts into failed
+						// results instead of rejecting. They cannot prove non-delivery.
+						const code = result.error && result.error.code;
+						resolve(!result.ok && (code === 'gateway/internal' || code === 'gateway/cancelled') ? { ...result, unknown: true } : result);
+					},
+					(error) => { resolve({ ok: false, unknown: true, error: String(error && error.message ? error.message : error) }); }
 				);
 			});
 			React.useEffect(() => {
 				if (activeTab !== 'groupchat' && activeTab !== 'timeline') return undefined;
+				const abort = new AbortController();
 				let disposed = false;
 				const bump = () => { if (!disposed) setRevision((revision) => revision + 1); };
-				const fail = (id, error) => {
-					state.views.set(id, { fold: null, error: error?.message || String(error), liveText: '' });
-					bump();
+				const releaseRecord = (record) => {
+					if (record === undefined || record.released) return;
+					record.released = true;
+					if (typeof record.unsubscribe === 'function') { try { record.unsubscribe(); } catch (ignored) { /* source already gone */ } }
+					try { record.reference.release(); } catch (ignored) { /* release is once-only by contract */ }
 				};
 				const dropMember = (id) => {
 					const record = state.records.get(id);
@@ -4227,47 +4247,78 @@ window.__ModuleLoader__.load({
 				};
 				// A failed member keeps its 不可用 row until it actually returns:
 				// releasing the old reference must not silently clear the error.
+				const clearError = (id) => {
+					const view = state.views.get(id);
+					if (view !== undefined && view.error !== null) state.views.set(id, { fold: view.fold, error: null, liveText: view.liveText, revision: view.revision });
+				};
+				const syncMember = (id, record) => { foldInto(id, record, false); };
+				const addMember = (member) => {
+					const id = member.id;
+					let reference;
+					try {
+						reference = cabinetGroupRetain(id);
+					} catch (error) {
+						// Keep the failure on the row it belongs to.
+						const previous = state.views.get(id);
+						state.views.set(id, { fold: previous ? previous.fold : null, error: String(error && error.message ? error.message : error), liveText: previous ? previous.liveText : '', revision: previous ? previous.revision : undefined });
+						bump();
+						return;
+					}
+					clearError(id);
+					const record = { reference, released: false, ready: false, unsubscribe: null };
+					state.records.set(id, record);
+					const source = () => {
+						try {
+							const binding = reference.binding;
+							return binding && binding.eventSource ? binding.eventSource : null;
+						} catch (error) {
+							return null;
+						}
+					};
+					const sync = () => {
+						if (record.released) return;
+						if (foldInto(id, record, false)) bump();
+					};
+					try {
+						const channel = source();
+						if (channel && typeof channel.subscribe === 'function') record.unsubscribe = channel.subscribe(sync);
+					} catch (error) { /* degrade to 不可用 below */ }
+					Promise.resolve(reference.ready).then(() => {
+						if (record.released || abort.signal.aborted) return;
+						record.ready = true;
+						sync();
+						if (record.unsubscribe === null) {
+							const channel = source();
+							if (channel && typeof channel.subscribe === 'function') { try { record.unsubscribe = channel.subscribe(sync); } catch (ignored) { /* already unavailable */ } }
+						}
+						// After `ready` a session without any event channel can never
+						// produce a row on its own, so it degrades explicitly instead
+						// of leaving the pane silently short one member.
+						const settledChannel = source();
+						if (!settledChannel || typeof settledChannel.getSnapshot !== 'function') {
+							if (state.views.get(id) === undefined) {
+								state.views.set(id, { fold: null, error: GROUP_UNAVAILABLE, liveText: '', revision: undefined });
+								bump();
+							}
+						}
+					}, (error) => {
+						if (record.released || abort.signal.aborted) return;
+						state.views.set(id, { fold: null, error: String(error && error.message ? error.message : error), liveText: '', revision: undefined });
+						bump();
+					});
+					sync();
+				};
 
 				for (const id of Array.from(state.records.keys())) if (!key.includes(JSON.stringify(id))) dropMember(id);
 				for (const member of members) {
-					const id = member.id;
-					if (typeof id !== 'string' || id === '' || state.records.has(id)) continue;
-					let reference;
-					try { reference = cabinetGroupRetain(id); }
-					catch (error) { fail(id, error); continue; }
-					const record = { reference, unsubscribe: null, sync: null };
-					state.records.set(id, record);
-					record.sync = () => {
-						if (disposed) return;
-						try {
-							const channel = reference.binding.eventSource;
-							if (!channel || typeof channel.getSnapshot !== 'function' || typeof channel.subscribe !== 'function') throw new Error(GROUP_UNAVAILABLE);
-							if (record.unsubscribe === null) record.unsubscribe = channel.subscribe(record.sync);
-							const snapshot = channel.getSnapshot();
-							const revision = typeof snapshot.revision === 'number' ? snapshot.revision : undefined;
-							const previous = state.views.get(id);
-							// One fold per window revision: an unchanged window reuses
-							// the cached fold and never re-reads `entries` (the snapshot
-							// materialises them lazily — the 5s tick pays one revision
-							// comparison per member instead of a full refold).
-							if (previous !== undefined && previous.error == null && revision !== undefined && previous.revision === revision) return;
-							const fold = groupChatFold(Array.isArray(snapshot.entries) ? snapshot.entries : []);
-							state.views.set(id, { fold, error: null, liveText: fold.liveText, revision });
-							bump();
-						} catch (error) { fail(id, error); }
-					};
-					record.sync();
-					Promise.resolve(reference.ready).then(() => record.sync(), (error) => {
-						if (!disposed) fail(id, error);
-					});
+					if (member === undefined || member === null || typeof member.id !== 'string' || member.id === '') continue;
+					if (!state.records.has(member.id)) addMember(member);
+					else syncMember(member.id, state.records.get(member.id));
 				}
-				bump();
 				return () => {
 					disposed = true;
-					for (const record of state.records.values()) {
-						try { record.unsubscribe?.(); } catch (ignored) { /* source already gone */ }
-						try { record.reference.release(); } catch (ignored) { /* service already gone */ }
-					}
+					try { abort.abort(); } catch (ignored) { /* controller is local */ }
+					for (const record of Array.from(state.records.values())) releaseRecord(record);
 					state.records.clear();
 					state.views.clear();
 				};
@@ -4294,7 +4345,10 @@ window.__ModuleLoader__.load({
 				if (changed) setRevision((revision) => revision + 1);
 			}, [refilled]);
 			return {
-				views: (id) => state.views.get(id) || groupChatEmptyView(),
+				views: (id) => {
+					const view = state.views.get(id);
+					return view === undefined ? groupChatEmptyView() : view;
+				},
 				members: () => Array.from(state.views.keys()),
 				canPrompt,
 				promptSession,
@@ -4772,7 +4826,7 @@ window.__ModuleLoader__.load({
 			const activeTab = typeof activeTabProp === 'string' ? activeTabProp : localTab;
 			const setActiveTab = setLocalTab;
 			// Re-render when the mirrored member settings change (names/avatars).
-			const [, setMemberRevision] = React.useState(0);
+			const [memberRevision, setMemberRevision] = React.useState(0);
 			React.useEffect(() => subscribeMemberConfig(() => setMemberRevision((revision) => revision + 1)), []);
 			const tt = typeof t === 'function' ? t : (key) => key;
 			const statusLabel = (status) => tt('status.' + status);
@@ -5006,7 +5060,7 @@ window.__ModuleLoader__.load({
 			// 是「群聊很卡」的主要来源之一）。
 			const membersSignature = members.map((member) => String(member.id) + ':' + String(member.name) + ':' + String(member.phase)).join('|');
 			// 气泡昵称：同一会话内不同成员必定显示不同名字（规则见 chatBubbleNames）。
-			const bubbleNames = React.useMemo(() => chatBubbleNames(members), [membersSignature]);
+			const bubbleNames = React.useMemo(() => chatBubbleNames(members), [membersSignature, memberRevision]);
 			const edgeLead = members.find((member) => member.role === 'lead');
 			const liveTaskIds = new Set();
 			for (const task of tasks) {
@@ -5115,19 +5169,17 @@ window.__ModuleLoader__.load({
 			// Each folded row keeps the member it came from: the row itself only
 			// carries {kind,time,seq,text,tools}, so the portrait and the office
 			// name would otherwise have nothing to resolve against.
-			// 行签名：成员集合 + 每个成员 fold 的行数与末行 seq。签名不变时整段
-			// flatMap + 全量排序合并（8 成员 × 上千行的 mergeGroupChat）不必重做。
-			const groupRowsSignature = chatMembers.map((member) => {
+			// Fold identity changes for every new snapshot, including tool-only updates.
+			// Unlike text-length signatures this cannot hide equal-length replacements.
+			const groupRowsSignature = JSON.stringify(chatMembers.map((member) => {
 				const view = group.views(member.id);
-				const rows = view.fold === null ? [] : view.fold.rows;
-				const last = rows.length > 0 ? rows[rows.length - 1] : undefined;
-				return member.id + '#' + rows.length + '@' + (last === undefined ? '' : String(last.seq) + String(last.text.length)) ;
-			}).join('|');
+				return [member.id, member.name, member.phase, groupFoldToken(view.fold), view.error];
+			}));
 			const groupRows = React.useMemo(() => mergeGroupChat(chatMembers.flatMap((member) => {
 				const view = group.views(member.id);
 				// 行上同时保留 member（头像/中文名）与 memberName（不认 member 的旧路径：同人判定、气泡兜底）。
-				return view.fold === null ? [] : view.fold.rows.map((row) => ({ ...row, member, memberName: member.name }));
-			})), [groupRowsSignature]);
+				return view.fold === null ? [] : view.fold.rows.filter((row) => row.kind !== 'input').map((row) => ({ ...row, member, memberName: member.name }));
+			})), [groupRowsSignature]).slice();
 
 
 					// A member without a live view (retain failed, or the window has not
@@ -5289,19 +5341,13 @@ window.__ModuleLoader__.load({
 					setSendError(null);
 					group.promptSession(deliver, [{ type: 'text', text: body === '' ? text : body }], 'queue').then((result) => {
 						if (result && result.ok) { setDraft(''); setMentions([]); setMentionOpen(false); }
-						else if (direct) {
-							// 成员通道失败 → 显式降级给首辅，正文带回 @标记，并在 UI 说明。
-							return group.promptSession(target, [{ type: 'text', text }], 'queue').then((fallback) => {
-								if (fallback && fallback.ok) { setDraft(''); setMentions([]); setMentionOpen(false); setMentionNotice(tt('groupchat.mention.fallback').replace('{name}', mention.label)); }
-								else setSendError(tt('groupchat.composer.failed').replace('{error}', 'member session declined; lead fallback failed'));
-							});
-						} else {
-							const reason = result && result.error ? (result.error.message || String(result.error)) : 'prompt rejected';
+						else {
+							const reason = result?.unknown ? tt('groupchat.composer.unknown') : (result && result.error ? (result.error.message || String(result.error)) : 'prompt rejected');
 							setSendError(tt('groupchat.composer.failed').replace('{error}', String(reason)));
 						}
 						return undefined;
 					}, (error) => {
-						setSendError(tt('groupchat.composer.failed').replace('{error}', String(error && error.message ? error.message : error)));
+						setSendError(tt('groupchat.composer.failed').replace('{error}', tt('groupchat.composer.unknown')));
 					}).then(() => {
 						sendingRef.current = false;
 						setSending(false);
@@ -5439,7 +5485,7 @@ window.__ModuleLoader__.load({
 							h('div', { key: 'text', 'data-cabinet-groupchat-empty-text': '1', style: { maxWidth: 360 } }, tt('groupchat.empty'))
 						])
 						: cabinetChatViewRows(shown).map((entry, index) => h(GroupChatRow, {
-							key: 'row:' + index,
+							key: JSON.stringify([leadSessionId, entry.row.member?.id || entry.row.memberName, entry.row.kind, entry.row.seq, entry.row.time]),
 							row: entry.row,
 							member: entry.row.member || memberByName.get(entry.row.memberName),
 							// 会话内唯一化的昵称（重名成员各自可辨，见 chatBubbleNames）。
@@ -6502,7 +6548,7 @@ window.__ModuleLoader__.load({
 				}).join('|');
 			}());
 			const choices = React.useMemo(() => cabinetSessionFilters(cabinetSessionChoices(list), workspaceSnapshot, Date.now()), [sessionListSignature, archivedSignature]);
-			const sessionGroups = React.useMemo(() => cabinetSessionGroups(choices, workspaceSnapshot, tt('conversation.all')), [choices, archivedSignature]);
+			const sessionGroups = React.useMemo(() => cabinetSessionGroups(choices, workspaceSnapshot, tt('conversation.all')), [choices, archivedSignature, workspaceSnapshot, tt('conversation.all')]);
 			// 默认选中必须在归档过滤之后算：最近更新的会话若已归档，它不在任何组里，
 			// 选中它只会得到空右栏；这里只在「可见会话」里挑。
 			// 扁平化只依赖 sessionGroups：分组签名不变时不再每帧展开一遍（也保持
@@ -7125,6 +7171,7 @@ window.__ModuleLoader__.load({
 			'groupchat.composer.send': '发送',
 			'groupchat.composer.sending': '发送中…',
 			'groupchat.composer.unavailable': '发送通道不可用：未接入首辅会话',
+			'groupchat.composer.unknown': '发送结果未知，未自动重发。请先核对收件会话再决定是否重试。',
 			'groupchat.composer.failed': '发送失败：{error}'
 ,
 			'member.nav': '内阁成员',
@@ -7273,6 +7320,7 @@ window.__ModuleLoader__.load({
 			'groupchat.composer.send': 'Send',
 			'groupchat.composer.sending': 'Sending…',
 			'groupchat.composer.unavailable': 'Send channel unavailable: the Lead session is not connected',
+			'groupchat.composer.unknown': 'Delivery outcome unknown; not resent. Check the recipient session before retrying.',
 			'groupchat.composer.failed': 'Send failed: {error}'
 ,
 			'member.nav': 'Cabinet members',
@@ -7423,8 +7471,18 @@ window.__ModuleLoader__.load({
 				if (!workspaces || !workspaces.list || typeof workspaces.list.getSnapshot !== 'function') return;
 				scope.effect(() => {
 					cabinetWorkspaces = workspaces;
-					for (const notify of cabinetWorkspacesListeners) notify();
-					return () => { if (cabinetWorkspaces === workspaces) { cabinetWorkspaces = null; for (const notify of cabinetWorkspacesListeners) notify(); } };
+					const notify = () => {
+						if (cabinetWorkspaces === workspaces) for (const listener of cabinetWorkspacesListeners) listener();
+					};
+					const unsubscribe = typeof workspaces.list.subscribe === 'function' ? workspaces.list.subscribe(notify) : null;
+					notify();
+					return () => {
+						if (typeof unsubscribe === 'function') unsubscribe();
+						if (cabinetWorkspaces === workspaces) {
+							cabinetWorkspaces = null;
+							for (const listener of cabinetWorkspacesListeners) listener();
+						}
+					};
 				}, 'cabinet-ui: workspace groups');
 			});
 			ctx.inject(['sessions'], (scope) => {
