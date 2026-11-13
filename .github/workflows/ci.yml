@@ -115,7 +115,7 @@ jobs:
         env:
           DSH_MODULE_ROOT: ${{ runner.temp }}/cabinet-runtime/node_modules
         run: node scripts/test-dsh-protocol-fixture.mjs
-      - name: Real DSH host browser: empty profile and deterministic team
+      - name: "Real DSH host browser: empty profile and deterministic team"
         if: matrix.dsh == '0.2.2-rc.1'
         env:
           DSH_MODULE_ROOT: ${{ runner.temp }}/cabinet-runtime/node_modules
