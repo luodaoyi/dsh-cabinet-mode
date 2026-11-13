@@ -140,6 +140,57 @@ export async function teamBrowser({auth,env,repo,members,onCreated}){
   await memberHint.waitFor({state:'visible'});
   if(!/Delivery outcome unknown; not resent|发送结果未知，未自动重发/.test(await memberHint.innerText()))throw Error('missing routed uncertain-delivery warning');
   if(pageErrors||routeFailed||[...promptCounts.values()].some(n=>n!==1))throw Error('browser prompt runtime or duplication failure');
+  // Additional roster dispatch coverage. Preserve every composer assertion above.
+  // Both targets use the actual SessionFace endpoint, not subagents/prompt.
+  const dispatchSpecs=[
+   {marker:'CABINET_DISPATCH_LEAD_NORMAL_V1',id:lead.id,lost:false},
+   {marker:'CABINET_DISPATCH_LEAD_ACK_LOST_V1',id:lead.id,lost:true},
+   {marker:'CABINET_DISPATCH_MEMBER_NORMAL_V1',id:member.id,lost:false},
+   {marker:'CABINET_DISPATCH_MEMBER_ACK_LOST_V1',id:member.id,lost:true}
+  ];
+  await context.route(origin+'/api/session/prompt',async route=>{
+   try{
+    const envelope=route.request().postDataJSON(),request=envelope?.payload?.args?.request;
+    const marker=request?.content?.length===1&&request.content[0].type==='text'?request.content[0].text:undefined;
+    const spec=dispatchSpecs.find(item=>item.marker===marker);
+    if(!spec){await route.fallback();return}
+    promptCounts.set(marker,(promptCounts.get(marker)||0)+1);
+    if(envelope.type!=='client-request'||envelope.method!=='session/prompt'||request.sessionId!==spec.id||request.mode!=='queue'||typeof request.requestId!=='string'||promptCounts.get(marker)!==1)throw Error('unexpected dispatch request');
+    const response=await route.fetch({maxRetries:0,maxRedirects:0,timeout:30000});
+    const ack=await response.json();
+    if(response.status()!==200||ack.type!=='server-response'||ack.rpcId!==envelope.rpcId||ack.result?.ok!==true||ack.result.value?.accepted!==true)throw Error('actual SessionFace dispatch not accepted');
+    proofs.push({marker,requestId:request.requestId,sessionId:spec.id});
+    if(spec.lost)await route.abort('failed');else await route.fulfill({response});
+   }catch{routeFailed=true;try{await route.abort('failed')}catch{}}
+  });
+  const split=page.locator('[data-cabinet-split-toggle]');
+  if(await split.getAttribute('data-cabinet-split-state')==='0')await split.click();
+  const rail=page.locator('[data-cabinet-cabinet-rail]');
+  await rail.waitFor({state:'visible'});
+  await rail.locator('[data-cabinet-rail-tab="roster"]').click();
+  for(const spec of dispatchSpecs){
+   stage='actual roster SessionFace '+(spec.id===lead.id?'Lead':'member')+(spec.lost?' accepted ACK lost':' normal acknowledgement');
+   const control=rail.locator(`[data-cabinet-dispatch=${JSON.stringify(spec.id)}]`);
+   const toggle=control.locator('[data-cabinet-dispatch-open]');
+   if(await toggle.getAttribute('aria-expanded')==='false')await toggle.click();
+   await control.locator('[data-cabinet-dispatch-phase="ready"], [data-cabinet-dispatch-phase="accepted"]').waitFor({state:'attached'});
+   const draft=control.locator('[data-cabinet-dispatch-input]');
+   await draft.fill(spec.marker);await control.locator('[data-cabinet-dispatch-send]').click();
+   await control.locator(`[data-cabinet-dispatch-phase="${spec.lost?'unknown':'accepted'}"]`).waitFor({state:'attached'});
+   if(routeFailed||promptCounts.get(spec.marker)!==1||proofs.filter(p=>p.marker===spec.marker).length!==1)throw Error('dispatch acceptance proof failed');
+   await group.locator('[data-cabinet-groupchat-row="assistant"]').filter({has:page.locator(`[data-cabinet-open-session=${JSON.stringify(spec.id)}]`)}).filter({hasText:spec.marker+'_REPLY'}).first().waitFor({state:'visible'});
+   if(spec.id===member.id)await group.locator('[data-cabinet-groupchat-row="assistant"]').filter({has:page.locator(`[data-cabinet-open-session=${JSON.stringify(lead.id)}]`)}).filter({hasText:spec.marker+'_SETTLED_REPLY'}).first().waitFor({state:'visible'});
+   if(spec.lost){
+    if(await draft.inputValue()!==spec.marker||!await control.locator('[data-cabinet-dispatch-send]').isDisabled())throw Error('unknown dispatch not protected');
+    if(!/Delivery outcome unknown|投递结果未知/.test(await control.locator('[data-cabinet-dispatch-status]').innerText()))throw Error('dispatch unknown warning absent');
+    await control.locator('[data-cabinet-dispatch-confirm]').click();
+    if(promptCounts.get(spec.marker)!==1)throw Error('dispatch confirmation resent');
+   }else if(await draft.inputValue()!=='')throw Error('accepted dispatch draft not cleared');
+   if(await page.locator('[data-cabinet-page-session]').inputValue()!==lead.id)throw Error('dispatch click navigated away');
+   await toggle.click();
+  }
+  if(pageErrors||routeFailed||[...promptCounts.values()].some(n=>n!==1))throw Error('dispatch runtime or duplicate failure');
+  console.log('PASS actual roster dispatch: Lead/member SessionFace normal and accepted-ACK-lost, target and request identity verified');
   stage='real UI-created ordinary session and native composer';
   proofs.push(...await createSessionInBrowser({page,context,origin,members,cwd:env.CABINET_FIXTURE_CWD,onCreated}));
   if(pageErrors)throw Error('browser runtime error during UI creation');
