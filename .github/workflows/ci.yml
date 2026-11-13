@@ -110,6 +110,11 @@ jobs:
             node scripts/test-model-selection.cjs
           fi
           node scripts/test-prompt-assembly.cjs
+      - name: Isolated real DSH web startup and plugin asset smoke (no model)
+        if: matrix.dsh == '0.2.2-rc.1'
+        env:
+          DSH_MODULE_ROOT: ${{ runner.temp }}/cabinet-runtime/node_modules
+        run: node scripts/test-dsh-web-smoke.mjs
 
 
   browser-regression:
