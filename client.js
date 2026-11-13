@@ -2389,19 +2389,14 @@ window.__ModuleLoader__.load({
 		const STYLE_CSS = [
 			// status dot pulse (panel)
 			'@keyframes cabinetPulse{0%{box-shadow:0 0 0 0 rgba(34,197,94,.55)}70%{box-shadow:0 0 0 7px rgba(34,197,94,0)}100%{box-shadow:0 0 0 0 rgba(34,197,94,0)}}',
-			// 走马灯边框（方案A · CSS Motion Path）：一个 6px 实心小圆点沿边框线跑——
-			// offset-path: rect() 贴卡圆角（.cabinet-card border-radius:10px，故 round 10px）
-			// 跑一圈，offset-distance 0→100%。本机 Chrome/157 实测 CSS.supports(
-			// "offset-path","rect(0 100% 100% 0 round 12px)")=true（urlgo 2026-11-13）。
-			// 不是渐变不是扫描；只动 offset-distance（合成器），pointer-events 不拦截点击。
-			'[data-cabinet-sweep]{position:relative;overflow:hidden}',
-			'[data-cabinet-sweep]::before{content:"";position:absolute;top:0;left:0;width:6px;height:6px;border-radius:50%;background:var(--cab-live-hue, rgba(127,127,127,.55));box-shadow:0 0 6px var(--cab-live-hue, rgba(127,127,127,.55));offset-path:rect(0 100% 100% 0 round 10px);offset-distance:0%;animation:cabinetDotRun 2s linear infinite;will-change:offset-distance;pointer-events:none}',
+			// A bounded dot follows the real running card perimeter. Unsupported engines
+			// hide it, rather than painting a stationary/misplaced activity indicator.
+			'[data-cabinet-sweep]{position:relative;overflow:hidden;border-radius:12px}',
+			'[data-cabinet-sweep]::before{content:"";position:absolute;top:0;left:0;width:6px;height:6px;border-radius:50%;background:var(--cab-live-hue, rgba(127,127,127,.55));box-shadow:0 0 6px var(--cab-live-hue, rgba(127,127,127,.55));offset-path:rect(0 100% 100% 0 round 12px);offset-distance:0%;animation:cabinetDotRun 2s linear infinite;will-change:offset-distance;pointer-events:none}',
 			'@keyframes cabinetDotRun{to{offset-distance:100%}}',
-			// 内核不支持 motion path 时藏点（不留静止的错位圆点误导）。
-			'@supports not (offset-path:rect(0 100% 100% 0 round 10px)){[data-cabinet-sweep]::before{display:none}}',
+			'@supports not (offset-path:rect(0 100% 100% 0 round 12px)){[data-cabinet-sweep]::before{display:none}}',
 			'[data-cabinet-sweep] > *{position:relative;z-index:1}',
-			// cabinetSpin keyframes 上游已有（头像活动环 :2403 同名复用，勿重复定义）。
-			'@media (prefers-reduced-motion: reduce){[data-cabinet-sweep]::before{animation:none}}',
+			'@media (prefers-reduced-motion: reduce){[data-cabinet-sweep]::before{animation:none!important;display:none}}',
 			// 右栏拖拽手柄 hover 高亮（宽度可调，见 CABINET_RAIL_DEFAULT_WIDTH）。
 			'[data-cabinet-rail-handle]:hover{background:rgba(79,140,255,.45)}',
 			// running avatar: rotating conic ring (panel + native roster) and glow
@@ -2492,7 +2487,7 @@ window.__ModuleLoader__.load({
 			'.cabinet-edge-dot{stroke:none}',
 			'.cabinet-edge-dot-done{fill:light-dark(#15803d,#4ade80)}.cabinet-edge-dot-pending{fill:light-dark(#6b7280,#9ca3af)}.cabinet-edge-dot-active{fill:light-dark(#2563eb,#60a5fa)}',
 			// accessibility: everything above stands still
-			'@media (prefers-reduced-motion:reduce){[data-cabinet-status="running"],img.cabinet-avatar-running,.cabinet-live-breathe,.cabinet-dots i,.cabinet-task-live::after{animation:none!important}.cabinet-avatar-slot.cabinet-ring-live::before{animation:none!important;opacity:.8}.cabinet-row-live{animation:none!important;background-image:none}.cabinet-edge-active,.cabinet-edge-active.cabinet-edge-live{animation:none!important}}',
+			'@media (prefers-reduced-motion:reduce){[data-cabinet-status="running"],img.cabinet-avatar-running,.cabinet-live-breathe,.cabinet-dots i,.cabinet-task-live::after,.cabinet-task-mark{animation:none!important}.cabinet-avatar-slot.cabinet-ring-live::before{animation:none!important;opacity:.8}.cabinet-row-live{animation:none!important;background-image:none}.cabinet-edge-active,.cabinet-edge-active.cabinet-edge-live{animation:none!important}}',
 		].join('');
 
 		const PANEL = {
@@ -2754,13 +2749,13 @@ window.__ModuleLoader__.load({
 		 * mirror that too. Returns false when the channel or the id is missing —
 		 * callers simply do nothing, no exception reaches the panel.
 		 */
-		function openCabinetSession(childSessionId, parentSessionId) {
+		function openCabinetSession(childSessionId, parentSessionId, mode = 'continuable') {
 			const open = cabinetOpenSession;
 			if (typeof open !== 'function') return false;
 			if (typeof childSessionId !== 'string' || childSessionId === '') return false;
 			try {
 				if (parentSessionId && childSessionId === parentSessionId) open(parentSessionId);
-				else open({ parentSessionId: parentSessionId ?? childSessionId, childSessionId, mode: 'continuable' });
+				else open({ parentSessionId: parentSessionId ?? childSessionId, childSessionId, mode });
 				return true;
 			} catch (error) {
 				try { console.warn('[cabinet-ui] open session failed:', error); } catch (ignored) { /* console may be unavailable */ }
@@ -3527,55 +3522,6 @@ window.__ModuleLoader__.load({
 			return buckets.reduce((sum, value) => sum + value, 0);
 		}
 
-		// ---- 估算费用：公开单价表（估算值，非官方账单）------------------------
-		// 单位：人民币元 / 百万 tokens。来源与抓取日期逐条如下，产品价格可能变动：
-		//  - DeepSeek 官方「模型 & 价格」页 api-docs.deepseek.com/zh-cn/quick_start/pricing/
-		//    （2026-11 快照）：deepseek-flash(=DeepSeek-V4.1-Flash-1017) 高峰 0.04/2/8，
-		//    DeepSeek V4-Pro 档高峰 0.30/9/27；空闲时段为高峰一半。本表取高峰价（不低估）。
-		//  - Xiaomi MiMo 官方 pay-as-you-go 页 mimo.mi.com/docs/en-US/price/pay-as-you-go
-		//    （Update Oct 21 2026，国内价）：mimo-v2.6-flash 0.02/1/2、mimo-v2.6-pro 0.025/3/6。
-		//  - deepseek-chat / deepseek-reasoner：现行官方目录已由 V4 系列取代，沿用 2025 年
-		//    官方公开价 chat 0.5/2/8、reasoner 1/4/16（旧名实际或按新价计费，仅供估算）。
-		//  - 未收录模型（如 openai-codex/gpt-5.x 无可靠公开单价）→ undefined，卡上显 —，不猜价。
-		// 结构 { provider, match, cacheHit, cacheMiss, output }；match 存模型 id 尾段（endsWith 覆盖
-		// auto/、xiaomi/ 等前缀与官方旧名），既满足按模型查价，也不把完整模型 id 硬编码进选择器。
-		const MODEL_RATE_TABLE = [
-			{ provider: 'deepseek', match: 'v4.1-flash', cacheHit: 0.04, cacheMiss: 2, output: 8 },
-			{ provider: 'deepseek', match: 'v4-flash', cacheHit: 0.04, cacheMiss: 2, output: 8 },
-			{ provider: 'deepseek', match: 'deepseek-flash', cacheHit: 0.04, cacheMiss: 2, output: 8 },
-			{ provider: 'deepseek', match: 'v4-pro', cacheHit: 0.3, cacheMiss: 9, output: 27 },
-			{ provider: 'deepseek', match: 'deepseek-reasoner', cacheHit: 1, cacheMiss: 4, output: 16 },
-			{ provider: 'deepseek', match: 'deepseek-chat', cacheHit: 0.5, cacheMiss: 2, output: 8 },
-			{ provider: 'xiaomi', match: 'mimo-v2.6-pro', cacheHit: 0.025, cacheMiss: 3, output: 6 },
-			{ provider: 'xiaomi', match: 'mimo-v2.6-flash', cacheHit: 0.02, cacheMiss: 1, output: 2 },
-		];
-		/** 按模型 id 尾段查单价；未收录返回 undefined（宁可 —，不猜价）。 */
-		function rateForModel(model) {
-			if (typeof model !== 'string' || model === '') return undefined;
-			const tail = model.slice(model.lastIndexOf('/') + 1);
-			for (const rate of MODEL_RATE_TABLE) if (tail === rate.match || tail.endsWith(rate.match)) return rate;
-			return undefined;
-		}
-		/**
-		 * 估算费用（元）：(uncachedInput×miss + cacheRead×hit + cacheWrite×miss + output×out)/1e6。
-		 * cacheWrite 未命中价计（DeepSeek 无独立写入价；MiMo 写入限免——统一不低估）。
-		 * 无单价或无 4 桶分项 → undefined，界面显示 —。
-		 */
-		function costOf(usage, model) {
-			const rate = rateForModel(model);
-			if (rate === undefined) return undefined;
-			const buckets = usage !== undefined && usage !== null && typeof usage === 'object'
-				? (usage.buckets !== undefined && usage.buckets !== null ? usage.buckets : usage) : undefined;
-			if (buckets === undefined || typeof buckets !== 'object') return undefined;
-			const num = (key) => (typeof buckets[key] === 'number' && Number.isFinite(buckets[key]) && buckets[key] >= 0 ? buckets[key] : 0);
-			if (!['uncachedInputTokens', 'outputTokens', 'cacheReadTokens', 'cacheWriteTokens'].some((key) => typeof buckets[key] === 'number')) return undefined;
-			const yuan = (num('uncachedInputTokens') * rate.cacheMiss
-				+ num('cacheReadTokens') * rate.cacheHit
-				+ num('cacheWriteTokens') * rate.cacheMiss
-				+ num('outputTokens') * rate.output) / 1e6;
-			return yuan;
-		}
-
 		/**
 		 * Turn one session's projection values into a display record. Every field is
 		 * optional: a missing projection yields undefined (the card prints its dash),
@@ -3626,8 +3572,7 @@ window.__ModuleLoader__.load({
 					segments: sum > 0 ? parts.map((part) => ({ key: part.key, ratio: part.value / sum })) : []
 				};
 			}
-			// 4 桶原样带给费用估算（costOf 只认真实分项，不拿合计拆桶瞎算）。
-			return { tokens, elapsedMs, context, buckets: source.tokenUsage?.totals ?? source.tokenUsage };
+			return { tokens, elapsedMs, context };
 		}
 
 		/**
@@ -3684,20 +3629,103 @@ window.__ModuleLoader__.load({
 		// 卡片按 dsh-context 高清截图分5层：方块头像+状态点+粗名 / 任务描述 /
 		// token 数字(不带字样) / 42% 宽分段条 / 时间·N步 + 百分比(>60橙 >80红)。
 		// 卡高固定：阁臣卡只显示当前一个任务（activeTask），不再挂任务列表。
-		// 派活展开态按成员存（点击才展开，绝不常驻输入框）；bump 走面板 revision
-		// 驱动真机重渲，测试手动 re-render 读同一 Map（不依赖 React state mock）。
-		const dispatchUiMap = new Map();
-		let dispatchBump = null;
-		// 动态子智能体分区：默认折叠，测试手动 re-render 读同一对象。
-		const subagentGroupState = { open: false };
+		// Dispatch owns only its explicitly opened target, not the roster's history.
+		// UI state belongs to this instance; late results cannot mutate another card.
+		function MemberDispatch({ memberId, running, service, t, disabled = false }) {
+			const tt = typeof t === 'function' ? t : key => key;
+			const [open, setOpen] = React.useState(false);
+			const [draft, setDraft] = React.useState('');
+			const [phase, setPhase] = React.useState('closed');
+			const [message, setMessage] = React.useState('');
+			const draftRef = React.useRef('');
+			const state = React.useRef({ id: memberId, generation: 0, pending: false, unknown: false, channel: null });
+			React.useEffect(() => {
+				const current = state.current;
+				const generation = ++current.generation;
+				const changedMember = current.id !== memberId;
+				if (changedMember) {
+					current.id = memberId; current.pending = false; current.unknown = false;
+					draftRef.current = ''; setDraft(''); setMessage(''); setOpen(false);
+				} else if (current.pending) {
+					// Losing a service is not evidence that an already submitted request failed.
+					current.pending = false; current.unknown = true;
+					setMessage(tt('dispatch.unknown'));
+				}
+				current.channel = null;
+				let disposed = false, reference = null, released = false;
+				const release = () => {
+					if (released || !reference) return;
+					released = true;
+					try { reference.release(); } catch (_) { /* disposed host */ }
+				};
+				const valid = () => !disposed && state.current.generation === generation;
+				const cleanup = () => { disposed = true; if (current.generation === generation) current.channel = null; release(); };
+				if (!open || changedMember) { setPhase('closed'); return cleanup; }
+				if (disabled || typeof memberId !== 'string' || !memberId || !service || typeof service.retain !== 'function') {
+					setPhase('unavailable'); setMessage(tt('dispatch.unavailable')); return cleanup;
+				}
+				setPhase('loading');
+				try {
+					reference = service.retain(memberId, { source: 'cabinetDispatch' });
+					if (!reference || typeof reference.release !== 'function' || !reference.ready || typeof reference.ready.then !== 'function') throw new Error('Invalid session reference');
+					Promise.resolve(reference.ready).then(() => {
+						if (!valid()) return;
+						try {
+							const session = reference.binding && reference.binding.session;
+							if (!session || typeof session.prompt !== 'function') throw new Error('Missing prompt channel');
+							current.channel = { session, generation, memberId, service };
+							setPhase(current.unknown ? 'unknown' : 'ready');
+							setMessage(current.unknown ? tt('dispatch.unknown') : '');
+						} catch (_) { setPhase('unavailable'); setMessage(tt('dispatch.unavailable')); release(); }
+					}, () => { if (valid()) { setPhase('unavailable'); setMessage(tt('dispatch.unavailable')); release(); } });
+				} catch (_) { setPhase('unavailable'); setMessage(tt('dispatch.unavailable')); release(); }
+				return cleanup;
+			}, [open, memberId, service, disabled]);
+			const submit = mode => {
+				const current = state.current, channel = current.channel;
+				const text = draftRef.current.trim();
+				if (!open || disabled || current.pending || current.unknown || !text || !channel
+					|| channel.memberId !== memberId || channel.service !== service || (mode !== 'queue' && mode !== 'steer') || (mode === 'steer' && running !== true)) return;
+				// Synchronous lock protects double clicks and Enter before React commits.
+				current.pending = true; setPhase('pending'); setMessage(tt('dispatch.pending'));
+				const finish = result => {
+					if (current.generation !== channel.generation || current.channel !== channel) return;
+					current.pending = false;
+					const code = result && result.error && result.error.code;
+					const unknown = !result || typeof result.ok !== 'boolean' || result.unknown === true
+						|| (result.ok === true && result.value?.accepted !== true)
+						|| (!result.ok && (code === 'gateway/internal' || code === 'gateway/cancelled'));
+					if (unknown) { current.unknown = true; setPhase('unknown'); setMessage(tt('dispatch.unknown')); }
+					else if (result.ok) { draftRef.current = ''; setDraft(''); setPhase('accepted'); setMessage(tt(mode === 'steer' ? 'dispatch.steered' : 'dispatch.queued')); }
+					else { setPhase('rejected'); setMessage(tt('dispatch.rejected')); }
+				};
+				try { Promise.resolve(channel.session.prompt([{ type: 'text', text }], mode)).then(finish, () => finish({ ok: false, unknown: true })); }
+				catch (_) { finish({ ok: false, unknown: true }); }
+			};
+			const ready = open && state.current.channel !== null && !disabled;
+			const locked = phase === 'pending' || phase === 'unknown';
+			const eligible = !disabled && typeof memberId === 'string' && memberId !== '' && service && typeof service.retain === 'function';
+			return h('div', { 'data-cabinet-dispatch': memberId, onClick: stopPropagation, onKeyDown: stopPropagation, style: { marginTop: 4, fontSize: 11 } }, [
+				h('button', { key: 'toggle', type: 'button', 'data-cabinet-dispatch-open': '1', 'aria-expanded': open, disabled: phase === 'pending' || (!open && !eligible), onClick: () => { if (!state.current.pending) setOpen(value => !value); } }, tt(open ? 'dispatch.close' : 'dispatch.open')),
+				h('span', { key: 'status', role: 'status', 'data-cabinet-dispatch-status': '1', 'data-cabinet-dispatch-phase': phase }, message),
+				open ? h('div', { key: 'editor' }, [
+					h('input', { key: 'input', 'data-cabinet-dispatch-input': '1', 'aria-label': tt('dispatch.placeholder'), value: draft, disabled: locked,
+						onChange: event => { if (state.current.pending || state.current.unknown) return; draftRef.current = event.target.value; setDraft(event.target.value); },
+						onKeyDown: event => { if (event.key === 'Enter' && !event.repeat && !event.isComposing && !event.nativeEvent?.isComposing && event.keyCode !== 229) { event.preventDefault(); submit('queue'); } } }),
+					h('button', { key: 'send', type: 'button', 'data-cabinet-dispatch-send': '1', disabled: !ready || locked || !draft.trim(), onClick: () => submit('queue') }, tt('dispatch.send')),
+					running === true ? h('button', { key: 'steer', type: 'button', 'data-cabinet-dispatch-interrupt': '1', disabled: !ready || locked || !draft.trim(), onClick: () => submit('steer') }, tt('dispatch.interrupt')) : null,
+					phase === 'unknown' ? h('button', { key: 'confirm', type: 'button', 'data-cabinet-dispatch-confirm': '1', onClick: () => { if (!state.current.pending) { state.current.unknown = false; setPhase('ready'); setMessage(''); } } }, tt('dispatch.confirm')) : null
+				]) : null
+			]);
+		}
 
-		function MemberCard({ member, running, model, isCurrent, lead, statusLabel, t, size, onOpen, usage, teamUsage, familyColor, activity, activeTask, dispatchActions, children }) {
+		function MemberCard({ member, running, model, isCurrent, lead, statusLabel, t, size, onOpen, usage, teamUsage, familyColor, activity, activeTask, dispatchService, children }) {
 			const tt = typeof t === 'function' ? t : (key) => key;
-			// 「任务在动」判定合并：agent 进程在跑，或卡上挂着 in_progress 任务——
-			// 用户看的是活在动，不只看进程（activeTaskOf 只回 in_progress，双保险再判一次）。
+			// Card activity follows the real process. The task marker independently
+			// indicates task bookkeeping, which may remain in_progress while idle.
 			const taskLive = activeTask !== null && activeTask !== undefined && activeTask.status === 'in_progress';
-			const animating = running === true || taskLive;
-			const status = member.phase === 'active' ? (animating ? 'running' : 'inactive') : member.phase;
+			const animating = member.phase === 'active' && running === true;
+			const status = member.phase === 'active' ? (running === true ? 'running' : 'inactive') : member.phase;
 			const canOpen = typeof onOpen === 'function'
 				&& isCurrent !== true
 				&& member.phase !== 'failed'
@@ -3709,37 +3737,6 @@ window.__ModuleLoader__.load({
 			const pctValue = typeof usage === 'object' && usage !== null && typeof usage.context === 'object' && usage.context !== null && usage.context.percent !== undefined ? usage.context.percent : undefined;
 			// 红阈值 >85：截图 gongbu-shangshu-7 的 80.2% 是橙色（用户视觉为准）。
 			const pctColor = pctValue === undefined ? INK2 : (pctValue > 85 ? '#ef4444' : (pctValue > 60 ? '#f59e0b' : '#22c55e'));
-			const costValue = costOf(usage, model);
-			// 派活：通道可用性 + 展开态。queue=排队不打断（派活），steer=立刻插进当前回合（插话）。
-			const dispatchRecord = dispatchUiMap.get(member.id);
-			const dispatchOpen = dispatchRecord !== undefined && dispatchRecord.open === true;
-			const dispatchDraft = dispatchRecord !== undefined && typeof dispatchRecord.draft === 'string' ? dispatchRecord.draft : '';
-			const dispatchNotice = dispatchRecord !== undefined && typeof dispatchRecord.notice === 'string' ? dispatchRecord.notice : '';
-			const dispatchError = dispatchRecord !== undefined && typeof dispatchRecord.error === 'string' ? dispatchRecord.error : '';
-			const dispatchReady = dispatchActions !== undefined && dispatchActions !== null && dispatchActions.ready === true && typeof dispatchActions.submit === 'function';
-			const dispatchBumpNow = () => { if (dispatchBump) dispatchBump((revision) => revision + 1); };
-			const dispatchToggle = () => {
-				if (!dispatchReady) return;
-				dispatchUiMap.set(member.id, { open: !dispatchOpen, draft: '', notice: null, error: null });
-				dispatchBumpNow();
-			};
-			const dispatchType = (value) => {
-				dispatchUiMap.set(member.id, { open: true, draft: value, notice: null, error: null });
-				dispatchBumpNow();
-			};
-			const dispatchSubmit = (mode) => {
-				const text = dispatchDraft.trim();
-				if (text === '' || !dispatchReady) return;
-				Promise.resolve(dispatchActions.submit(mode, [{ type: 'text', text: text }])).then((result) => {
-					const ok = result !== null && typeof result === 'object' && result.ok === true;
-					const reason = result !== null && typeof result === 'object' && result.error
-						? (result.error.message || String(result.error)) : tt('dispatch.noSession');
-					dispatchUiMap.set(member.id, ok
-						? { open: false, draft: '', notice: tt('dispatch.queued'), error: null }
-						: { open: true, draft: text, notice: null, error: tt('dispatch.failed').replace('{error}', String(reason)) });
-					dispatchBumpNow();
-				});
-			};
 			return h('div', {
 				className: (lead ? 'cabinet-card cabinet-card-lead' : 'cabinet-card') + (canOpen ? ' cabinet-card-clickable' : ''),
 				onClick: canOpen ? () => onOpen(member) : undefined,
@@ -3786,15 +3783,18 @@ window.__ModuleLoader__.load({
 						style: { marginLeft: 'auto', flex: 'none', fontSize: 10, padding: '1px 6px', borderRadius: 6, border: '1px dashed rgba(127,127,127,.7)', color: INK2, whiteSpace: 'nowrap' }
 					}, tt('current')) : null
 				]),
-				// 行2：当前进行中任务的标题（无则最近一个、否则 —），单行省略。
+				// Agent status and task status are independent; a stale task never implies a running agent.
+				h('span', { key: 'state', 'data-cabinet-member-status': status, style: { fontSize: 11, color: INK2 } }, typeof statusLabel === 'function' ? statusLabel(status) : status),
 				h('div', {
 					key: 'taskdesc',
 					'data-cabinet-task-desc': '1',
+					...(activeTask && typeof activeTask.id === 'string' ? { 'data-cabinet-task': activeTask.id } : {}),
 					title: activeTask && typeof activeTask.subject === 'string' ? activeTask.subject : undefined,
 					style: { fontSize: 13, color: activeTask ? INK2 : INK3, marginTop: 6, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }
 				}, activeTask && typeof activeTask.subject === 'string' && activeTask.subject !== ''
 					? [h('span', {
 						key: 'mark',
+						className: 'cabinet-task-mark',
 						style: {
 							color: hasHue ? familyColor : '#22c55e',
 							marginRight: 4,
@@ -3802,7 +3802,7 @@ window.__ModuleLoader__.load({
 							animation: taskLive ? 'cabinetPulse 1.7s ease-out infinite' : undefined
 						}
 					}, '\u25cf'), activeTask.subject]
-					: '\u7a7a\u95f2'),
+					: '无进行中任务'),
 				// 故障必须可见：member.error 整行红字（模型行已按截图移除）。
 				member.error ? h('div', {
 					key: 'err',
@@ -3823,14 +3823,6 @@ window.__ModuleLoader__.load({
 							style: { fontSize: 14.5, fontWeight: 600, color: INK, flex: 'none' },
 							title: tt('usage.tokens')
 						}, formatTokenCount(usage.tokens) ?? tt('usage.none')),
-						// 估算费用：有单价有分项才显示金额，否则 —；title 标明估算非账单。
-						h('span', {
-							key: 'cost',
-							style: { fontSize: 11.5, color: costValue === undefined ? INK3 : INK2, flex: 'none' },
-							title: costValue === undefined ? tt('usage.costNoRate') : tt('usage.costEstimate')
-						}, costValue === undefined
-							? '\u2014'
-							: (costValue > 0 && costValue < 0.01 ? '<\u00a50.01' : '\u00a5' + costValue.toFixed(2))),
 						teamUsage ? h('span', {
 							key: 'team',
 							style: { fontSize: 10.5, color: INK3, marginLeft: 'auto', flex: 'none' },
@@ -3861,71 +3853,16 @@ window.__ModuleLoader__.load({
 								style: { color: INK2, flex: 'none', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
 								title: tt('usage.elapsed')
 							}, (formatElapsed(usage.elapsedMs) ?? tt('usage.none'))
-								+ (activity && typeof activity.count === 'number' && activity.count > 0 ? ' \u00b7 ' + activity.count + ' \u6b65' : '')),
+								+ (activity && typeof activity.count === 'number' && activity.count > 0 ? ' \u00b7 ' + activity.count + ' 条记录' : '')),
 							h('span', { key: 'pct', style: { color: pctColor, fontWeight: 600, marginLeft: 'auto', flex: 'none' } },
 								pctValue !== undefined
 									? pctValue + '%'
-									: (formatTokenCount(usage.context && usage.context.projectedTokens) ?? tt('usage.none'))),
-							// 派活提示（提交成功后短暂驻留到下次交互）。
-							dispatchNotice !== '' ? h('span', {
-								key: 'dnotice',
-								'data-cabinet-dispatch-notice': '1',
-								style: { color: '#22c55e', flex: 'none' }
-							}, dispatchNotice) : null,
-							// 派活入口：meta 行末尾极小文字按钮——点击才展开，绝不常驻输入框。
-							h('button', {
-								key: 'dopen',
-								'data-cabinet-dispatch-open': '1',
-								type: 'button',
-								disabled: !dispatchReady,
-								title: dispatchReady ? tt('dispatch.hint') : tt('dispatch.noSession'),
-								onClick: dispatchToggle,
-								style: { font: 'inherit', fontSize: 10.5, padding: 0, border: 0, background: 'transparent', color: dispatchReady ? INK2 : INK3, cursor: dispatchReady ? 'pointer' : 'not-allowed', flex: 'none' }
-							}, dispatchOpen ? tt('dispatch.close') : tt('dispatch.open'))
-						]) : null,
-				// 派活展开行：点击入口才出现；提交或收起后消失并清空（紧凑卡不被破坏）。
-				dispatchOpen ? h('div', {
-					key: 'dispatch',
-					'data-cabinet-dispatch-panel': '1',
-					style: { display: 'flex', gap: 6, alignItems: 'center', marginTop: 4, minWidth: 0 }
-				}, [
-					h('input', {
-						key: 'input',
-						'data-cabinet-dispatch-input': '1',
-						type: 'text',
-						value: dispatchDraft,
-						placeholder: tt('dispatch.placeholder'),
-						onChange: (event) => dispatchType(event && event.target ? event.target.value : ''),
-						onKeyDown: (event) => { if (event && event.key === 'Enter') dispatchSubmit('queue'); },
-						style: { flex: 1, minWidth: 0, font: 'inherit', fontSize: 11.5, padding: '2px 6px', border: '1px solid var(--dsw-alias-border-l3, light-dark(rgba(0,0,0,.18), rgba(255,255,255,.24)))', borderRadius: 6, background: 'transparent', color: INK }
-					}),
-					h('button', {
-						key: 'send',
-						'data-cabinet-dispatch-send': '1',
-						type: 'button',
-						disabled: !dispatchReady || dispatchDraft.trim() === '',
-						title: tt('dispatch.hint'),
-						onClick: () => dispatchSubmit('queue'),
-						style: { font: 'inherit', fontSize: 11, padding: '2px 8px', borderRadius: 6, border: '1px solid transparent', background: hasHue ? familyColor : '#22c55e', color: '#fff', cursor: 'pointer', flex: 'none' }
-					}, tt('dispatch.send')),
-					// 插话与派活并存：仅 running 可立刻打断（steer）；派活始终排队（queue）。
-					running === true ? h('button', {
-						key: 'interrupt',
-						'data-cabinet-dispatch-interrupt': '1',
-						type: 'button',
-						disabled: !dispatchReady,
-						title: tt('dispatch.interruptHint'),
-						onClick: () => dispatchSubmit('steer'),
-						style: { font: 'inherit', fontSize: 11, padding: '2px 8px', borderRadius: 6, border: '1px solid var(--dsw-alias-border-l3, light-dark(rgba(0,0,0,.18), rgba(255,255,255,.24)))', background: 'transparent', color: INK2, cursor: 'pointer', flex: 'none' }
-					}, tt('dispatch.interrupt')) : null,
-					dispatchError !== '' ? h('span', {
-						key: 'derror',
-						'data-cabinet-dispatch-error': '1',
-						style: { color: '#ef4444', fontSize: 10.5, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }
-					}, dispatchError) : null
+									: (formatTokenCount(usage.context && usage.context.projectedTokens) ?? tt('usage.none')))
+						]) : null
 				]) : null,
-				]) : null,
-				// 组卡（未分派/首辅自办/不在册）仍可挂任务列表；阁臣卡不挂（activeTask 单行）。
+				activity && activity.known === false ? h('span', { key: 'activity-unknown', 'data-cabinet-activity-state': 'unknown', title: '名册未订阅消息历史，活动记录数未知', style: { fontSize: 11, color: INK3 } }, '活动 —') : null,
+				h(MemberDispatch, { key: 'dispatch:' + member.id, memberId: member.id, running, service: dispatchService, t: tt, disabled: member.phase === 'failed' || member.phase === 'provisioning' }),
+				// Collapsed task details remain independent from dispatch.
 				children
 			]);
 		}
@@ -3998,6 +3935,7 @@ window.__ModuleLoader__.load({
 			// 默认一行（~24px 单行、超长省略）：点行空白切换任务书；点标题/Owner
 			// 仍走各自的下钻 opener（它们 stopPropagation，不冒到行）。任务书两行
 			// 默认不渲染（不是隐藏占位），展开才出现；受控 expanded 时点击不切换。
+			parts.push(h('button', { key: 'sheet-toggle', type: 'button', 'data-cabinet-task-sheet-toggle': task.id, 'aria-expanded': sheetOpen, 'aria-label': t('task.description'), onClick: (event) => { stopPropagation(event); if (typeof expanded !== 'boolean') setSheetOpen(value => !value); }, style: { marginLeft: 'auto', border: 0, background: 'transparent', color: INK2, cursor: 'pointer', font: 'inherit' } }, sheetOpen ? '▾' : '▸'));
 			const children = [h('div', {
 				key: 'line',
 				'data-cabinet-task-row': '1',
@@ -4121,18 +4059,19 @@ window.__ModuleLoader__.load({
 		function buildConnectorPaths(base, lead, nodes, channelX) {
 			// 弧线版（dsh-context 截图）：每条线从来源卡底部中点出发，先走 14px
 			// 竖直小段，再以三次贝塞尔 S 形弯到目标卡顶部中点；控制点分居两侧、
-			// 弧度明显。拓扑：首辅扇形连第一层全部；每层的居中卡扇形连下一层
-			// 全部（单卡层即该卡）。线色跟随目标卡（path.color），无箭头。
+			// 弧度明显。拓扑：所有层均从首辅出发；后层经外侧通道，
+			// 不将视觉换行伪装成成员父子关系。线色跟随目标卡（path.color），无箭头。
 			if (!base || typeof base !== 'object' || !lead || typeof lead !== 'object') return null;
 			// 隐藏面板：返回 null 让调用方保留上次绘制（旧版语义）。
 			if (base.width === 0 || base.height === 0 || lead.width === 0) return null;
-			if (!Array.isArray(nodes) || nodes.length === 0) return null;
+			if (!Array.isArray(nodes)) return null;
+			if (nodes.length === 0) return [];
 			// 视口坐标 → 容器内坐标：svg 挂在 roster 容器 (0,0)，聚类与绘制必须用
 			// 同一套局部坐标（漏减 base 会把线整体画到容器外——3e2bd67 的 bug）。
 			const toLocal = (rect) => ({ left: rect.left - base.left, top: rect.top - base.top, width: rect.width, height: rect.height, color: rect.color });
 			const leadLocal = toLocal(lead);
 			const valid = nodes.filter((node) => node && isFinite(node.left) && isFinite(node.top) && isFinite(node.width) && isFinite(node.height) && node.width > 0 && node.height > 0).map(toLocal);
-			if (valid.length === 0) return null;
+			if (valid.length === 0) return [];
 			// 按 top 聚类成层（8px 容差，与旧 bus 同规则）。
 			const sorted = valid.slice().sort((a, b) => (a.top - b.top) || (a.left - b.left));
 			const layers = [];
@@ -4155,10 +4094,18 @@ window.__ModuleLoader__.load({
 				}
 			};
 			fan({ x: leadLocal.left + leadLocal.width / 2, y: leadLocal.top + leadLocal.height }, layers[0].cards);
-			for (let index = 0; index < layers.length - 1; index += 1) {
-				const layer = layers[index];
-				const hub = layer.cards[Math.floor((layer.cards.length - 1) / 2)];
-				fan({ x: hub.left + hub.width / 2, y: hub.top + hub.height }, layers[index + 1].cards);
+			// Later visual rows remain siblings. Route from the lead through an outside
+			// gutter, never from a geometrically convenient (but unrelated) member.
+			const ax = leadLocal.left + leadLocal.width / 2;
+			const ay = leadLocal.top + leadLocal.height;
+			const gutter = Math.min(typeof channelX === 'number' ? channelX : -8, ...valid.map(node => node.left - 8));
+			for (const layer of layers.slice(1)) for (const target of layer.cards) {
+				const cx = target.left + target.width / 2;
+				const y = target.top - 16;
+				paths.push({ d: 'M ' + ax + ' ' + ay + ' L ' + ax + ' ' + (ay + 14)
+					+ ' L ' + gutter + ' ' + (ay + 14) + ' L ' + gutter + ' ' + y
+					+ ' C ' + gutter + ' ' + y + ', ' + cx + ' ' + y + ', ' + cx + ' ' + target.top,
+					color: typeof target.color === 'string' ? target.color : '' });
 			}
 			return paths;
 		}
@@ -4991,6 +4938,38 @@ window.__ModuleLoader__.load({
 				line
 			]);
 		}
+		// Catalog navigation preserves protocol mode. External entries have no local session.
+		function DynamicSubagents({ leadSessionId, catalog, members, runningOf, t }) {
+			const [disclosure, setDisclosure] = React.useState(() => ({ lead: leadSessionId, open: false }));
+			const open = disclosure.lead === leadSessionId && disclosure.open;
+			if (disclosure.lead !== leadSessionId) setDisclosure({ lead: leadSessionId, open: false });
+			const seen = new Set([leadSessionId, ...(Array.isArray(members) ? members : []).map(member => member && member.id)]);
+			const rows = (Array.isArray(catalog) ? catalog : []).filter(entry => {
+				if (!entry || typeof entry.id !== 'string' || entry.id.trim() === '' || entry.id !== entry.id.trim() || seen.has(entry.id)) return false;
+				seen.add(entry.id); return true;
+			});
+			if (!rows.length) return null;
+			return h('div', { 'data-cabinet-subagent-group': '1', style: { marginTop: 12, minWidth: 0 } }, [
+				h('button', { key: 'toggle', type: 'button', 'data-cabinet-subagent-toggle': '1', 'aria-expanded': open,
+					onClick: () => setDisclosure({ lead: leadSessionId, open: !open }), style: { font: 'inherit', cursor: 'pointer' } },
+					(open ? '▾ ' : '▸ ') + t('subagent.group').replace('{n}', String(rows.length))),
+				open ? h('div', { key: 'rows', 'data-cabinet-subagent-rows': '1' }, rows.map(entry => {
+					const validMode = ['one-shot', 'continuable', 'unknown'].includes(entry.mode);
+					const navigable = validMode && typeof leadSessionId === 'string' && leadSessionId.trim() !== '';
+					const modeKey = entry.mode === 'one-shot' ? 'oneshot' : ['continuable', 'external'].includes(entry.mode) ? entry.mode : 'unknown';
+					return h('button', { key: entry.id, type: 'button', disabled: !navigable,
+						'data-cabinet-subagent-row': '1', 'data-cabinet-child-id': entry.id,
+						onClick: event => { event.stopPropagation(); if (navigable) openCabinetSession(entry.id, leadSessionId, entry.mode); },
+						style: { display: 'flex', gap: 6, width: '100%', minWidth: 0, font: 'inherit', textAlign: 'left' } }, [
+						h('span', { key: 'dot', 'aria-hidden': true, style: { color: entry.mode !== 'external' && runningOf(entry.id) ? '#22c55e' : '#888' } }, '●'),
+						h('span', { key: 'label', style: { flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' } }, typeof entry.label === 'string' && entry.label !== '' ? entry.label : entry.id.slice(0, 8)),
+						h('span', { key: 'mode' }, t('subagent.mode.' + modeKey)),
+						h('span', { key: 'age' }, formatElapsed(typeof entry.createdAt === 'number' && Number.isFinite(entry.createdAt) ? Math.max(0, Date.now() - entry.createdAt) : NaN) ?? t('usage.none'))
+					]);
+				})) : null
+			]);
+		}
+
 		function CabinetPanel({ sessionId, parentSessionIdHint, useSession, useSessions, useSessionStatus, t, activeTab: activeTabProp, hideTabs, focusSessionId, onGroupSnapshot, onTabChange }) {
 			// Panel view tabs: 群聊 (merged member messages) and the roster view.
 			// Hooks must run before any early return — an effect that is skipped
@@ -5006,8 +4985,6 @@ window.__ModuleLoader__.load({
 			const setActiveTab = setLocalTab;
 			// Re-render when the mirrored member settings change (names/avatars).
 			const [memberRevision, setMemberRevision] = React.useState(0);
-			// 派活展开态变更驱动面板重渲（模块 Map 是数据源，这里是唯一渲染出口）。
-			dispatchBump = setMemberRevision;
 			React.useEffect(() => subscribeMemberConfig(() => setMemberRevision((revision) => revision + 1)), []);
 			const tt = typeof t === 'function' ? t : (key) => key;
 			const statusLabel = (status) => tt('status.' + status);
@@ -5065,7 +5042,8 @@ window.__ModuleLoader__.load({
 				// not rendered (or a task removed from the board) drops its edge.
 				const rectById = new Map();
 				for (const row of tree.querySelectorAll('[data-cabinet-task]')) {
-					rectById.set(row.getAttribute('data-cabinet-task'), row.getBoundingClientRect());
+					const rect = row.getBoundingClientRect();
+					if (rect.width > 0 && rect.height > 0) rectById.set(row.getAttribute('data-cabinet-task'), rect);
 				}
 				const cards = Array.from(tree.querySelectorAll('.cabinet-card'), (card) => {
 					const rect = card.getBoundingClientRect();
@@ -5114,7 +5092,7 @@ window.__ModuleLoader__.load({
 				let mo = null;
 				if (typeof MutationObserver !== 'undefined') {
 					mo = new MutationObserver(schedule);
-					mo.observe(tree, { childList: true, subtree: true, characterData: true });
+					mo.observe(tree, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['open'] });
 				}
 				window.addEventListener('resize', schedule);
 				// The panel is the scroll container; scroll does not change relative
@@ -5714,7 +5692,8 @@ window.__ModuleLoader__.load({
 				const authorOf = (row) => (row !== null && row !== undefined && row.member !== null && row.member !== undefined && typeof row.member.id === 'string' && row.member.id !== '' ? row.member.id : (typeof row.memberName === 'string' ? row.memberName : ''));
 				const lanes = chatMembers.filter((member) => member !== null && member !== undefined && typeof member.id === 'string' && member.id !== '');
 				const eventsOf = (member) => groupRows.filter((row) => authorOf(row) === member.id && typeof row.time === 'number' && row.time > 0);
-				const timed = groupRows.filter((row) => typeof row.time === 'number' && row.time > 0);
+				const timed = groupRows.filter((row) => row.kind !== 'error' && typeof row.time === 'number' && row.time > 0);
+				const unresolved = lanes.map(member => ({ member, view: group.views(member.id) })).filter(({view}) => view.error !== null || view.fold === null);
 				const minTime = timed.reduce((min, row) => Math.min(min, row.time), Infinity);
 				const maxTime = timed.reduce((max, row) => Math.max(max, row.time), -Infinity);
 				const span = maxTime - minTime;
@@ -5835,12 +5814,13 @@ window.__ModuleLoader__.load({
 						key: 'count',
 						'data-cabinet-timeline-count': '1',
 						style: { fontSize: 10.5, color: INK2, display: 'flex', alignItems: 'center', gap: 6, flex: 'none' }
-					}, groupRows.length + ' 条记录 · ' + laneNodes.length + ' 条泳道'),
+					}, timed.length + ' 条记录 · ' + laneNodes.length + ' 条泳道'),
+					...unresolved.map(({member,view}) => h('div', { key: 'state:' + member.id, role: 'status', 'data-cabinet-timeline-state': view.error !== null ? 'error' : 'pending', 'data-cabinet-timeline-state-member': member.id, style: { fontSize: 12, color: INK2 } }, memberLabel(member.name || member.id) + ' · ' + tt(view.error !== null ? 'groupchat.unavailable' : 'groupchat.pending'))),
 					h('div', {
 						key: 'inner',
 						'data-cabinet-timeline-inner': '1',
 						style: { minWidth: 420 }
-					}, laneNodes.length > 0 ? laneNodes : h('div', { key: 'empty', 'data-cabinet-timeline-empty': '1', style: { fontSize: 12, color: INK2, padding: '8px 2px' } }, '暂无事件'))
+					}, laneNodes.length > 0 ? laneNodes : unresolved.length > 0 ? null : h('div', { key: 'empty', 'data-cabinet-timeline-empty': '1', style: { fontSize: 12, color: INK2, padding: '8px 2px' } }, '暂无事件'))
 				]));
 				return h('div', { ref: panelRef, style: PANEL }, body);
 			}
@@ -5873,6 +5853,8 @@ window.__ModuleLoader__.load({
 			// 底行活动数据：该成员在群聊折叠行里的条数与最后一条时间（真实行，
 			// 不编数）；无消息的成员 count 0、time 0，底行左半边整段省略。
 			const activityOf = (member) => {
+				// Roster does not own a history subscription. Never label missing data as zero steps.
+				if (activeTab === 'roster') return { known: false };
 				let count = 0;
 				let time = 0;
 				for (const row of groupRows) {
@@ -5883,11 +5865,6 @@ window.__ModuleLoader__.load({
 				}
 				return { count, time };
 			};
-			// 派活通道：会话 face 的 prompt(content, mode)——queue=排队（派活）、steer=插话。
-			const dispatchActionsFor = (member) => ({
-				ready: group.canPrompt(member.id),
-				submit: (mode, content) => group.promptSession(member.id, content, mode)
-			});
 			const leadCard = h(MemberCard, {
 				member: leadShown,
 				running: runningOf(leadShown.id),
@@ -5904,7 +5881,7 @@ window.__ModuleLoader__.load({
 				activity: activityOf(leadShown),
 				// 首辅卡同样只显示当前一个任务（截图同款单行）。
 				activeTask: activeTaskOf(leadOwn),
-				dispatchActions: dispatchActionsFor(leadShown)
+				dispatchService: groupService
 			});
 
 			// Cells: every minister first, then 未分派 / 首辅自办 / 不在册 as
@@ -5985,7 +5962,16 @@ window.__ModuleLoader__.load({
 							// 阁臣卡不再挂任务列表（用户：「不要一个很长的卡片」）——
 							// 卡上只显示当前一个任务（in_progress 优先，否则最近一个）。
 							activeTask: activeTaskOf(own),
-							dispatchActions: dispatchActionsFor(member)
+							dispatchService: groupService,
+							children: own.length > 0 ? h('details', {
+								key: 'all-tasks', 'data-cabinet-member-tasks': member.id,
+								onClick: stopPropagation,
+								style: { marginTop: 4 }
+							}, [h('summary', { key: 'summary', style: { cursor: 'pointer', fontSize: 11 } }, '全部任务 (' + own.length + ')'),
+								h(RailList, { key: 'all' }, own.map(task => h(TaskLine, {
+									key: task.id, task, blockerOf, t: tt, taskLabel,
+									ownerRunning: memberRunning, onOpenOwner: ownerOpener(task)
+								})))]) : null
 						});
 					} else {
 						content = h('div', { className: 'cabinet-card', style: { position: 'relative', zIndex: 1 } }, [
@@ -6017,72 +6003,7 @@ window.__ModuleLoader__.load({
 			}
 
 			body.push(h('div', { key: 'tree', ref: treeRef, 'data-cabinet-roster': '1', style: { position: 'relative', marginTop: 10 } }, treeChildren));
-
-			// 动态子智能体：首辅运行时 spawn 的直接子 agent 不在 agentTeam（团队声明
-			// 成员）里，它们只在 lead 会话投影的 subagentCatalog（物化 entry[]：
-			// id/createdAt/mode/label）。排除已在名册的 id；默认折叠防撑爆名册；
-			// 空目录整个分区不渲染。
-			const subagentCatalog = projections && projections[leadSessionId] && projections[leadSessionId].values
-				? projections[leadSessionId].values.subagentCatalog : undefined;
-			const rosterIds = new Set((team && Array.isArray(team.members) ? team.members : []).map((member) => member && member.id));
-			const subagentRows = Array.isArray(subagentCatalog)
-				? subagentCatalog.filter((entry) => {
-					const childId = entry && (entry.id !== undefined ? entry.id : entry.childId);
-					return typeof childId === 'string' && childId !== '' && !rosterIds.has(childId);
-				})
-				: [];
-			if (subagentRows.length > 0) {
-				const subOpen = subagentGroupState.open === true;
-				body.push(h('div', {
-					key: 'subagents',
-					'data-cabinet-subagent-group': '1',
-					style: { marginTop: 12, minWidth: 0 }
-				}, [
-					h('button', {
-						key: 'toggle',
-						type: 'button',
-						'data-cabinet-subagent-toggle': '1',
-						'aria-expanded': String(subOpen),
-						onClick: () => { subagentGroupState.open = !subOpen; setMemberRevision((revision) => revision + 1); },
-						style: { font: 'inherit', fontSize: 11.5, fontWeight: 600, padding: 0, border: 0, background: 'transparent', color: INK, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, minWidth: 0, width: '100%' }
-					}, [
-						h('span', { key: 'arrow', style: { flex: 'none' } }, subOpen ? '\u25be' : '\u25b8'),
-						h('span', { key: 'title', style: { minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } },
-							tt('subagent.group').replace('{n}', String(subagentRows.length)))
-					]),
-					subOpen ? h('div', {
-						key: 'rows',
-						'data-cabinet-subagent-rows': '1',
-						style: { display: 'flex', flexDirection: 'column', gap: 2, marginTop: 4, minWidth: 0 }
-					}, subagentRows.map((entry) => {
-						// 物化 entry 用 id/createdAt（事件层才叫 childId/childCreatedAt）；
-						// 兼容事件形状只是一行保险。
-						const childId = entry && entry.id !== undefined ? entry.id : entry.childId;
-						const modeKey = entry.mode === 'one-shot' ? 'oneshot'
-							: entry.mode === 'continuable' ? 'continuable'
-								: entry.mode === 'external' ? 'external' : 'unknown';
-						// 判不了 running 一律灰点（runningOf 缺 status 时为 false），不瞎标绿。
-						const alive = runningOf(childId);
-						return h('button', {
-							key: childId,
-							type: 'button',
-							'data-cabinet-subagent-row': '1',
-							'data-cabinet-child-id': childId,
-							title: childId,
-							onClick: () => openCabinetSession(childId, leadSessionId),
-							style: { font: 'inherit', height: 28, display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, width: '100%', padding: '0 6px', border: 0, borderRadius: 6, background: 'transparent', color: INK, cursor: 'pointer', textAlign: 'left' }
-						}, [
-							h('span', { key: 'dot', 'aria-hidden': 'true', style: { width: 7, height: 7, borderRadius: '50%', flex: 'none', background: alive ? '#22c55e' : 'rgba(127,127,127,.55)' } }),
-							h('span', { key: 'label', style: { fontSize: 12, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: '1 1 auto' } },
-								typeof entry.label === 'string' && entry.label !== '' ? entry.label : String(childId).slice(0, 8)),
-							h('span', { key: 'mode', style: { fontSize: 10, flex: 'none', color: INK2, background: 'rgba(127,127,127,.16)', borderRadius: 999, padding: '0 6px' } },
-								tt('subagent.mode.' + modeKey)),
-							h('span', { key: 'ago', title: tt('subagent.createdAt'), style: { fontSize: 10.5, flex: 'none', color: INK3 } },
-								formatElapsed(typeof entry.createdAt === 'number' && Number.isFinite(entry.createdAt) ? Math.max(0, Date.now() - entry.createdAt) : NaN) ?? tt('usage.none'))
-						]);
-					})) : null
-				]));
-			}
+			body.push(h(DynamicSubagents, { key: 'subagents:' + leadSessionId, leadSessionId, catalog: projections?.[leadSessionId]?.values?.subagentCatalog, members: team.members, runningOf, t: tt }));
 			body.push(h('div', {
 				key: 'legend',
 				style: { marginTop: 12, fontSize: 10.5, color: INK3, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }
@@ -7374,6 +7295,18 @@ window.__ModuleLoader__.load({
 			'section.roster': '首辅与阁臣 · 派活与任务',
 			'lead.tag': '内阁首辅',
 			'current': '当前',
+			'dispatch.open': "派活",
+			'dispatch.close': "收起",
+			'dispatch.placeholder': "派活内容",
+			'dispatch.send': "排队发送",
+			'dispatch.interrupt': "插话",
+			'dispatch.queued': "已排队",
+			'dispatch.steered': "已提交插话",
+			'dispatch.pending': "提交中，请勿重复发送",
+			'dispatch.unknown': "投递结果未知，未自动重发。请先核对目标会话。",
+			'dispatch.confirm': "我已核对会话，允许再次手动发送",
+			'dispatch.rejected': "请求被明确拒绝，草稿已保留",
+			'dispatch.unavailable': "发送通道不可用",
 			'status.running': '干活中',
 			'status.inactive': '空闲',
 			'status.provisioning': '启动中',
@@ -7385,8 +7318,6 @@ window.__ModuleLoader__.load({
 			'task.unassigned': '未分派',
 			'usage.tokens': 'token',
 			'usage.elapsed': '耗时',
-			'usage.costEstimate': '按公开单价估算，非官方账单',
-			'usage.costNoRate': '暂无该模型公开单价，不估算',
 			'usage.context': '上下文',
 			'usage.team': '团队合计（含首辅）',
 			'usage.none': '—',
@@ -7428,24 +7359,14 @@ window.__ModuleLoader__.load({
 			'groupchat.composer.sending': '发送中…',
 			'groupchat.composer.unavailable': '发送通道不可用：未接入首辅会话',
 			'groupchat.composer.unknown': '发送结果未知，未自动重发。请先核对收件会话再决定是否重试。',
-			'groupchat.composer.failed': '发送失败：{error}',
-			'dispatch.open': '派活',
-			'dispatch.close': '收起',
-			'dispatch.placeholder': '要它做什么…',
-			'dispatch.send': '派',
-			'dispatch.queued': '已排队',
-			'dispatch.hint': '派活：排到队尾，等它下一轮执行（不打断）',
-			'dispatch.interrupt': '插话',
-			'dispatch.interruptHint': '插话：立刻插进当前回合（打断）',
-			'dispatch.noSession': '发送通道不可用：会话未就绪',
-			'dispatch.failed': '发送失败：{error}',
+			'groupchat.composer.failed': '发送失败：{error}'
+,
+			'member.nav': '内阁成员',
 			'subagent.group': '动态子智能体 ({n})',
 			'subagent.mode.oneshot': '一次性',
 			'subagent.mode.continuable': '可续',
 			'subagent.mode.external': '外部',
 			'subagent.mode.unknown': '未知',
-			'subagent.createdAt': '创建于',
-			'member.nav': '内阁成员',
 			'member.title': '内阁成员',
 			'member.desc': '六员的名字、头像与提示词。未配置时保持出厂行为；头像归一为 96×96 PNG，单张不超过 48KB。通政使使用中性头像。',
 			'member.lead': '内阁首辅',
@@ -7540,6 +7461,18 @@ window.__ModuleLoader__.load({
 			'section.roster': 'Lead and ministers · dispatch',
 			'lead.tag': '内阁首辅',
 			'current': 'current',
+			'dispatch.open': "Dispatch",
+			'dispatch.close': "Close",
+			'dispatch.placeholder': "Dispatch message",
+			'dispatch.send': "Queue message",
+			'dispatch.interrupt': "Steer",
+			'dispatch.queued': "Queued",
+			'dispatch.steered': "Steer request accepted",
+			'dispatch.pending': "Submitting; do not resend",
+			'dispatch.unknown': "Delivery outcome unknown; not resent. Check the target conversation first.",
+			'dispatch.confirm': "I checked the conversation; allow another manual send",
+			'dispatch.rejected': "Request rejected; draft retained",
+			'dispatch.unavailable': "Send channel unavailable",
 			'status.running': 'working',
 			'status.inactive': 'idle',
 			'status.provisioning': 'starting',
@@ -7551,8 +7484,6 @@ window.__ModuleLoader__.load({
 			'task.unassigned': 'unassigned',
 			'usage.tokens': 'tokens',
 			'usage.elapsed': 'elapsed',
-			'usage.costEstimate': 'Estimated from public list prices, not an official bill',
-			'usage.costNoRate': 'No public list price for this model, not estimated',
 			'usage.context': 'context',
 			'usage.team': 'team total (incl. lead)',
 			'usage.none': '—',
@@ -7594,24 +7525,14 @@ window.__ModuleLoader__.load({
 			'groupchat.composer.sending': 'Sending…',
 			'groupchat.composer.unavailable': 'Send channel unavailable: the Lead session is not connected',
 			'groupchat.composer.unknown': 'Delivery outcome unknown; not resent. Check the recipient session before retrying.',
-			'groupchat.composer.failed': 'Send failed: {error}',
-			'dispatch.open': 'Dispatch',
-			'dispatch.close': 'Close',
-			'dispatch.placeholder': 'What should it do…',
-			'dispatch.send': 'Send',
-			'dispatch.queued': 'Queued',
-			'dispatch.hint': 'Dispatch: queued for its next turn (no interruption)',
-			'dispatch.interrupt': 'Interrupt',
-			'dispatch.interruptHint': 'Interrupt: injects into the running turn now',
-			'dispatch.noSession': 'Send channel unavailable: session not ready',
-			'dispatch.failed': 'Send failed: {error}',
+			'groupchat.composer.failed': 'Send failed: {error}'
+,
+			'member.nav': 'Cabinet members',
 			'subagent.group': 'Dynamic subagents ({n})',
 			'subagent.mode.oneshot': 'one-shot',
 			'subagent.mode.continuable': 'continuable',
 			'subagent.mode.external': 'external',
 			'subagent.mode.unknown': 'unknown',
-			'subagent.createdAt': 'created',
-			'member.nav': 'Cabinet members',
 			'member.title': 'Cabinet members',
 			'member.desc': 'Names, avatars and prompts for the six members. Unconfigured keeps the factory behaviour; avatars are normalized to 96×96 PNG, at most 48KB each. The association minister uses the neutral portrait.',
 			'member.lead': '内阁首辅',
