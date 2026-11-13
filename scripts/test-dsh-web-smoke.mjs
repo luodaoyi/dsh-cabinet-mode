@@ -77,7 +77,15 @@ async function browserSmoke(auth,origin,batchUrl){
   await preview.waitFor({state:'hidden'});
   stage='official model setup deferred without credentials';
   const later=page.getByRole('dialog').getByRole('button',{name:/^(Configure later|稍后配置)$/});
-  await later.waitFor({state:'visible'});await later.click();
+  // Official account-enabled builds replace the API-key editor with SignInDialog.
+  // Its named Close action calls AccountOnboarding.complete() without starting
+  // sign-in or storing credentials. Scope it to the known initial dialog only.
+  const accountSetup=page.getByRole('dialog').filter({has:page.getByRole('heading',{name:/^(Get started|开始使用)$/})});
+  const accountClose=accountSetup.getByRole('button',{name:/^(Close|关闭)$/});
+  const deferSetup=later.or(accountClose);
+  await deferSetup.waitFor({state:'visible'});
+  if(await deferSetup.count()!==1)throw Error('expected one ordinary model setup dismissal');
+  await deferSetup.click();
   await page.getByRole('dialog').waitFor({state:'hidden'});
   await page.waitForFunction(()=>document.getElementById('root')?.inert===false);
   stage='Cabinet client bootstrap and sidebar entry';
