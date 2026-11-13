@@ -2,6 +2,26 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.9.0] - 2026-11-13
+
+### Added
+
+- Add the standalone Cabinet page with workspace-grouped conversations, readable message bubbles, Markdown, expandable tools, native session navigation, and a resizable persistent roster rail.
+- Add native group-chat submission to the Lead or an explicitly selected member.
+
+### Fixed
+
+- Keep tool-result memoization, workspace grouping, message identity, and unavailable-session rows stable across updates; refresh group-chat names immediately after custom member settings change.
+- Release session subscriptions and references across navigation, roster changes, failed loads, and unmounts; clear stale content on failures.
+- Never automatically resend a member submission to the Lead after uncertain delivery. Retain the draft and show an explicit unknown-delivery warning for lost acknowledgements, including official gateway transport failures.
+- Preserve contributor improvements and the existing association-mode behavior; do not reintroduce the reverted association-mode changes.
+
+### Tests
+
+- Add real Chromium lifecycle, workspace/navigation, source-attribution, keyboard, and interrupted-delivery regressions.
+- Verify the exact package in an isolated official DSH rc.1 host: authentication, actual Cabinet UI, deterministic team orchestration, normal and accepted-ACK-lost Lead/member sends, real persistence, and native ordinary-session creation.
+- The loopback protocol fixture uses fixed responses, not real model reasoning. Ordinary-session creation is distinguished from reuse of an initialized blank and from UI-created Cabinet teams.
+
 ## [0.8.0] - 2026-11-11
 
 ### Added

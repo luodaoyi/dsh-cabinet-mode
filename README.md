@@ -300,7 +300,7 @@ On failure, show the exact error. For $.format must be 1, replace the webpage so
 Use this only when the market is unavailable or for local development. Fully quit desktop DSH first to release the profile lock, then install the release bundle:
 
 ```sh
-dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.8.0/dsh-cabinet-mode-0.8.0.tgz
+dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.9.0/dsh-cabinet-mode-0.9.0.tgz
 dsh plugin --profile desktop list
 ```
 
@@ -315,7 +315,7 @@ the same install command with the new version URL (or pick the new `.tgz` in the
 plugin page), then fully quit and restart DeepSeek Harness:
 
 ```sh
-dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.8.0/dsh-cabinet-mode-0.8.0.tgz
+dsh plugin --profile desktop add https://github.com/luodaoyi/dsh-cabinet-mode/releases/download/v0.9.0/dsh-cabinet-mode-0.9.0.tgz
 ```
 
 `dsh plugin --profile desktop list` should report the new version. Upgrades were

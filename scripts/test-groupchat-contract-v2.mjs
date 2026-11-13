@@ -1,0 +1,52 @@
+// Official rc.1 event contracts adapted from PR #33 to v2 explicit browser RPC identity.
+// No model requests or user profile; context inputs remain classified separately.
+import fs from 'node:fs';import vm from 'node:vm';import assert from 'node:assert/strict';
+import {pathToFileURL} from 'node:url';
+import pathModule from 'node:path';
+if (!process.env.DSH_MODULE_ROOT) throw Error('Set DSH_MODULE_ROOT to the isolated official rc.1 node_modules');
+const root=pathToFileURL(pathModule.join(process.env.DSH_MODULE_ROOT,'@deepseek-ai/')).href;
+const {MutableSessionEventSource}=await import(root+'dsh-api-session-controller/lib/types/client/contract/events.js');
+const {ClientAssistantStream}=await import(root+'dsh-api-session-controller/lib/types/client/sessions/assistant-stream.js');
+const {createUserMessage,createAssistantMessage,createToolResultMessage}=await import(root+'dsh-llm/lib/types/message.js');
+const path=process.argv[2]||new URL('../client.js',import.meta.url);
+const src=fs.readFileSync(path,'utf8'), ctx={};vm.createContext(ctx);
+vm.runInContext(src.slice(src.indexOf('function groupChatText('),src.indexOf('/**\n\t\t * Merge member folds')),ctx);
+const fold=entries=>ctx.groupChatFold(entries), text=text=>({type:'text',text});
+const entry=(type,seq,data)=>({type:'event',event:{type,seq,time:seq*1000,data,...(['user/message','assistant/message','tool/result'].includes(type)?{surfaceOp:'append'}:{})}});
+let assertions=0;const check=(condition,label)=>{assert.ok(condition,label);assertions++;console.log('PASS',label)};
+const user=createUserMessage({source:{kind:'user',rpcId:'contract-v2-user'},content:[text('USER')]});
+const unrouted=createUserMessage({source:{kind:'user'},content:[text('UNROUTED')]});
+check(fold([entry('user/message',0,unrouted)]).rows[0].kind==='input','v2 user source without RPC identity is context, not a browser-authored message');
+const relay=createUserMessage({source:{kind:'fixture-relay',form:'relay'},content:[text('RELAY')]});
+let rows=fold([entry('user/message',1,user),entry('user/message',2,relay)]).rows;
+check(rows[0].kind==='user'&&rows[1].kind==='input','real user constructor and producer-context identity');
+const message=createAssistantMessage({source:{provider:'fixture',model:'fixture'},content:[{type:'reasoning',text:'SECRET'},text('ANSWER'),{type:'tool-call',id:'c1',name:'read',arguments:'{}'}]});
+const settled=entry('assistant/message',3,{turn:1,step:1,message,stream:[]});
+let entries=[entry('user/message',1,user),settled,entry('tool/call',4,{turn:1,step:1,callId:'c1',name:'read',arguments:'{}'}),entry('tool/result',5,{turn:1,step:1,message:createToolResultMessage({callId:'c1',content:[text('result')]})})];
+rows=fold(entries).rows;check(rows[1].text==='ANSWER','reasoning excluded');check(rows.reduce((n,r)=>n+r.tools.length,0)===1&&rows[0].tools.length===0&&rows[1].tools[0].text==='result','unique same-step assistant tool ownership and result correlation');
+const source=new MutableSessionEventSource(), stream=new ClientAssistantStream();
+source.replace([entry('user/message',1,user)],true);stream.replace(source.getSnapshot().entries);
+let notifications=0;source.subscribe(()=>notifications++);
+const publish=r=>{if(!r)return;if(r.type==='transient'||r.type==='publish'){source.append(r.entry);if(r.retireAttemptId)source.settleAssistant(r.retireAttemptId)}else if(r.type==='settlement')source.settleAssistant(r.attemptId,r.entry);else if(r.type==='abandonment')source.settleAssistant(r.attemptId)};
+stream.acceptFrame({type:'start',attemptId:'a',startedAfterSeq:1,turn:1,step:1});
+publish(stream.acceptFrame({type:'chunk',attemptId:'a',index:0,time:2000,chunk:{type:'text-delta',text:'ANSWER'}}));
+check(fold(source.getSnapshot().entries).liveText==='ANSWER','official fractional-seq transient renders');
+publish(stream.acceptDurable(settled));publish(stream.acceptFrame({type:'end',attemptId:'a',index:1,outcome:{kind:'settled',seq:3,eventType:'assistant/message'}}));
+rows=fold(source.getSnapshot().entries).rows;check(rows.filter(r=>r.text==='ANSWER').length===1&&!rows.some(r=>r.kind==='live'),'official success retains transient but final fold deduplicates');
+publish(stream.acceptDurable(entry('step/end',6,{turn:1,step:1})));
+check(!source.getSnapshot().entries.some(e=>e.type==='transient'),'official step/end retires transient');
+for(const outcome of ['abandoned','attempt','interrupted']){
+ const step=outcome==='abandoned'?2:outcome==='attempt'?3:4, id='a'+step;
+ stream.acceptFrame({type:'start',attemptId:id,startedAfterSeq:6,turn:1,step});
+ publish(stream.acceptFrame({type:'chunk',attemptId:id,index:0,time:8000,chunk:{type:'text-delta',text:'PARTIAL'}}));
+ let end={kind:'abandoned'};
+ if(outcome!=='abandoned') {const type=outcome==='attempt'?'assistant/attempt':'assistant/message';const e=entry(type,step+8,{turn:1,step,stream:[],...(outcome==='interrupted'?{message:createAssistantMessage({source:{provider:'fixture',model:'fixture'},content:[text('PARTIAL')]}),interrupted:true}:{})});publish(stream.acceptDurable(e));end={kind:'settled',seq:e.event.seq,eventType:type};}
+ publish(stream.acceptFrame({type:'end',attemptId:id,index:1,outcome:end}));
+ check(!fold(source.getSnapshot().entries).rows.some(r=>r.kind==='live'),`official ${outcome} clears live`);
+}
+check(notifications>0&&source.getSnapshot().hasMore===true,'observable publishes and retains partial-history indicator');
+const textOnly=createAssistantMessage({source:{provider:'fixture',model:'fixture'},content:[text('STEP ONE')]});
+const toolsOnly=createAssistantMessage({source:{provider:'fixture',model:'fixture'},content:[{type:'tool-call',id:'empty-step-call',name:'read',arguments:'{}'}]});
+rows=fold([entry('assistant/message',20,{turn:9,step:1,message:textOnly,stream:[]}),entry('assistant/message',21,{turn:9,step:2,message:toolsOnly,stream:[]}),entry('tool/call',22,{turn:9,step:2,callId:'empty-step-call',name:'read',arguments:'{}'})]).rows;
+check(rows[0].text==='STEP ONE'&&rows[0].tools.length===0&&rows[1].text===''&&rows[1].tools[0].callId==='empty-step-call','official tool-only step owns its call');
+console.log(`PASS ${assertions} real official contract checks; source ${path}`);

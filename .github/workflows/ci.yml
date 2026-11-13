@@ -95,6 +95,9 @@ jobs:
       - run: npm ci --ignore-scripts
       - name: Install isolated official runtime (no model credentials)
         run: npm install --prefix "$RUNNER_TEMP/cabinet-runtime" --ignore-scripts --no-audit --no-fund @deepseek-ai/dsh@${{ matrix.dsh }}
+      - name: Install official browser-store contract dependency
+        if: matrix.dsh == '0.2.2-rc.1'
+        run: npm install --prefix "$RUNNER_TEMP/cabinet-runtime" --ignore-scripts --no-audit --no-fund @deepseek-ai/dsh-client-store@0.2.2-rc.1 zustand@4.5.7 immer@10.1.1
       - name: Official component regressions
         env:
           DSH_MODULE_ROOT: ${{ runner.temp }}/cabinet-runtime/node_modules
@@ -104,9 +107,80 @@ jobs:
           set -euo pipefail
           if [[ "$DSH_TEST_VERSION" == "0.2.2-rc.1" ]]; then
             node scripts/test-model-prepared.mjs
+            node scripts/test-groupchat-contract-v2.mjs
             export PATH="$DSH_MODULE_ROOT/.bin:$PATH"
             node scripts/verify.mjs
           else
             node scripts/test-model-selection.cjs
           fi
           node scripts/test-prompt-assembly.cjs
+      - name: Deterministic loopback model-protocol fixture (not real inference)
+        if: matrix.dsh == '0.2.2-rc.1'
+        env:
+          DSH_MODULE_ROOT: ${{ runner.temp }}/cabinet-runtime/node_modules
+        run: node scripts/test-dsh-protocol-fixture.mjs
+      - name: "Real DSH host browser: empty profile and deterministic team"
+        if: matrix.dsh == '0.2.2-rc.1'
+        env:
+          DSH_MODULE_ROOT: ${{ runner.temp }}/cabinet-runtime/node_modules
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --prefix "$RUNNER_TEMP/cabinet-host-browser" --ignore-scripts --no-audit --no-fund playwright-core@1.65.0
+          sudo apt-get update
+          sudo apt-get install --yes fonts-noto-cjk
+          export DSH_BROWSER_TEST_ROOT="$RUNNER_TEMP/cabinet-host-browser"
+          export CHROME_PATH="$(command -v google-chrome || command -v chromium)"
+          CABINET_HOST_SCREENSHOT="$RUNNER_TEMP/cabinet-host.png" node scripts/test-dsh-web-smoke.mjs --headless
+          CABINET_TEAM_SCREENSHOT="$RUNNER_TEMP/cabinet-team.png" node scripts/test-dsh-team-protocol-fixture.mjs --headless
+      - name: Preserve isolated real-host screenshots
+        if: always() && matrix.dsh == '0.2.2-rc.1'
+        uses: actions/upload-artifact@v4
+        with:
+          name: cabinet-real-host-evidence
+          path: |
+            ${{ runner.temp }}/cabinet-host.png
+            ${{ runner.temp }}/cabinet-team.png
+          if-no-files-found: ignore
+
+
+  browser-regression:
+    name: Real Chromium panel and groupchat regressions
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install isolated pinned browser test dependencies
+        run: npm install --prefix "$RUNNER_TEMP/cabinet-browser" --ignore-scripts --no-audit --no-fund react@19.3.1 react-dom@19.3.1 esbuild@0.25.12 playwright-core@1.65.0
+      - name: Install Chinese fonts for visual regression evidence
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes fonts-noto-cjk
+          fc-match -f '%{family}\n' 'Noto Sans CJK SC' | grep -F 'Noto Sans CJK SC'
+      - name: Run real Chromium regressions with synthetic session services
+        env:
+          DSH_BROWSER_TEST_ROOT: ${{ runner.temp }}/cabinet-browser
+        shell: bash
+        run: |
+          set -euo pipefail
+          export CHROME_PATH="$(command -v google-chrome || command -v chromium)"
+          CABINET_SCREENSHOT="$RUNNER_TEMP/panel.png" node scripts/test-panel-browser.mjs --headless
+          CABINET_SCREENSHOT="$RUNNER_TEMP/groupchat.png" node scripts/test-groupchat-browser.mjs --headless
+          CABINET_SCREENSHOT="$RUNNER_TEMP/page.png" node scripts/test-page-browser.mjs --headless
+      - name: Preserve browser evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cabinet-browser-evidence
+          path: |
+            ${{ runner.temp }}/panel.png
+            ${{ runner.temp }}/groupchat.png
+            ${{ runner.temp }}/page.png
+          if-no-files-found: ignore

@@ -385,12 +385,18 @@ if (existsSync(PATCH_PATH)) {
 }
 
 // ---------- fallback scripts ----------
-for (const test of ['test-member-settings.mjs', 'test-model-routing.mjs', 'test-model-picker.mjs', 'test-install.mjs', 'test-client.mjs', 'test-client-inject.mjs', 'test-avatars.mjs', 'test-roster.mjs']) {
+for (const test of ['test-member-settings.mjs', 'test-model-routing.mjs', 'test-model-picker.mjs', 'test-install.mjs', 'test-client.mjs', 'test-groupchat-reducer.mjs', 'test-groupchat-v2-regression.mjs', 'test-groupchat-lifecycle.mjs', 'test-client-inject.mjs', 'test-avatars.mjs', 'test-roster.mjs']) {
   const result = spawnSync(process.execPath, [join(ROOT, 'scripts', test)], {
     encoding: 'utf8', timeout: 30000, windowsHide: true,
   });
-  if (result.status === 0) ok(test);
-  else bad(test, result.stderr || result.stdout || String(result.error));
+  if (result.status === 0) {
+    ok(test);
+    // 通过的测试也透传显式 SKIP 行（环境绑定类检查），让 CI 日志一眼看到
+    // 「跳过」而不是沉默通过；不影响上面的 ok/bad 计数。
+    for (const line of String(result.stdout || '').split('\n')) {
+      if (line.startsWith('SKIP')) console.log('  ' + line);
+    }
+  } else bad(test, result.stderr || result.stdout || String(result.error));
 }
 const scripts = ['install.mjs', 'uninstall.mjs', 'verify.mjs'];
 const scriptProblems = [];
