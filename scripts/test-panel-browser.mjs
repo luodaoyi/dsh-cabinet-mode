@@ -1,6 +1,8 @@
 // Isolated real-React browser fixture; no DSH process, profile or model access.
 // DSH_BROWSER_TEST_ROOT must contain react, react-dom and esbuild from npm.
 // Run with node, open the printed loopback URL, then Run lifecycle checks.
+// --headless additionally needs playwright-core and CHROME_PATH (existing Chromium).
+// CABINET_SCREENSHOT optionally captures the final page, including failures.
 import fs from 'node:fs';
 import {createRequire} from 'node:module';
 import {createServer} from 'node:http';
@@ -48,9 +50,49 @@ document.getElementById('run').onclick=async()=>{const passed=[];try{
   live=true;render();await wait();mounted=false;render();await wait();assert(timers.size===0,'unmount cleanup');assert(!errors.length,'no React errors');passed.push('unmount cleanup');
   mounted=true;live=false;render();await wait();document.getElementById('result').textContent='PASS '+passed.length+' '+passed.join('; ');stats();
 }catch(e){document.getElementById('result').textContent='FAIL '+e.stack;stats()}};
+window.panelUnmount=async()=>{mounted=false;render();await wait();assert(timers.size===0,'final unmount cleanup');stats();return{timers:timers.size,errors};};
 render();stats();
 `;
 const bundle=require('esbuild').buildSync({stdin:{contents:fixture,resolveDir:root},bundle:true,format:'iife',write:false}).outputFiles[0].contents;
 const html='<!doctype html><meta charset="utf-8"><title>Cabinet isolated React regression</title><style>body{font:14px system-ui;margin:20px}#panel{width:900px;max-width:100%;height:650px;overflow:auto}#stats,#result{white-space:pre-wrap;overflow-wrap:anywhere}button{margin:2px}</style><button id="run">Run lifecycle checks</button><button id="show">Show team</button><button id="clear">Clear counters</button><button id="width">Narrow / wide</button><pre id="result"></pre><pre id="stats"></pre><div id="panel"></div><script src="/fixture.js"></script>';
 const server=createServer((req,res)=>{res.setHeader('Content-Type',req.url==='/fixture.js'?'text/javascript':'text/html');res.end(req.url==='/fixture.js'?bundle:html)});
-server.listen(0,'127.0.0.1',()=>console.log('http://127.0.0.1:'+server.address().port));
+await new Promise((resolve,reject)=>{
+  server.once('error',reject);
+  server.listen(0,'127.0.0.1',resolve);
+});
+const url='http://127.0.0.1:'+server.address().port;
+console.log(url);
+if(process.argv.includes('--headless')){
+  let browser,page,pageLoaded=false,failure;
+  try{
+    if(!process.env.CHROME_PATH)throw Error('Set CHROME_PATH to an existing Chromium');
+    browser=await require('playwright-core').chromium.launch({executablePath:process.env.CHROME_PATH,headless:true,args:['--no-sandbox']});
+    page=await browser.newPage({viewport:{width:1050,height:900}});
+    page.setDefaultTimeout(30000);
+    const errors=[];
+    page.on('pageerror',error=>errors.push(error.message));
+    page.on('console',message=>{if(message.type()==='error')errors.push(message.text());});
+    await page.goto(url);
+    pageLoaded=true;
+    await page.locator('#run').click();
+    await page.waitForFunction(()=>/^(PASS|FAIL) /.test(document.getElementById('result').textContent));
+    const result=await page.locator('#result').textContent();
+    if(!result.startsWith('PASS '))throw Error(result);
+    if(process.env.CABINET_SCREENSHOT)await page.screenshot({path:process.env.CABINET_SCREENSHOT,fullPage:true});
+    const cleanup=await page.evaluate(()=>window.panelUnmount());
+    if(errors.length||cleanup.errors.length)throw Error([...errors,...cleanup.errors].join('\n'));
+    console.log(JSON.stringify({result,final:cleanup}));
+  }catch(error){
+    failure=error;
+    if(pageLoaded&&process.env.CABINET_SCREENSHOT){
+      try{await page.screenshot({path:process.env.CABINET_SCREENSHOT,fullPage:true});}catch{}
+    }
+  }finally{
+    // Preserve the original failure while always releasing browser/server handles.
+    if(pageLoaded){try{await page.evaluate(()=>window.panelUnmount?.());}catch(error){failure??=error;}}
+    try{await browser?.close();}catch(error){failure??=error;}
+    server.closeAllConnections();
+    await new Promise(resolve=>server.close(resolve));
+  }
+  if(failure)throw failure;
+}

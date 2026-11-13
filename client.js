@@ -5444,7 +5444,7 @@ window.__ModuleLoader__.load({
 							h('div', { key: 'text', 'data-cabinet-groupchat-empty-text': '1', style: { maxWidth: 360 } }, tt('groupchat.empty'))
 						])
 						: cabinetChatViewRows(shown).map((entry, index) => h(GroupChatRow, {
-							key: 'row:' + index,
+							key: JSON.stringify([leadSessionId, entry.row.member?.id || entry.row.memberName, entry.row.kind, entry.row.seq, entry.row.time]),
 							row: entry.row,
 							member: entry.row.member || memberByName.get(entry.row.memberName),
 							// 会话内唯一化的昵称（重名成员各自可辨，见 chatBubbleNames）。

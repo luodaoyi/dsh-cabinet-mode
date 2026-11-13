@@ -110,3 +110,38 @@ jobs:
             node scripts/test-model-selection.cjs
           fi
           node scripts/test-prompt-assembly.cjs
+
+
+  browser-regression:
+    name: Real Chromium panel and groupchat regressions
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install isolated pinned browser test dependencies
+        run: npm install --prefix "$RUNNER_TEMP/cabinet-browser" --ignore-scripts --no-audit --no-fund react@19.3.1 react-dom@19.3.1 esbuild@0.25.12 playwright-core@1.65.0
+      - name: Run real Chromium regressions with synthetic session services
+        env:
+          DSH_BROWSER_TEST_ROOT: ${{ runner.temp }}/cabinet-browser
+        shell: bash
+        run: |
+          set -euo pipefail
+          export CHROME_PATH="$(command -v google-chrome || command -v chromium)"
+          CABINET_SCREENSHOT="$RUNNER_TEMP/panel.png" node scripts/test-panel-browser.mjs --headless
+          CABINET_SCREENSHOT="$RUNNER_TEMP/groupchat.png" node scripts/test-groupchat-browser.mjs --headless
+      - name: Preserve browser evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cabinet-browser-evidence
+          path: |
+            ${{ runner.temp }}/panel.png
+            ${{ runner.temp }}/groupchat.png
+          if-no-files-found: ignore
