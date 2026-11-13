@@ -92,7 +92,7 @@ const PAGE_NOW = Date.now();
 // ageOf 保序：原值越大 ⇒ 时间越新，且所有映射结果都落在最近 ~12 天内
 // （小于 30 天窗口，不会触发新鲜度过滤），既有排序断言的语义不变。
 const ageOf = (value) => PAGE_NOW - (1000000 - value);
-const exportList = 'return { inject, apply, avatarFor, displayName, chatBubbleName, chatBubbleNames, bureauOf, CabinetPanel, MemberCard, TaskLine, TaskEdgeLayer, buildTaskEdges, buildConnectorPaths, taskEdgesEqual, zh, en, BUREAUX, AVATARS, setMemberConfig, memberLabel, configuredAvatar, configuredPrompt, factoryPromptFor, DEFAULT_MEMBER_PROMPTS, DEFAULT_LEAD_PROMPT, CabinetMemberSettings, MemoryPluginCard, memoryPluginInstalledOf, SETTINGS_TABS, formatTokenCount, formatElapsed, tokenTotalOf, usageFor, planProjectionRequests, teamUsageOf, groupChatFold, markdownBlocksOf, markdownBlocksCached, inlineMarkdownTokens, markdownLinkHref, modelOptionsOf, modelCatalogNotice, modelSelectionOf, cabinetSessionChoices, cabinetSessionFilters, cabinetSessionGroups, defaultCabinetSession, CabinetMarkdown, CabinetPage, CabinetPanelIcon, GroupChatRow, STYLE_CSS, cabinetGroupMemberStates, mergeGroupChat, cabinetChatViewRows, chatStampNeeded, nearChatBottom, scrollChatToBottom, scrollFollowingTail, cabinetScopeRows, openCabinetSession };';
+const exportList = 'return { inject, apply, avatarFor, displayName, chatBubbleName, chatBubbleNames, bureauOf, CabinetPanel, MemberCard, TaskLine, TaskEdgeLayer, buildTaskEdges, buildConnectorPaths, taskEdgesEqual, zh, en, BUREAUX, AVATARS, setMemberConfig, memberLabel, configuredAvatar, configuredPrompt, factoryPromptFor, DEFAULT_MEMBER_PROMPTS, DEFAULT_LEAD_PROMPT, CabinetMemberSettings, MemoryPluginCard, memoryPluginInstalledOf, SETTINGS_TABS, formatTokenCount, formatElapsed, tokenTotalOf, usageFor, costOf, rateForModel, planProjectionRequests, teamUsageOf, groupChatFold, markdownBlocksOf, markdownBlocksCached, inlineMarkdownTokens, markdownLinkHref, modelOptionsOf, modelCatalogNotice, modelSelectionOf, cabinetSessionChoices, cabinetSessionFilters, cabinetSessionGroups, defaultCabinetSession, CabinetMarkdown, CabinetPage, CabinetPanelIcon, GroupChatRow, STYLE_CSS, cabinetGroupMemberStates, mergeGroupChat, cabinetChatViewRows, chatStampNeeded, nearChatBottom, scrollChatToBottom, scrollFollowingTail, cabinetScopeRows, openCabinetSession };';
 runInNewContext(source.replace(exportPoint, exportList), {
   setTimeout: (fn, ms) => setTimeout(fn, ms === 120000 ? 20 : ms), clearTimeout,
   Date: RealmDate,
@@ -851,19 +851,48 @@ const pulseCss = Array.isArray(client.STYLE_CSS) ? client.STYLE_CSS.join('\n') :
 assert.ok(pulseCss.includes('@keyframes cabinetPulse'), 'cabinetPulse keyframes are injected via STYLE_CSS (no silent-ignore)');
 assert.ok(pulseCss.includes('@keyframes cabinetSpin'), 'cabinetSpin keyframes are injected (the sweep must not silently ignore)');
 assert.ok(pulseCss.includes('[data-cabinet-sweep]::before') && pulseCss.includes('conic-gradient'), 'the border sweep is a conic-gradient rule scoped to the live marker');
-assert.ok(pulseCss.includes('cabinetSpin 2.4s linear infinite'), 'the sweep runs on the shared spin animation');
+assert.ok(pulseCss.includes('cabinetSpin 2.0s linear infinite'), 'the sweep runs on the shared spin animation');
+assert.ok(pulseCss.includes('1.2%') && pulseCss.includes('2.8%'), 'the sweep is a tiny bright dot (1.2%→2.8% arc), not a haze');
+assert.ok(pulseCss.includes('blur(0.6px)'), 'the dot edge is softened without becoming fog');
 assert.ok(pulseCss.includes('prefers-reduced-motion'), 'the sweep stops under prefers-reduced-motion');
 assert.ok(pulseCss.includes('will-change:transform'), 'the sweep animates transform only (GPU compositing), will-change hinted');
 assert.ok(pulseCss.includes('pointer-events:none'), 'the sweep layer never blocks card clicks');
-// 成本：宿主无 ¥ 数据源（tokenUsage 投影只有 4 个分项 token，无金额字段）——卡上不出现货币符号、不编数。
+// 费用规格已变（lead：公开单价估算 + 标注，取代上轮「无源不显示」负断言）。
+const rateBuckets = { uncachedInputTokens: 1000000, outputTokens: 100000, cacheReadTokens: 0, cacheWriteTokens: 0 };
+assert.equal(client.costOf({ buckets: rateBuckets }, 'auto/deepseek-v4.1-flash'), 2.8,
+  'costOf computes from public flash rates: (1M miss×¥2 + 0.1M out×¥8)/1e6 = ¥2.80');
+assert.equal(client.costOf({ buckets: { uncachedInputTokens: 1000000, outputTokens: 200000, cacheReadTokens: 500000 } }, 'xiaomi/mimo-v2.6-flash'), 1.41,
+  'costOf covers the local mimo flash rates: (1M×¥1 + 0.2M×¥2 + 0.5M×¥0.02)/1e6 = ¥1.41');
+assert.equal(client.costOf({ buckets: rateBuckets }, 'openai-codex/gpt-5.x'), undefined,
+  'an unlisted model is never guessed');
+assert.equal(client.rateForModel('deepseek-chat').cacheMiss, 2, 'deepseek-chat keeps its public rate row');
+const costCard = elements(client.MemberCard({
+  member: { id: 'm-money', name: 'mone', phase: 'active' },
+  model: 'auto/deepseek-v4.1-flash',
+  statusLabel: (status) => status,
+  t: zhT,
+  usage: { tokens: 1100000, elapsedMs: 1000, buckets: rateBuckets },
+}));
+const costNode = costCard.find((node) => node.props?.key === 'cost');
+assert.ok(costNode && costNode.children.join('').includes('¥2.80'), 'the card renders the estimated cost, got: ' + JSON.stringify(costNode && costNode.children));
+assert.ok(String(costNode.props.title).includes('估算'), 'the cost carries the estimate disclaimer, got: ' + costNode.props.title);
+const noRateCard = elements(client.MemberCard({
+  member: { id: 'm-nomoney', name: 'nom', phase: 'active' },
+  model: 'openai-codex/gpt-5.x',
+  statusLabel: (status) => status,
+  t: zhT,
+  usage: { tokens: 1100000, elapsedMs: 1000, buckets: rateBuckets },
+}));
+const noRateNode = noRateCard.find((node) => node.props?.key === 'cost');
+assert.ok(noRateNode && noRateNode.children.join('') === '\u2014', 'an unlisted model shows the em dash, got: ' + JSON.stringify(noRateNode && noRateNode.children));
+assert.ok(!JSON.stringify(noRateCard).includes('\u00a5'), 'an unlisted model never carries a currency figure');
 const costProbe = elements(client.MemberCard({
   member: { id: 'm-cost', name: 'coster', phase: 'active' },
   statusLabel: (status) => status,
   t: zhT,
   usage: { tokens: 3000000, elapsedMs: 1000, context: { percent: 40, segments: [] } },
 }));
-assert.ok(!JSON.stringify(costProbe).includes('¥'), 'the card shows no fabricated currency (host exposes no cost source)');
-assert.ok(JSON.stringify(costProbe).includes('3M'), 'token total still renders as the cost-free figure');
+assert.ok(JSON.stringify(costProbe).includes('3M'), 'token total still renders without buckets');
 
 // 家族色：不同成员的卡片边框色不同（黄金角散列，同色即错）。
 const huePanel = elements(client.CabinetPanel({
