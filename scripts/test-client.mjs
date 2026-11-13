@@ -751,7 +751,7 @@ assert.ok(typeof blockNode.props.style.border === 'string' && blockNode.props.st
 const dotNode = dressed.find((node) => node.props?.['data-cabinet-status'] !== undefined);
 assert.ok(dotNode, 'the head row carries the status dot');
 const descNode = dressed.find((node) => node.props?.['data-cabinet-task-desc'] !== undefined);
-assert.ok(descNode && descNode.children.join('') === '\u2014', 'a card without tasks shows the em dash on its task line');
+assert.ok(descNode && descNode.children.join('') === '\u7a7a\u95f2', 'a card without an in_progress task shows idle (\u7a7a\u95f2) on its task line, got: ' + JSON.stringify(descNode && descNode.children));
 const meterStyled = dressed.find((node) => node.props?.['data-cabinet-meter'] !== undefined);
 assert.equal(meterStyled.props.style.width, '42%', 'the segmented bar is left-aligned at ~42% card width');
 const footNode = dressed.find((node) => node.props?.key === 'foot');
@@ -773,6 +773,47 @@ const pctColorOf = (percent) => {
 assert.equal(pctColorOf(70), '#f59e0b', 'a >60% percent turns amber');
 assert.equal(pctColorOf(90), '#ef4444', 'a >85% percent turns red');
 assert.equal(pctColorOf(80), '#f59e0b', 'the screenshot 80.2% case stays amber under the >85 red threshold');
+// 状态点强化：运行=实心绿+呼吸动画+卡片外发光；空闲=同尺寸空心灰圈。
+const busyTree = elements(client.MemberCard({
+  member: { id: 'm-busy', name: 'busy', phase: 'active' },
+  running: true,
+  statusLabel: (status) => status,
+  t: zhT,
+  familyColor: 'hsl(138 58% 52%)',
+  activeTask: { id: 'tb', subject: '正在改弧线', status: 'in_progress' },
+}));
+const busyDot = busyTree.find((node) => node.props?.['data-cabinet-status'] !== undefined);
+assert.ok(busyDot, 'the running card renders its status dot');
+assert.equal(busyDot.props.style.background, '#22c55e', 'a running dot is solid-filled green, got: ' + JSON.stringify(busyDot.props.style));
+assert.ok(String(busyDot.props.style.animation).includes('cabinetPulse'), 'the running dot breathes with the cabinetPulse box-shadow keyframes');
+assert.equal(busyDot.props.style.border, undefined, 'a running dot has no hollow ring');
+const busyDesc = busyTree.find((node) => node.props?.['data-cabinet-task-desc'] !== undefined);
+const walkText = (node) => {
+  if (typeof node === 'string') return node;
+  if (Array.isArray(node)) return node.map(walkText).join('');
+  if (node && Array.isArray(node.children)) return node.children.map(walkText).join('');
+  return '';
+};
+const busyFlat = busyDesc && walkText(busyDesc.children);
+assert.ok(busyFlat && busyFlat.indexOf('\u25cf正在改弧线') === 0, 'the in_progress title renders after the marker, got: ' + JSON.stringify(busyFlat));
+const busyRoot = busyTree[0];
+assert.ok(typeof busyRoot.props.style.boxShadow === 'string' && busyRoot.props.style.boxShadow.includes('hsl(138 58% 52% / 0.55)'), 'the running card glows with a low-alpha family-color ring, got: ' + JSON.stringify(busyRoot.props.style.boxShadow));
+const calmTree = elements(client.MemberCard({
+  member: { id: 'm-calm', name: 'calm', phase: 'active' },
+  running: false,
+  statusLabel: (status) => status,
+  t: zhT,
+  familyColor: 'hsl(24 72% 52%)',
+  activeTask: undefined,
+}));
+const calmDot = calmTree.find((node) => node.props?.['data-cabinet-status'] !== undefined);
+assert.equal(calmDot.props.style.background, 'transparent', 'an idle dot is hollow, got: ' + JSON.stringify(calmDot.props.style));
+assert.ok(String(calmDot.props.style.border).indexOf('1.5px solid ') === 0, 'an idle dot is a 1.5px-stroked ring, got: ' + JSON.stringify(calmDot.props.style.border));
+assert.equal(calmDot.props.style.animation, undefined, 'an idle dot does not animate');
+assert.notDeepEqual(calmDot.props.style, busyDot.props.style, 'running and idle dots differ in style');
+assert.equal(calmTree[0].props.style.boxShadow, undefined, 'an idle card keeps its plain border (no glow)');
+assert.equal(busyDot.props.style.width, 8, 'both dots are 8px');
+assert.equal(calmDot.props.style.width, 8, 'both dots are 8px (idle matches)');
 
 // 家族色：不同成员的卡片边框色不同（黄金角散列，同色即错）。
 const huePanel = elements(client.CabinetPanel({
@@ -1450,16 +1491,42 @@ assert.equal(client.usageFor({tokenUsage:{outputTokens:-1},contextPressure:{cont
   // 单任务行新规格：阁臣卡不挂任务行，卡上只显示当前一个任务的标题。
   assert.ok(!panelNodes.some((node) => node.props?.['data-cabinet-task-row'] !== undefined), 'roster cards no longer mount task rows');
   assert.ok(panelNodes.some((node) => node.props?.['data-cabinet-task-desc'] !== undefined), 'the card shows its single current-task line');
-  assert.ok(JSON.stringify(panelNodes).includes('面板任务'), 'the task subject stays visible on the card');
+  assert.ok(!JSON.stringify(panelNodes).includes('面板任务'), 'a pending task title stays OFF the card (only in_progress is shown)');
   const pickTree = JSON.stringify(elements(render({
     members: [{ id: 'm-pick', name: 'pick', role: 'mate', phase: 'active' }],
     tasks: [
       { id: 't-old', subject: '最近的旧任务', status: 'pending', ownerName: 'pick' },
-      { id: 't-now', subject: '进行中的任务', status: 'in_progress', ownerName: 'pick' },
+      { id: 't-now', subject: '进行中的任务', status: 'in_progress', ownerName: 'pick', updatedAt: 200 },
+      { id: 't-now2', subject: '较旧的进行中', status: 'in_progress', ownerName: 'pick', updatedAt: 100 },
     ],
   }, client.zh)));
   assert.ok(pickTree.includes('进行中的任务'), 'the in_progress task title wins on the card');
   assert.ok(!pickTree.includes('最近的旧任务'), 'non-active tasks stay off the card');
+  assert.ok(!pickTree.includes('较旧的进行中'), 'among several in_progress tasks the most recent (updatedAt) one shows alone');
+  const pickDescs = elements(render({
+    members: [{ id: 'm-pick', name: 'pick', role: 'mate', phase: 'active' }],
+    tasks: [
+      { id: 't-old', subject: '最近的旧任务', status: 'pending', ownerName: 'pick' },
+      { id: 't-now', subject: '进行中的任务', status: 'in_progress', ownerName: 'pick', updatedAt: 200 },
+    ],
+  }, client.zh)).filter((node) => node.props?.['data-cabinet-task-desc'] !== undefined);
+  const descFlat = (desc) => {
+    const walk = (node) => {
+      if (typeof node === 'string') return node;
+      if (Array.isArray(node)) return node.map(walk).join('');
+      if (node && Array.isArray(node.children)) return node.children.map(walk).join('');
+      return '';
+    };
+    return walk(desc.children);
+  };
+  assert.ok(pickDescs.some((desc) => descFlat(desc).indexOf('\u25cf') === 0 && descFlat(desc).includes('进行中的任务')), 'the in-progress marker dot prefixes the title on the task line, got: ' + JSON.stringify(pickDescs.map((desc) => desc.children)));
+  // 全 completed 成员：显示「空闲」，旧任务标题绝不出现（用户反馈核心）。
+  const idleTree = JSON.stringify(elements(render({
+    members: [{ id: 'm-idle', name: 'idler', role: 'mate', phase: 'active' }],
+    tasks: [{ id: 't-done', subject: '做完了的旧活', status: 'completed', ownerName: 'idler' }],
+  }, client.zh)));
+  assert.ok(idleTree.includes('\u7a7a\u95f2'), 'a member with only completed tasks shows idle on the card');
+  assert.ok(!idleTree.includes('做完了的旧活'), 'completed task titles never leak onto the card');
   const english = client.TaskLine({
     task: { id: 'en-1', subject: 'sheet', status: 'pending' },
     t: (key) => client.en[key] || key,

@@ -3336,19 +3336,39 @@ window.__ModuleLoader__.load({
 
 		function StatusDot({ status, size = 8 }) {
 			const color = STATUS_COLOR[status] || STATUS_COLOR.inactive;
+			const live = status === 'running';
+			// 运行=实心绿点 8px + cabinetPulse box-shadow 呼吸；空闲=同尺寸空心灰圈。
 			return h('span', {
 				'aria-hidden': 'true',
 				'data-cabinet-status': status,
+				className: live ? 'cabinet-status-live' : undefined,
 				style: {
 					width: size,
 					height: size,
 					flex: 'none',
 					display: 'inline-block',
 					borderRadius: '50%',
-					background: color,
-					animation: status === 'running' ? 'cabinetPulse 1.7s ease-out infinite' : undefined
+					boxSizing: 'border-box',
+					background: live ? color : 'transparent',
+					border: live ? undefined : '1.5px solid ' + color,
+					animation: live ? 'cabinetPulse 1.7s ease-out infinite' : undefined
 				}
 			});
+		}
+
+		// 卡上「此刻在干什么」：只认 in_progress（多个取 updatedAt 最新、并列取数组
+		// 后位），没有就 undefined——completed 的旧任务绝不当「正在干」显示。
+		function activeTaskOf(list) {
+			if (!Array.isArray(list)) return undefined;
+			const active = list.filter((task) => task !== null && task !== undefined && task.status === 'in_progress');
+			if (active.length === 0) return undefined;
+			let best = active[0];
+			for (const task of active) {
+				const taskTime = typeof task.updatedAt === 'number' ? task.updatedAt : -Infinity;
+				const bestTime = typeof best.updatedAt === 'number' ? best.updatedAt : -Infinity;
+				if (taskTime >= bestTime) best = task;
+			}
+			return best;
 		}
 
 		function Chip({ color, children, title, onClick }) {
@@ -3623,6 +3643,11 @@ window.__ModuleLoader__.load({
 				onClick: canOpen ? () => onOpen(member) : undefined,
 				style: {
 					position: 'relative', zIndex: 1, cursor: canOpen ? 'pointer' : undefined,
+					// 运行中的卡加成员色低透明外发光，一眼跳出；空闲保持原样。
+					boxShadow: running
+						? '0 0 0 1.5px ' + (hasHue ? (familyColor.indexOf('hsl(') === 0 ? familyColor.replace(')', ' / 0.55)') : familyColor.replace(/[\d.]+\)$/, '0.55)')) : 'rgba(34,197,94,.55)')
+							+ ', 0 0 12px ' + (hasHue ? (familyColor.indexOf('hsl(') === 0 ? familyColor.replace(')', ' / 0.28)') : familyColor.replace(/[\d.]+\)$/, '0.28)')) : 'rgba(34,197,94,.28)')
+						: undefined,
 					borderColor: !lead && hasHue ? familyColor : undefined,
 					backgroundImage: !lead && tint ? 'linear-gradient(' + tint + ',' + tint + ')' : undefined
 				}
@@ -3646,7 +3671,7 @@ window.__ModuleLoader__.load({
 							letterSpacing: '.02em', overflow: 'hidden'
 						}
 					}, memberInitials(member.name)),
-					h(StatusDot, { key: 'dot', status, size: 6 }),
+					h(StatusDot, { key: 'dot', status, size: 8 }),
 					h('span', {
 						key: 'n',
 						title: memberLabel(member.name),
@@ -3663,8 +3688,10 @@ window.__ModuleLoader__.load({
 					key: 'taskdesc',
 					'data-cabinet-task-desc': '1',
 					title: activeTask && typeof activeTask.subject === 'string' ? activeTask.subject : undefined,
-					style: { fontSize: 13, color: INK2, marginTop: 6, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }
-				}, activeTask && typeof activeTask.subject === 'string' && activeTask.subject !== '' ? activeTask.subject : '\u2014'),
+					style: { fontSize: 13, color: activeTask ? INK2 : INK3, marginTop: 6, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }
+				}, activeTask && typeof activeTask.subject === 'string' && activeTask.subject !== ''
+					? [h('span', { key: 'mark', style: { color: hasHue ? familyColor : '#22c55e', marginRight: 4 } }, '\u25cf'), activeTask.subject]
+					: '\u7a7a\u95f2'),
 				// 故障必须可见：member.error 整行红字（模型行已按截图移除）。
 				member.error ? h('div', {
 					key: 'err',
@@ -5644,10 +5671,7 @@ window.__ModuleLoader__.load({
 				familyColor: 'rgba(245,197,24,.9)',
 				activity: activityOf(leadShown),
 				// 首辅卡同样只显示当前一个任务（截图同款单行）。
-				activeTask: (function () {
-					const inProgress = leadOwn.find((task) => task !== null && task !== undefined && task.status === 'in_progress');
-					return inProgress !== undefined ? inProgress : leadOwn[0];
-				})()
+				activeTask: activeTaskOf(leadOwn)
 			});
 
 			// Cells: every minister first, then 未分派 / 首辅自办 / 不在册 as
@@ -5727,10 +5751,7 @@ window.__ModuleLoader__.load({
 							// tasks live inside the card, elbow-connected by RailList
 							// 阁臣卡不再挂任务列表（用户：「不要一个很长的卡片」）——
 							// 卡上只显示当前一个任务（in_progress 优先，否则最近一个）。
-							activeTask: (function () {
-								const inProgress = own.find((task) => task !== null && task !== undefined && task.status === 'in_progress');
-								return inProgress !== undefined ? inProgress : own[0];
-							})()
+							activeTask: activeTaskOf(own)
 						});
 					} else {
 						content = h('div', { className: 'cabinet-card', style: { position: 'relative', zIndex: 1 } }, [
