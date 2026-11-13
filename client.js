@@ -7262,8 +7262,18 @@ window.__ModuleLoader__.load({
 				if (!workspaces || !workspaces.list || typeof workspaces.list.getSnapshot !== 'function') return;
 				scope.effect(() => {
 					cabinetWorkspaces = workspaces;
-					for (const notify of cabinetWorkspacesListeners) notify();
-					return () => { if (cabinetWorkspaces === workspaces) { cabinetWorkspaces = null; for (const notify of cabinetWorkspacesListeners) notify(); } };
+					const notify = () => {
+						if (cabinetWorkspaces === workspaces) for (const listener of cabinetWorkspacesListeners) listener();
+					};
+					const unsubscribe = typeof workspaces.list.subscribe === 'function' ? workspaces.list.subscribe(notify) : null;
+					notify();
+					return () => {
+						if (typeof unsubscribe === 'function') unsubscribe();
+						if (cabinetWorkspaces === workspaces) {
+							cabinetWorkspaces = null;
+							for (const listener of cabinetWorkspacesListeners) listener();
+						}
+					};
 				}, 'cabinet-ui: workspace groups');
 			});
 			ctx.inject(['sessions'], (scope) => {

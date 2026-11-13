@@ -141,6 +141,7 @@ jobs:
           export CHROME_PATH="$(command -v google-chrome || command -v chromium)"
           CABINET_SCREENSHOT="$RUNNER_TEMP/panel.png" node scripts/test-panel-browser.mjs --headless
           CABINET_SCREENSHOT="$RUNNER_TEMP/groupchat.png" node scripts/test-groupchat-browser.mjs --headless
+          CABINET_SCREENSHOT="$RUNNER_TEMP/page.png" node scripts/test-page-browser.mjs --headless
       - name: Preserve browser evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -149,4 +150,5 @@ jobs:
           path: |
             ${{ runner.temp }}/panel.png
             ${{ runner.temp }}/groupchat.png
+            ${{ runner.temp }}/page.png
           if-no-files-found: ignore
