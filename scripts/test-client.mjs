@@ -1753,13 +1753,31 @@ assert.equal(client.usageFor({tokenUsage:{outputTokens:-1},contextPressure:{cont
       } else { px = nums[4]; py = nums[5]; }
     }
   }
-  // 同层控制点分散：第二层（top=360）三条弧的第一控制点互不相同（防叠成一根）。
-  const layer2C1 = [120, 300, 480].map((cx) => {
-    const d = connD.find((line) => line.includes(' C ') && line.endsWith(' ' + cx + ' 360'));
+  // S 形判据（用户规格）：每条弧第一控制点 x==ax（起点竖直切向）、第二控制点
+  // x==目标 cx（终点竖直切向）；同层 bow 一致 → c1y 同、c2y 同；c1x!==c2x
+  // 除非 ax===cx（居中卡例外）——不得退化成中点抛物线。
+  const sShape = [];
+  for (const d of connD) {
+    const m = d.match(/^M (\d+) (\d+) L \1 \d+ C \1 ([\d.]+), (\d+) ([\d.]+), (\d+) (\d+)$/);
+    assert.ok(m, 'arc is M ax ay L ax y1 C ax _, cx _, cx top (S shape), got: ' + d);
+    const [, axS, , c1y, c2x, c2y, cxS] = m;
+    assert.equal(c2x, cxS, 'second control point sits above the target centre, got: ' + d);
+    sShape.push({ ax: Number(axS), cx: Number(cxS), c1y: Number(c1y), c2y: Number(c2y) });
+  }
+  for (const arc of sShape) {
+    if (arc.ax !== arc.cx) assert.ok(arc.c1y !== undefined && arc.c2y !== undefined && arc.c1y !== arc.c2y, 'the two control points differ in y (S, not a point), got: ' + JSON.stringify(arc));
+  }
+  // 同层（top=360）三条弧：c1y 相同、c2y 相同（bow 一致），c2x 随目标互异（扇形分散）。
+  const layer2 = [120, 300, 480].map((cx) => {
+    const d = connD.find((line) => line.endsWith(' ' + cx + ' 360'));
     assert.ok(d, 'a layer-2 arc ends at (' + cx + ',360), got: ' + JSON.stringify(connD));
-    return Number(d.match(/C (\d+) /)[1]);
+    const m = d.match(/C \d+ ([\d.]+), (\d+) ([\d.]+), (\d+) 360$/);
+    assert.ok(m, 'layer-2 arc parses as C _, c2x _, cx360, got: ' + d);
+    return { c1y: Number(m[1]), c2x: Number(m[2]), c2y: Number(m[3]) };
   });
-  assert.equal(new Set(layer2C1).size, 3, 'same-layer arcs fan out with distinct control points, got: ' + JSON.stringify(layer2C1));
+  assert.equal(new Set(layer2.map((a) => a.c1y)).size, 1, 'same-layer arcs share the start-side control y, got: ' + JSON.stringify(layer2));
+  assert.equal(new Set(layer2.map((a) => a.c2y)).size, 1, 'same-layer arcs share the target-side control y, got: ' + JSON.stringify(layer2));
+  assert.equal(new Set(layer2.map((a) => a.c2x)).size, 3, 'same-layer arcs fan out with distinct target-side control x, got: ' + JSON.stringify(layer2));
   // 旧 gutter 横穿的负断言：任何 x 都不得伸到最左卡左缘之外。
   const minConnLeft = Math.min(...connNodes.map((node) => node.left));
   for (const d of connD) {

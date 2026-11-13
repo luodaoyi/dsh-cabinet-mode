@@ -4162,12 +4162,10 @@ window.__ModuleLoader__.load({
 					const cx = target.left + target.width / 2;
 					const top = target.top;
 					const bow = Math.max(24, (top - y1) * 0.6);
-					// 控制点向目标侧各收一半：同层左/右目标的第一控制点分居 from.x 两侧，
-					// 弧线呈扇形散开，不会在中段叠成一根粗线。
-					const c1x = from.x + (cx - from.x) * 0.5;
-					const c2x = cx - (cx - from.x) * 0.5;
+					// S 形（第一层原公式，全层统一）：控制点1 在起点正下方、控制点2 在
+					// 目标正上方——两端都是竖直切向，x 分别为 from.x 与 cx，弧在中段换向。
 					const d = 'M ' + from.x + ' ' + from.y + ' L ' + from.x + ' ' + y1
-						+ ' C ' + c1x + ' ' + (y1 + bow) + ', ' + c2x + ' ' + (top - bow) + ', ' + cx + ' ' + top;
+						+ ' C ' + from.x + ' ' + (y1 + bow) + ', ' + cx + ' ' + (top - bow) + ', ' + cx + ' ' + top;
 					paths.push({ d, color: typeof target.color === 'string' ? target.color : '' });
 				}
 			};
