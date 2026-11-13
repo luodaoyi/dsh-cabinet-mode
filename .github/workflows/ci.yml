@@ -115,6 +115,11 @@ jobs:
         env:
           DSH_MODULE_ROOT: ${{ runner.temp }}/cabinet-runtime/node_modules
         run: node scripts/test-dsh-protocol-fixture.mjs
+      - name: Real Cabinet team with deterministic loopback protocol (not inference)
+        if: matrix.dsh == '0.2.2-rc.1'
+        env:
+          DSH_MODULE_ROOT: ${{ runner.temp }}/cabinet-runtime/node_modules
+        run: node scripts/test-dsh-team-protocol-fixture.mjs
       - name: Isolated real DSH host browser smoke (no model)
         if: matrix.dsh == '0.2.2-rc.1'
         env:
