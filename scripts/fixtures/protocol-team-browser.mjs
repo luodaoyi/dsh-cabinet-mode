@@ -4,7 +4,8 @@
 import {createRequire} from 'node:module';
 import {join,resolve} from 'node:path';
 import {readFile} from 'node:fs/promises';
-export async function teamBrowser({auth,env,repo,members}){
+import {createSessionInBrowser} from './protocol-session-browser.mjs';
+export async function teamBrowser({auth,env,repo,members,onCreated}){
  let browser,page,stage='browser setup',pageErrors=0,consoleErrors=0,assetSeen=false;
  const origin=auth.origin,assetReads=[],proofs=[],promptCounts=new Map();let routeFailed=false;
  const stopBrowser=()=>{browser?.close().catch(()=>{})};
@@ -139,6 +140,9 @@ export async function teamBrowser({auth,env,repo,members}){
   await memberHint.waitFor({state:'visible'});
   if(!/Delivery outcome unknown; not resent|发送结果未知，未自动重发/.test(await memberHint.innerText()))throw Error('missing routed uncertain-delivery warning');
   if(pageErrors||routeFailed||[...promptCounts.values()].some(n=>n!==1))throw Error('browser prompt runtime or duplication failure');
+  stage='real UI-created ordinary session and native composer';
+  proofs.push(await createSessionInBrowser({page,context,origin,members,cwd:env.CABINET_FIXTURE_CWD,onCreated}));
+  if(pageErrors)throw Error('browser runtime error during UI creation');
   await screenshot();
   console.log('PASS real Cabinet sends: normal ACK and accepted-then-lost Lead/member ACK, one request per fixed prompt');
   return proofs;

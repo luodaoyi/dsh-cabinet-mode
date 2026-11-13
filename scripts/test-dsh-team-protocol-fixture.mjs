@@ -18,7 +18,7 @@ const root=await mkdtemp(join(tmpdir(),'cabinet-protocol-fixture-'));
 const prompt='CABINET_PROTOCOL_TEAM_V1';
 const answer='CABINET_PROTOCOL_TEAM_REPLY_V1';
 const sentinel='local-protocol-fixture-not-a-real-credential';
-let child,server,requests=0,violation=false;const rejected=new Set();const calls=[];const uiCalls={};const memberMarker='CABINET_UI_MEMBER_ACK_LOST_V1';const completionMarker='CABINET_UI_MEMBER_SETTLED_V1';let memberSessionId;const uiMarkers=['CABINET_UI_SEND_V1','CABINET_UI_ACK_LOST_V1',memberMarker];let releaseCount=0,releaseMember;const memberGate=new Promise(resolve=>{releaseMember=resolve});
+let child,server,requests=0,violation=false;const rejected=new Set();const calls=[];const uiCalls={};const memberMarker='CABINET_UI_MEMBER_ACK_LOST_V1';const completionMarker='CABINET_UI_MEMBER_SETTLED_V1';let memberSessionId,createdSessionId;const createMarker='CABINET_UI_CREATE_V1';const uiMarkers=['CABINET_UI_SEND_V1','CABINET_UI_ACK_LOST_V1',memberMarker,createMarker];let releaseCount=0,releaseMember;const memberGate=new Promise(resolve=>{releaseMember=resolve});
 let output='',exitCode=null,done=false;
 const env={PATH:dirname(process.execPath)+':'+join(resolve(modules),'.bin')+':'+(process.env.PATH||'/usr/bin:/bin'),HOME:join(root,'home'),DSH_HOME:join(root,'dsh'),XDG_CONFIG_HOME:join(root,'config'),XDG_DATA_HOME:join(root,'data'),XDG_CACHE_HOME:join(root,'cache'),XDG_STATE_HOME:join(root,'state'),TMPDIR:join(root,'tmp'),NPM_CONFIG_USERCONFIG:join(root,'empty-npmrc'),NPM_CONFIG_CACHE:join(root,'npm-cache'),CI:'true',NO_COLOR:'1',LANG:'C.UTF-8',DEEPSEEK_API_KEY:sentinel};
 const pause=ms=>new Promise(r=>setTimeout(r,ms));
@@ -75,7 +75,7 @@ try{
    const settlement=lead&&lastUser?.content?.some(c=>c.type==='text'&&c.text===memberMarker+'_REPLY')&&lastUser.content.some(c=>c.type==='text'&&c.text===`Background subagent ${memberSessionId} finished and will do no further work unless you send it more.`);
    const uiMarker=settlement?completionMarker:directMarker;
    if(uiMarker){
-    assert(headless&&(uiCalls[uiMarker]??0)===0&&(uiMarker===memberMarker?sessionId===memberSessionId:lead),'UI request budget');
+    assert(headless&&(uiCalls[uiMarker]??0)===0&&(uiMarker===createMarker?!!createdSessionId&&sessionId===createdSessionId:uiMarker===memberMarker?sessionId===memberSessionId:lead),'UI request budget');
     if(settlement)assert(uiCalls[memberMarker]===1,'UI request budget');
     uiCalls[uiMarker]=1;
     const events=[{type:'message_start',message:{id:'fixture-ui-'+uiMarker,type:'message',role:'assistant',model:'deepseek-flash',content:[],usage:{input_tokens:1,output_tokens:0}}},{type:'content_block_start',index:0,content_block:{type:'text',text:uiMarker+'_REPLY'}},{type:'content_block_stop',index:0},{type:'message_delta',delta:{stop_reason:'end_turn'},usage:{output_tokens:1}},{type:'message_stop'}];
@@ -140,7 +140,7 @@ try{
   assert(match,'official host authentication URL absent');
   const auth=new URL(match[1]);
   assert(auth.hostname==='127.0.0.1'&&auth.protocol==='http:'&&auth.port&&!auth.username&&!auth.password&&auth.pathname==='/','official host endpoint unexpected');
-  const proofs=await teamBrowser({auth,env,repo,members:report.members});
+  const proofs=await teamBrowser({auth,env,repo,members:report.members,onCreated:id=>{assert(!createdSessionId&&!report.members.some(m=>m.id===id),'expected fresh UI-created session');createdSessionId=id}});
   assert(!violation&&requests===4&&[...uiMarkers,completionMarker].every(marker=>uiCalls[marker]===1),'expected independent UI model budgets');
   // Graceful official Host shutdown drains its own persistence. Never write or
   // fabricate log entries, and read the new evidence only after browser sends.
@@ -148,7 +148,9 @@ try{
   const flushDeadline=Date.now()+15000;while(!done&&Date.now()<flushDeadline)await pause(100);
   assert(done,'official host did not shut down for persistence verification');
   const persisted=[];for(const log of await files(join(env.DSH_HOME,'sessions'))){const data=(await readFile(log,'utf8')).trim().split('\n').map(line=>JSON.parse(line));persisted.push(...data.map(row=>({...row,fixtureSessionId:data[0].id})));}
-  assert(proofs.length===3,'expected three real browser acceptance proofs');
+  assert(proofs.length===4,'expected four real browser acceptance proofs');
+  const createdRows=persisted.filter(row=>row.fixtureSessionId===createdSessionId);
+  assert(createdRows.length>0&&createdRows[0].cwd===cwd&&!createdRows[0].parentSession&&createdRows.filter(row=>row.type==='turn/end').length===1,'persisted UI-created ordinary session header or turn mismatch');
   for(const proof of proofs){
    const accepted=persisted.filter(row=>row.type==='user/message'&&row.data?.source?.kind==='user'&&row.data.source.rpcId===proof.requestId);
    assert(accepted.length===1&&accepted[0].fixtureSessionId===proof.sessionId&&(!proof.messageId||accepted[0].data.id===proof.messageId)&&accepted[0].data.content.some(c=>c.type==='text'&&c.text===proof.marker),'persisted UI prompt must appear exactly once with real request identity');
@@ -158,7 +160,7 @@ try{
   assert(persisted.filter(r=>r.type==='tool/call').length===1,'persisted unexpected tool during UI sends');
   console.log('PASS browser-send persistence: normal and ACK-lost Lead/member prompts each accepted exactly once with real RPC identity');
  }
- console.log('BOUNDARY: deterministic protocol fixture, not real model inference or UI-created sessions'+(headless?'; real browser read/navigation, normal send and accepted-ACK-loss tested':'; browser not tested'));
+ console.log('BOUNDARY: deterministic protocol fixture, not real model inference'+(headless?'; real browser read/navigation, normal send, accepted-ACK-loss and ordinary UI session creation tested':'; browser and UI creation not tested'));
 
  if(process.env.CABINET_PROTOCOL_REPORT)await writeFile(process.env.CABINET_PROTOCOL_REPORT,JSON.stringify({fixture:'team-v1',requests,persistedRows:rows.length,members:report.members.map(({id,role})=>({id,role,preset:'cabinet',turnEnded:true})),modelInference:false},null,2)+'\n');
 }catch(error){
