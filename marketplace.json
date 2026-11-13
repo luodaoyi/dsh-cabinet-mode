@@ -1,0 +1,294 @@
+{
+  "format": 1,
+  "title": {
+    "en": "Cabinet Mode",
+    "zh": "内阁模式"
+  },
+  "description": {
+    "en": "Cabinet Mode (内阁模式) for DeepSeek Harness: a declarative dual-identity Lead/teammate agent preset for a Ming-dynasty cabinet team.",
+    "zh": "DeepSeek Harness 的内阁模式：声明式双身份首辅/阁臣 agent preset，复刻大明科研司内阁分工。"
+  },
+  "metadata": {
+    "categories": {
+      "preset": {
+        "title": {
+          "en": "Agent presets",
+          "zh": "智能体预设"
+        }
+      }
+    }
+  },
+  "plugins": [
+    {
+      "name": "dsh-cabinet-mode",
+      "title": {
+        "en": "Cabinet Mode",
+        "zh": "内阁模式"
+      },
+      "description": {
+        "en": "Adds the “内阁模式” preset: one persona shared by the Lead and the bureau members (翰林院 / 工部 / 大理寺 / 都察院), research-first rules, and evidence-anchored reporting. Includes the Cabinet sidebar, member avatars and profile-wide settings with per-office model selection; since 0.3.0 it uses @deepseek-ai/schemastery for its settings schema.",
+        "zh": "新增「内阁模式」preset：首辅与阁臣（翰林院 / 工部 / 大理寺 / 都察院）共享同一段 persona，默认只调研不改码、结论必须锚定证据。包含内阁侧边栏、成员头像与支持各官职独立模型选择的 profile 共享设置；自 0.3.0 起使用 @deepseek-ai/schemastery 作为设置 schema 依赖。"
+      },
+      "icon": "./icon.svg",
+      "author": "luodaoyi",
+      "homepage": "https://github.com/luodaoyi/dsh-cabinet-mode#readme",
+      "repository": {
+        "url": "https://github.com/luodaoyi/dsh-cabinet-mode.git"
+      },
+      "metadata": {
+        "category": "preset",
+        "keywords": [
+          "cabinet-mode",
+          "内阁模式",
+          "agent-preset",
+          "agent-team",
+          "persona",
+          "dsh-bundle",
+          "research-team"
+        ]
+      },
+      "versions": [
+        {
+          "version": "0.9.1",
+          "publishTimestamp": 1794579160,
+          "source": {
+            "type": "npm",
+            "registry": "https://registry.npmjs.org"
+          }
+        },
+        {
+          "version": "0.9.0",
+          "publishTimestamp": 1794578060,
+          "source": {
+            "type": "npm",
+            "registry": "https://registry.npmjs.org"
+          }
+        },
+        {
+          "version": "0.8.0",
+          "publishTimestamp": 1794393870,
+          "source": {
+            "type": "npm",
+            "registry": "https://registry.npmjs.org"
+          }
+        },
+        {
+          "version": "0.7.1",
+          "publishTimestamp": 1794221978,
+          "source": {
+            "type": "npm",
+            "registry": "https://registry.npmjs.org"
+          }
+        },
+        {
+          "version": "0.7.0",
+          "publishTimestamp": 1794215128,
+          "source": {
+            "type": "npm",
+            "registry": "https://registry.npmjs.org"
+          }
+        },
+        {
+          "version": "0.6.4",
+          "publishTimestamp": 1794207931,
+          "source": {
+            "type": "npm",
+            "registry": "https://registry.npmjs.org"
+          }
+        },
+        {
+          "version": "0.6.3",
+          "publishTimestamp": 1794157280,
+          "source": {
+            "type": "npm",
+            "registry": "https://registry.npmjs.org"
+          }
+        },
+        {
+          "version": "0.6.2",
+          "publishTimestamp": 1794150687,
+          "source": {
+            "type": "npm",
+            "registry": "https://registry.npmjs.org"
+          }
+        },
+        {
+          "version": "0.6.1",
+          "publishTimestamp": 1794145646,
+          "source": {
+            "type": "npm",
+            "registry": "https://registry.npmjs.org"
+          }
+        },
+        {
+          "version": "0.6.0",
+          "publishTimestamp": 1794137889,
+          "source": {
+            "type": "npm",
+            "registry": "https://registry.npmjs.org"
+          }
+        },
+        {
+          "version": "0.5.4",
+          "publishTimestamp": 1794063437,
+          "source": {
+            "type": "npm",
+            "registry": "https://registry.npmjs.org"
+          }
+        },
+        {
+          "version": "0.5.3",
+          "publishTimestamp": 1794030753,
+          "source": {
+            "type": "npm",
+            "registry": "https://registry.npmjs.org"
+          }
+        },
+        {
+          "version": "0.5.2",
+          "publishTimestamp": 1794027074,
+          "source": {
+            "type": "npm",
+            "registry": "https://registry.npmjs.org"
+          }
+        },
+        {
+          "version": "0.5.1",
+          "publishTimestamp": 1794024409,
+          "source": {
+            "type": "npm",
+            "registry": "https://registry.npmjs.org"
+          }
+        },
+        {
+          "version": "0.5.0",
+          "publishTimestamp": 1793984391,
+          "source": {
+            "type": "npm",
+            "registry": "https://registry.npmjs.org"
+          }
+        },
+        {
+          "version": "0.4.1",
+          "publishTimestamp": 1793947425,
+          "source": {
+            "type": "npm",
+            "registry": "https://registry.npmjs.org"
+          }
+        },
+        {
+          "version": "0.4.0",
+          "publishTimestamp": 1793902891,
+          "source": {
+            "type": "npm",
+            "registry": "https://registry.npmjs.org"
+          }
+        },
+        {
+          "version": "0.3.1",
+          "publishTimestamp": 1793897168,
+          "source": {
+            "type": "npm",
+            "registry": "https://registry.npmjs.org"
+          }
+        },
+        {
+          "version": "0.3.0",
+          "publishTimestamp": 1793890694,
+          "source": {
+            "type": "npm",
+            "registry": "https://registry.npmjs.org"
+          }
+        },
+        {
+          "version": "0.2.7",
+          "publishTimestamp": 1793862944,
+          "source": {
+            "type": "npm",
+            "registry": "https://registry.npmjs.org"
+          }
+        },
+        {
+          "version": "0.2.6",
+          "publishTimestamp": 1793861892,
+          "source": {
+            "type": "npm",
+            "registry": "https://registry.npmjs.org"
+          }
+        },
+        {
+          "version": "0.2.5",
+          "publishTimestamp": 1793860580,
+          "source": {
+            "type": "npm",
+            "registry": "https://registry.npmjs.org"
+          }
+        },
+        {
+          "version": "0.2.4",
+          "publishTimestamp": 1793860154,
+          "source": {
+            "type": "npm",
+            "registry": "https://registry.npmjs.org"
+          }
+        },
+        {
+          "version": "0.2.3",
+          "publishTimestamp": 1793856355,
+          "source": {
+            "type": "npm",
+            "registry": "https://registry.npmjs.org"
+          }
+        },
+        {
+          "version": "0.2.2",
+          "publishTimestamp": 1793855921,
+          "source": {
+            "type": "npm",
+            "registry": "https://registry.npmjs.org"
+          }
+        },
+        {
+          "version": "0.2.1",
+          "publishTimestamp": 1793855656,
+          "source": {
+            "type": "npm",
+            "registry": "https://registry.npmjs.org"
+          }
+        },
+        {
+          "version": "0.2.0",
+          "publishTimestamp": 1793838985,
+          "source": {
+            "type": "npm",
+            "registry": "https://registry.npmjs.org"
+          }
+        },
+        {
+          "version": "0.1.6",
+          "publishTimestamp": 1793718933,
+          "source": {
+            "type": "npm",
+            "registry": "https://registry.npmjs.org"
+          }
+        },
+        {
+          "version": "0.1.5",
+          "publishTimestamp": 1793717361,
+          "source": {
+            "type": "npm",
+            "registry": "https://registry.npmjs.org"
+          }
+        },
+        {
+          "version": "0.1.4",
+          "publishTimestamp": 1793716489,
+          "source": {
+            "type": "npm",
+            "registry": "https://registry.npmjs.org"
+          }
+        }
+      ]
+    }
+  ]
+}
