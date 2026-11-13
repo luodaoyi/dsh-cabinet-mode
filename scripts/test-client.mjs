@@ -380,7 +380,7 @@ const rowEl = elements(depLine).find((node) => node.props && 'data-cabinet-task'
 assert.equal(rowEl.props['data-cabinet-task'], 't-build');
 // reduced-motion + palette: CSS keeps the static line, kills only the flow
 const reducedLines = source.split('\n').filter((line) => line.includes('prefers-reduced-motion'));
-const reducedMedia = reducedLines.find((line) => line.includes('@media'));
+const reducedMedia = reducedLines.find((line) => line.includes('@media') && line.includes('.cabinet-edge-active'));
 assert.ok(reducedMedia, 'a prefers-reduced-motion media query must exist');
 assert.ok(reducedMedia.includes('.cabinet-edge-active') && reducedMedia.includes('animation:none'),
   'flow animation stands still under prefers-reduced-motion while the dashed line stays');
@@ -799,7 +799,9 @@ const walkText = (node) => {
 const busyFlat = busyDesc && walkText(busyDesc.children);
 assert.ok(busyFlat && busyFlat.indexOf('\u25cf正在改弧线') === 0, 'the in_progress title renders after the marker, got: ' + JSON.stringify(busyFlat));
 const busyRoot = busyTree[0];
-assert.ok(typeof busyRoot.props.style.boxShadow === 'string' && busyRoot.props.style.boxShadow.includes('hsl(138 58% 52% / 0.55)'), 'the running card glows with a low-alpha family-color ring, got: ' + JSON.stringify(busyRoot.props.style.boxShadow));
+assert.equal(busyRoot.props['data-cabinet-sweep'], '1', 'the animating card carries the live-border marker');
+assert.equal(busyRoot.props.style.overflow, 'hidden', 'the live card opens the sweep window (overflow hidden)');
+assert.equal(busyRoot.props.style['--cab-live-hue'], 'hsl(138 58% 52%)', 'the sweep hue rides the family color variable, got: ' + JSON.stringify(busyRoot.props.style['--cab-live-hue']));
 const calmTree = elements(client.MemberCard({
   member: { id: 'm-calm', name: 'calm', phase: 'active' },
   running: false,
@@ -813,7 +815,8 @@ assert.equal(calmDot.props.style.background, 'transparent', 'an idle dot is holl
 assert.ok(String(calmDot.props.style.border).indexOf('1.5px solid ') === 0, 'an idle dot is a 1.5px-stroked ring, got: ' + JSON.stringify(calmDot.props.style.border));
 assert.equal(calmDot.props.style.animation, undefined, 'an idle dot does not animate');
 assert.notDeepEqual(calmDot.props.style, busyDot.props.style, 'running and idle dots differ in style');
-assert.equal(calmTree[0].props.style.boxShadow, undefined, 'an idle card keeps its plain border (no glow)');
+assert.equal(calmTree[0].props['data-cabinet-sweep'], undefined, 'an idle card carries no live-border marker');
+assert.equal(calmTree[0].props.style.overflow, undefined, 'an idle card opens no sweep window');
 assert.equal(busyDot.props.style.width, 8, 'both dots are 8px');
 assert.equal(calmDot.props.style.width, 8, 'both dots are 8px (idle matches)');
 // 「任务在动」不只看进程：agent 没跑但有 in_progress 任务 → 点/卡/● 全部动起来。
@@ -828,7 +831,9 @@ const taskOnlyTree = elements(client.MemberCard({
 const taskOnlyDot = taskOnlyTree.find((node) => node.props?.['data-cabinet-status'] !== undefined);
 assert.equal(taskOnlyDot.props['data-cabinet-status'], 'running', 'an in_progress task alone lights the dot to running (agent idle), got: ' + taskOnlyDot.props['data-cabinet-status']);
 assert.ok(String(taskOnlyDot.props.style.animation).includes('cabinetPulse'), 'the dot breathes while the task runs even with running=false');
-assert.ok(typeof taskOnlyTree[0].props.style.boxShadow === 'string' && taskOnlyTree[0].props.style.boxShadow.includes('hsl(138 58% 52% / 0.55)'), 'the card glows while its task runs, agent idle');
+assert.equal(taskOnlyTree[0].props['data-cabinet-sweep'], '1', 'the card wears the live marker while its task runs, agent idle');
+assert.equal(taskOnlyTree[0].props.style.overflow, 'hidden', 'the sweep window opens with the task');
+assert.equal(taskOnlyTree[0].props.style['--cab-live-hue'], 'hsl(138 58% 52%)', 'the sweep follows the family color even when the agent is idle');
 const taskOnlyDesc = taskOnlyTree.find((node) => node.props?.['data-cabinet-task-desc'] !== undefined);
 const findMark = (node) => {
   if (Array.isArray(node)) { for (const child of node) { const hit = findMark(child); if (hit) return hit; } return null; }
@@ -844,6 +849,12 @@ assert.ok(String(taskMark.props.style.animation).includes('cabinetPulse'), 'the 
 // keyframes 必须真的在 STYLE_CSS 里——只有 animation 没有 @keyframes 会被浏览器静默忽略。
 const pulseCss = Array.isArray(client.STYLE_CSS) ? client.STYLE_CSS.join('\n') : String(client.STYLE_CSS || '');
 assert.ok(pulseCss.includes('@keyframes cabinetPulse'), 'cabinetPulse keyframes are injected via STYLE_CSS (no silent-ignore)');
+assert.ok(pulseCss.includes('@keyframes cabinetSpin'), 'cabinetSpin keyframes are injected (the sweep must not silently ignore)');
+assert.ok(pulseCss.includes('[data-cabinet-sweep]::before') && pulseCss.includes('conic-gradient'), 'the border sweep is a conic-gradient rule scoped to the live marker');
+assert.ok(pulseCss.includes('cabinetSpin 2.4s linear infinite'), 'the sweep runs on the shared spin animation');
+assert.ok(pulseCss.includes('prefers-reduced-motion'), 'the sweep stops under prefers-reduced-motion');
+assert.ok(pulseCss.includes('will-change:transform'), 'the sweep animates transform only (GPU compositing), will-change hinted');
+assert.ok(pulseCss.includes('pointer-events:none'), 'the sweep layer never blocks card clicks');
 // 成本：宿主无 ¥ 数据源（tokenUsage 投影只有 4 个分项 token，无金额字段）——卡上不出现货币符号、不编数。
 const costProbe = elements(client.MemberCard({
   member: { id: 'm-cost', name: 'coster', phase: 'active' },
