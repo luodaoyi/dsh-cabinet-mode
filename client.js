@@ -2389,6 +2389,14 @@ window.__ModuleLoader__.load({
 		const STYLE_CSS = [
 			// status dot pulse (panel)
 			'@keyframes cabinetPulse{0%{box-shadow:0 0 0 0 rgba(34,197,94,.55)}70%{box-shadow:0 0 0 7px rgba(34,197,94,0)}100%{box-shadow:0 0 0 0 rgba(34,197,94,0)}}',
+			// 走马灯边框（方案B 旋转大圆）：卡自身 overflow:hidden 当裁窗，::before 用
+			// 家族色 conic 渐变大圆只转 transform（GPU 合成），卡内容 z-index 盖住中段，
+			// 只露出贴边的一段亮光在绕框跑。@property 在旧内核静默失效，故不用方案A。
+			'[data-cabinet-sweep]{position:relative;overflow:hidden;border-radius:12px}',
+			'[data-cabinet-sweep]::before{content:"";position:absolute;inset:-60%;background:conic-gradient(from 0deg, transparent 0%, var(--cab-live-hue, rgba(127,127,127,.55)) 18%, transparent 42%);animation:cabinetSpin 2.4s linear infinite;will-change:transform;pointer-events:none}',
+			'[data-cabinet-sweep] > *{position:relative;z-index:1}',
+			// cabinetSpin keyframes 上游已有（头像活动环 :2403 同名复用，勿重复定义）。
+			'@media (prefers-reduced-motion: reduce){[data-cabinet-sweep]::before{animation:none}}',
 			// 右栏拖拽手柄 hover 高亮（宽度可调，见 CABINET_RAIL_DEFAULT_WIDTH）。
 			'[data-cabinet-rail-handle]:hover{background:rgba(79,140,255,.45)}',
 			// running avatar: rotating conic ring (panel + native roster) and glow
@@ -2439,8 +2447,8 @@ window.__ModuleLoader__.load({
 			'@keyframes cabinetBarPulse{0%,100%{opacity:.3;transform:scaleY(.55)}50%{opacity:1;transform:scaleY(1)}}',
 			'.cabinet-task-live::after{content:"";position:absolute;left:-9px;top:5px;bottom:5px;width:2px;border-radius:2px;background:#3b82f6;transform-origin:center;animation:cabinetBarPulse 1.6s ease-in-out infinite}',
 			// org-chart cards + first-class lead badge
-			'.cabinet-card{box-sizing:border-box;display:flex;flex-direction:column;gap:4px;min-width:0;padding:8px 10px;border-radius:8px;border:1px solid var(--dsw-alias-border-l3,light-dark(#0000001f,#ffffff29));background:var(--dsw-alias-bg-layer-1,light-dark(#ffffff,#232324))}',
-			'.cabinet-card-lead{border-color:rgba(245,197,24,.55);background-image:linear-gradient(rgba(245,197,24,.10),rgba(245,197,24,.10))}',
+			'.cabinet-card{box-sizing:border-box;display:flex;flex-direction:column;gap:4px;min-width:0;padding:8px 10px;border-radius:10px;border:1px solid var(--dsw-alias-border-l3,light-dark(#0000001f,#ffffff29));background:var(--dsw-alias-bg-layer-1,light-dark(#ffffff,#232324))}',
+			'.cabinet-card-lead{border-color:rgba(245,197,24,.8);background-image:linear-gradient(rgba(245,197,24,.14),rgba(245,197,24,.14))}',
 			// click-through affordance: the whole card, the whole task row and the
 			// Owner tag are targets, so hover has to say so. An inset ring leaves
 			// every inline background (tags, live rows) untouched.
@@ -2449,9 +2457,10 @@ window.__ModuleLoader__.load({
 			'.cabinet-clickable:hover{box-shadow:inset 0 0 0 1px rgba(127,127,127,.55)}',
 			// context-pressure bar: one 4px track, three state-coloured segments
 			// (system / tools / message) sized by the projection's own breakdown
-			'.cabinet-ctxbar{display:inline-flex;width:34px;height:4px;border-radius:2px;overflow:hidden;background:rgba(127,127,127,.25);flex:none}',
+			'.cabinet-ctxbar{display:flex;width:100%;height:3px;border-radius:2px;overflow:hidden;background:rgba(127,127,127,.25);flex:none}',
 			'.cabinet-ctxbar i{display:block;height:100%}',
 			'.cabinet-ctxbar-system{background:#8b5cf6}.cabinet-ctxbar-tools{background:#0ea5e9}.cabinet-ctxbar-message{background:#22c55e}',
+			'.cabinet-timeline-event:hover{outline:1px solid rgba(127,127,127,.9);outline-offset:1px}',
 			'.cabinet-badge-lead{font-size:10px;line-height:14px;padding:0 6px;border-radius:4px;font-weight:600;background:rgba(245,197,24,.20);border:1px solid rgba(245,197,24,.45);color:#6b4a00}',
 			'body[data-ds-dark-theme] .cabinet-badge-lead{color:#ffd666}',
 			// status / task text: one colour per state per theme, so 11px copy clears
@@ -2478,7 +2487,7 @@ window.__ModuleLoader__.load({
 			'.cabinet-edge-dot{stroke:none}',
 			'.cabinet-edge-dot-done{fill:light-dark(#15803d,#4ade80)}.cabinet-edge-dot-pending{fill:light-dark(#6b7280,#9ca3af)}.cabinet-edge-dot-active{fill:light-dark(#2563eb,#60a5fa)}',
 			// accessibility: everything above stands still
-			'@media (prefers-reduced-motion:reduce){[data-cabinet-status="running"],img.cabinet-avatar-running,.cabinet-live-breathe,.cabinet-dots i,.cabinet-task-live::after{animation:none!important}.cabinet-avatar-slot.cabinet-ring-live::before{animation:none!important;opacity:.8}.cabinet-row-live{animation:none!important;background-image:none}.cabinet-edge-active,.cabinet-edge-active.cabinet-edge-live{animation:none!important}}',
+			'@media (prefers-reduced-motion:reduce){[data-cabinet-status="running"],img.cabinet-avatar-running,.cabinet-live-breathe,.cabinet-dots i,.cabinet-task-live::after,.cabinet-task-mark{animation:none!important}.cabinet-avatar-slot.cabinet-ring-live::before{animation:none!important;opacity:.8}.cabinet-row-live{animation:none!important;background-image:none}.cabinet-edge-active,.cabinet-edge-active.cabinet-edge-live{animation:none!important}}',
 		].join('');
 
 		const PANEL = {
@@ -2773,7 +2782,7 @@ window.__ModuleLoader__.load({
 		// The right-hand pane keeps the roster only: 群聊 lives in the standalone
 		// 内阁 page (`activeTab: 'groupchat'` pins it there), so the two surfaces no
 		// longer show the same conversation side by side.
-		const PANEL_TABS = ['roster'];
+		const PANEL_TABS = ['roster', 'timeline'];
 		/** One readable text slice of a message's content blocks. */
 		function groupChatText(content) {
 			if (!Array.isArray(content)) return '';
@@ -2834,8 +2843,9 @@ window.__ModuleLoader__.load({
 						if (data.turn !== undefined && data.step !== undefined && delta.turn === data.turn && delta.step === data.step) live.byAttempt.delete(id);
 					}
 					const text = groupChatText(message.content);
-					// Keep empty/tool-only steps until ownership is resolved.
-					push({ kind: 'assistant', time: event.time, seq: event.seq, step: stepKey(data), text, tools: [] });
+					// Keep empty/tool-only steps until ownership is resolved (upstream),
+					// with our taskId carried for the right-rail task projection.
+					push({ kind: 'assistant', time: event.time, seq: event.seq, step: stepKey(data), text, tools: [], taskId: typeof data.taskId === 'string' && data.taskId !== '' ? data.taskId : undefined });
 					continue;
 				}
 				if (type === 'user/message') {
@@ -2846,7 +2856,7 @@ window.__ModuleLoader__.load({
 					// are context input. Empty inputs still break legacy ownership.
 					const source = message.source;
 					const kind = source?.kind === 'user' && 'rpcId' in source ? 'user' : 'input';
-					push({ kind, time: event.time, seq: event.seq, text, tools: [] });
+					push({ kind, time: event.time, seq: event.seq, text, tools: [], taskId: typeof data.taskId === 'string' && data.taskId !== '' ? data.taskId : undefined });
 					continue;
 				}
 				if (type === 'tool/call') {
@@ -3301,7 +3311,7 @@ window.__ModuleLoader__.load({
 		}
 
 		// ---------- leaf pieces ---------------------------------------------
-		function Avatar({ name, size, live }) {
+		function Avatar({ name, size, live, ring }) {
 			const img = h('img', {
 				src: avatarFor(name),
                 onError: event => fallbackAvatar(event.currentTarget, name),
@@ -3320,7 +3330,7 @@ window.__ModuleLoader__.load({
 					borderRadius: '50%',
 					objectFit: 'cover',
 					background: '#f4ead8',
-					boxShadow: '0 0 0 1px rgba(127,127,127,.4)'
+					boxShadow: ring ? '0 0 0 2px ' + ring : '0 0 0 1px rgba(127,127,127,.4)'
 				}
 			});
 			// running members wear the spinning conic ring; idle members stay bare.
@@ -3331,19 +3341,39 @@ window.__ModuleLoader__.load({
 
 		function StatusDot({ status, size = 8 }) {
 			const color = STATUS_COLOR[status] || STATUS_COLOR.inactive;
+			const live = status === 'running';
+			// 运行=实心绿点 8px + cabinetPulse box-shadow 呼吸；空闲=同尺寸空心灰圈。
 			return h('span', {
 				'aria-hidden': 'true',
 				'data-cabinet-status': status,
+				className: live ? 'cabinet-status-live' : undefined,
 				style: {
 					width: size,
 					height: size,
 					flex: 'none',
 					display: 'inline-block',
 					borderRadius: '50%',
-					background: color,
-					animation: status === 'running' ? 'cabinetPulse 1.7s ease-out infinite' : undefined
+					boxSizing: 'border-box',
+					background: live ? color : 'transparent',
+					border: live ? undefined : '1.5px solid ' + color,
+					animation: live ? 'cabinetPulse 1.7s ease-out infinite' : undefined
 				}
 			});
+		}
+
+		// 卡上「此刻在干什么」：只认 in_progress（多个取 updatedAt 最新、并列取数组
+		// 后位），没有就 undefined——completed 的旧任务绝不当「正在干」显示。
+		function activeTaskOf(list) {
+			if (!Array.isArray(list)) return undefined;
+			const active = list.filter((task) => task !== null && task !== undefined && task.status === 'in_progress');
+			if (active.length === 0) return undefined;
+			let best = active[0];
+			for (const task of active) {
+				const taskTime = typeof task.updatedAt === 'number' ? task.updatedAt : -Infinity;
+				const bestTime = typeof best.updatedAt === 'number' ? best.updatedAt : -Infinity;
+				if (taskTime >= bestTime) best = task;
+			}
+			return best;
 		}
 
 		function Chip({ color, children, title, onClick }) {
@@ -3587,100 +3617,252 @@ window.__ModuleLoader__.load({
 		// line one; status dot + state text (+ live dots / model) on line two.
 		// State text carries a theme-aware class so 11px copy clears 3:1 in both
 		// themes; the badge keeps lead's formula with a light-theme dark amber.
-		function MemberCard({ member, running, model, isCurrent, lead, statusLabel, t, size, onOpen, usage, teamUsage, children }) {
+		// 首字母方块：hanlin-bianxiu → HB、gongbu-shangshu-2 → GS2（尾段纯数字附加）。
+		function memberInitials(name) {
+			const parts = String(name || '').split(/[-_\s]+/).filter(Boolean);
+			if (parts.length === 0) return '?';
+			let out = parts.slice(0, 2).map((part) => part[0].toUpperCase()).join('');
+			const tail = parts[parts.length - 1];
+			if (parts.length > 2 && /^\d+$/.test(tail)) out += tail;
+			return out;
+		}
+		// 卡片按 dsh-context 高清截图分5层：方块头像+状态点+粗名 / 任务描述 /
+		// token 数字(不带字样) / 42% 宽分段条 / 时间·N步 + 百分比(>60橙 >80红)。
+		// 卡高固定：阁臣卡只显示当前一个任务（activeTask），不再挂任务列表。
+		// Dispatch owns only its explicitly opened target, not the roster's history.
+		// UI state belongs to this instance; late results cannot mutate another card.
+		function MemberDispatch({ memberId, running, service, t, disabled = false }) {
+			const tt = typeof t === 'function' ? t : key => key;
+			const [open, setOpen] = React.useState(false);
+			const [draft, setDraft] = React.useState('');
+			const [phase, setPhase] = React.useState('closed');
+			const [message, setMessage] = React.useState('');
+			const draftRef = React.useRef('');
+			const state = React.useRef({ id: memberId, generation: 0, pending: false, unknown: false, channel: null });
+			React.useEffect(() => {
+				const current = state.current;
+				const generation = ++current.generation;
+				const changedMember = current.id !== memberId;
+				if (changedMember) {
+					current.id = memberId; current.pending = false; current.unknown = false;
+					draftRef.current = ''; setDraft(''); setMessage(''); setOpen(false);
+				} else if (current.pending) {
+					// Losing a service is not evidence that an already submitted request failed.
+					current.pending = false; current.unknown = true;
+					setMessage(tt('dispatch.unknown'));
+				}
+				current.channel = null;
+				let disposed = false, reference = null, released = false;
+				const release = () => {
+					if (released || !reference) return;
+					released = true;
+					try { reference.release(); } catch (_) { /* disposed host */ }
+				};
+				const valid = () => !disposed && state.current.generation === generation;
+				const cleanup = () => { disposed = true; if (current.generation === generation) current.channel = null; release(); };
+				if (!open || changedMember) { setPhase('closed'); return cleanup; }
+				if (disabled || typeof memberId !== 'string' || !memberId || !service || typeof service.retain !== 'function') {
+					setPhase('unavailable'); setMessage(tt('dispatch.unavailable')); return cleanup;
+				}
+				setPhase('loading');
+				try {
+					reference = service.retain(memberId, { source: 'cabinetDispatch' });
+					if (!reference || typeof reference.release !== 'function' || !reference.ready || typeof reference.ready.then !== 'function') throw new Error('Invalid session reference');
+					Promise.resolve(reference.ready).then(() => {
+						if (!valid()) return;
+						try {
+							const session = reference.binding && reference.binding.session;
+							if (!session || typeof session.prompt !== 'function') throw new Error('Missing prompt channel');
+							current.channel = { session, generation, memberId, service };
+							setPhase(current.unknown ? 'unknown' : 'ready');
+							setMessage(current.unknown ? tt('dispatch.unknown') : '');
+						} catch (_) { setPhase('unavailable'); setMessage(tt('dispatch.unavailable')); release(); }
+					}, () => { if (valid()) { setPhase('unavailable'); setMessage(tt('dispatch.unavailable')); release(); } });
+				} catch (_) { setPhase('unavailable'); setMessage(tt('dispatch.unavailable')); release(); }
+				return cleanup;
+			}, [open, memberId, service, disabled]);
+			const submit = mode => {
+				const current = state.current, channel = current.channel;
+				const text = draftRef.current.trim();
+				if (!open || disabled || current.pending || current.unknown || !text || !channel
+					|| channel.memberId !== memberId || channel.service !== service || (mode !== 'queue' && mode !== 'steer') || (mode === 'steer' && running !== true)) return;
+				// Synchronous lock protects double clicks and Enter before React commits.
+				current.pending = true; setPhase('pending'); setMessage(tt('dispatch.pending'));
+				const finish = result => {
+					if (current.generation !== channel.generation || current.channel !== channel) return;
+					current.pending = false;
+					const code = result && result.error && result.error.code;
+					const unknown = !result || typeof result.ok !== 'boolean' || result.unknown === true
+						|| (result.ok === true && result.value?.accepted !== true)
+						|| (!result.ok && (code === 'gateway/internal' || code === 'gateway/cancelled'));
+					if (unknown) { current.unknown = true; setPhase('unknown'); setMessage(tt('dispatch.unknown')); }
+					else if (result.ok) { draftRef.current = ''; setDraft(''); setPhase('accepted'); setMessage(tt(mode === 'steer' ? 'dispatch.steered' : 'dispatch.queued')); }
+					else { setPhase('rejected'); setMessage(tt('dispatch.rejected')); }
+				};
+				try { Promise.resolve(channel.session.prompt([{ type: 'text', text }], mode)).then(finish, () => finish({ ok: false, unknown: true })); }
+				catch (_) { finish({ ok: false, unknown: true }); }
+			};
+			const ready = open && state.current.channel !== null && !disabled;
+			const locked = phase === 'pending' || phase === 'unknown';
+			const eligible = !disabled && typeof memberId === 'string' && memberId !== '' && service && typeof service.retain === 'function';
+			return h('div', { 'data-cabinet-dispatch': memberId, onClick: stopPropagation, onKeyDown: stopPropagation, style: { marginTop: 4, fontSize: 11 } }, [
+				h('button', { key: 'toggle', type: 'button', 'data-cabinet-dispatch-open': '1', 'aria-expanded': open, disabled: phase === 'pending' || (!open && !eligible), onClick: () => { if (!state.current.pending) setOpen(value => !value); } }, tt(open ? 'dispatch.close' : 'dispatch.open')),
+				h('span', { key: 'status', role: 'status', 'data-cabinet-dispatch-status': '1', 'data-cabinet-dispatch-phase': phase }, message),
+				open ? h('div', { key: 'editor' }, [
+					h('input', { key: 'input', 'data-cabinet-dispatch-input': '1', 'aria-label': tt('dispatch.placeholder'), value: draft, disabled: locked,
+						onChange: event => { if (state.current.pending || state.current.unknown) return; draftRef.current = event.target.value; setDraft(event.target.value); },
+						onKeyDown: event => { if (event.key === 'Enter' && !event.repeat && !event.isComposing && !event.nativeEvent?.isComposing && event.keyCode !== 229) { event.preventDefault(); submit('queue'); } } }),
+					h('button', { key: 'send', type: 'button', 'data-cabinet-dispatch-send': '1', disabled: !ready || locked || !draft.trim(), onClick: () => submit('queue') }, tt('dispatch.send')),
+					running === true ? h('button', { key: 'steer', type: 'button', 'data-cabinet-dispatch-interrupt': '1', disabled: !ready || locked || !draft.trim(), onClick: () => submit('steer') }, tt('dispatch.interrupt')) : null,
+					phase === 'unknown' ? h('button', { key: 'confirm', type: 'button', 'data-cabinet-dispatch-confirm': '1', onClick: () => { if (!state.current.pending) { state.current.unknown = false; setPhase('ready'); setMessage(''); } } }, tt('dispatch.confirm')) : null
+				]) : null
+			]);
+		}
+
+		function MemberCard({ member, running, model, isCurrent, lead, statusLabel, t, size, onOpen, usage, teamUsage, familyColor, activity, activeTask, dispatchService, children }) {
 			const tt = typeof t === 'function' ? t : (key) => key;
-			const status = member.phase === 'active' ? (running ? 'running' : 'inactive') : member.phase;
-			// Availability mirrors the native roster row (agent-team TeamMemberRow):
-			// the session you are already viewing, and failed/provisioning members,
-			// are inert — no click, no pointer cursor. Opening also needs a real
-			// session id, which is what member.id is (sessionIdSchema).
+			// Card activity follows the real process. The task marker independently
+			// indicates task bookkeeping, which may remain in_progress while idle.
+			const taskLive = activeTask !== null && activeTask !== undefined && activeTask.status === 'in_progress';
+			const animating = member.phase === 'active' && running === true;
+			const status = member.phase === 'active' ? (running === true ? 'running' : 'inactive') : member.phase;
 			const canOpen = typeof onOpen === 'function'
 				&& isCurrent !== true
 				&& member.phase !== 'failed'
 				&& member.phase !== 'provisioning'
 				&& typeof member.id === 'string' && member.id !== '';
-			// The whole card is a click target now, not just the who row: one click
-			// anywhere on a member card enters that member's child session. `canOpen`
-			// keeps its exemptions untouched; the who row and the card's own task
-			// lines stop propagation so a nested target opens only once.
+			const hasHue = typeof familyColor === 'string' && familyColor !== '';
+			const tint = hasHue && familyColor.indexOf('hsl(') === 0 ? familyColor.replace(')', ' / 0.08)') : undefined;
+			// 百分比配色：>80 红、>60 橙、其余绿（截图 gongbu-shangshu-7 的 80.2% 橙系）。
+			const pctValue = typeof usage === 'object' && usage !== null && typeof usage.context === 'object' && usage.context !== null && usage.context.percent !== undefined ? usage.context.percent : undefined;
+			// 红阈值 >85：截图 gongbu-shangshu-7 的 80.2% 是橙色（用户视觉为准）。
+			const pctColor = pctValue === undefined ? INK2 : (pctValue > 85 ? '#ef4444' : (pctValue > 60 ? '#f59e0b' : '#22c55e'));
 			return h('div', {
 				className: (lead ? 'cabinet-card cabinet-card-lead' : 'cabinet-card') + (canOpen ? ' cabinet-card-clickable' : ''),
 				onClick: canOpen ? () => onOpen(member) : undefined,
-				style: { position: 'relative', zIndex: 1, cursor: canOpen ? 'pointer' : undefined }
+				// 「在动」的卡挂走马灯裁窗标记：外发光与 overflow 裁剪冲突，留流光去外发光。
+				'data-cabinet-sweep': animating ? '1' : undefined,
+				style: {
+					position: 'relative', zIndex: 1, cursor: canOpen ? 'pointer' : undefined,
+					// 只有「在动」的卡才开裁窗（空闲卡不 overflow，不给可点击面加负担）。
+					overflow: animating ? 'hidden' : undefined,
+					// 家族色交给 CSS 变量，conic 不写死颜色。
+					'--cab-live-hue': animating && hasHue ? familyColor : undefined,
+					borderColor: !lead && hasHue ? familyColor : undefined,
+					backgroundImage: !lead && tint ? 'linear-gradient(' + tint + ',' + tint + ')' : undefined
+				}
 			}, [
+				// 行1：圆角方块头像(家族色细边框) + 状态点 + 粗体名 + 主控标签 + 右贴「当前」。
 				h(canOpen ? 'button' : 'div', {
 					type: canOpen ? 'button' : undefined,
 					key: 'who',
-					// Same opener as the card, so the who row stops the click instead
-					// of letting the card forward it a second time.
 					onClick: canOpen ? (event) => { stopPropagation(event); return onOpen(member); } : undefined,
-					style: { font: 'inherit', textAlign: 'left', padding: 0, border: 0, background: 'transparent', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', minWidth: 0, cursor: canOpen ? 'pointer' : undefined }
+					style: { font: 'inherit', textAlign: 'left', padding: 0, border: 0, background: 'transparent', display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, cursor: canOpen ? 'pointer' : undefined }
 				}, [
-					h(Avatar, { key: 'avatar', name: member.name, size: size || 22, live: status === 'running' }),
+					h('span', {
+						key: 'avatar',
+						'data-cabinet-avatar-block': memberInitials(member.name),
+						title: memberLabel(member.name),
+						style: {
+							width: 34, height: 34, borderRadius: 9, boxSizing: 'border-box',
+							border: '1.5px solid ' + (hasHue ? familyColor : 'rgba(127,127,127,.45)'),
+							background: 'rgba(127,127,127,.12)', color: INK, fontSize: 11, fontWeight: 600,
+							display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none',
+							letterSpacing: '.02em', overflow: 'hidden'
+						}
+					}, memberInitials(member.name)),
+					h(StatusDot, { key: 'dot', status, size: 8 }),
 					h('span', {
 						key: 'n',
 						title: memberLabel(member.name),
-						style: { fontSize: 13, fontWeight: 600, color: INK, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }
+						style: { fontSize: 14, fontWeight: 600, color: INK, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: '1 1 auto' }
 					}, memberLabel(member.name)),
 					lead ? h('span', { key: 'lead', className: 'cabinet-badge-lead' }, tt('lead.tag')) : null,
-					isCurrent ? h(Tag, { key: 'cur', background: 'rgba(127,127,127,.2)', color: INK2 }, tt('current')) : null
+					isCurrent ? h('span', {
+						key: 'cur',
+						style: { marginLeft: 'auto', flex: 'none', fontSize: 10, padding: '1px 6px', borderRadius: 6, border: '1px dashed rgba(127,127,127,.7)', color: INK2, whiteSpace: 'nowrap' }
+					}, tt('current')) : null
 				]),
+				// Agent status and task status are independent; a stale task never implies a running agent.
+				h('span', { key: 'state', 'data-cabinet-member-status': status, style: { fontSize: 11, color: INK2 } }, typeof statusLabel === 'function' ? statusLabel(status) : status),
 				h('div', {
-					key: 'state',
-					style: { display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', minWidth: 0 }
-				}, [
-					h(StatusDot, { key: 'dot', status }),
-					h('span', { key: 'st', className: 'cabinet-status-' + status, style: { fontSize: 11, flex: 'none' } }, statusLabel(status)),
-					status === 'running' ? h('span', {
-						key: 'dots',
-						className: 'cabinet-dots cabinet-status-' + status,
-						'aria-hidden': 'true',
-						style: { flex: 'none' }
-					}, [h('i', { key: 0 }), h('i', { key: 1 }), h('i', { key: 2 })]) : null,
-					model ? h('span', {
-						key: 'model',
-						style: { fontSize: 11, color: INK2, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }
-					}, model) : null,
-					member.error ? h('span', {
-						key: 'err',
-						style: { fontSize: 11, color: '#f25a5a', width: '100%', wordBreak: 'break-all' }
-					}, member.error) : null
-				]),
-				// Usage line: token total, elapsed time and the context-pressure bar,
-				// all from DSH session projections. A missing projection prints the em
-				// dash instead of collapsing the card, and the lead card adds the team
-				// total summed over its members.
+					key: 'taskdesc',
+					'data-cabinet-task-desc': '1',
+					...(activeTask && typeof activeTask.id === 'string' ? { 'data-cabinet-task': activeTask.id } : {}),
+					title: activeTask && typeof activeTask.subject === 'string' ? activeTask.subject : undefined,
+					style: { fontSize: 13, color: activeTask ? INK2 : INK3, marginTop: 6, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }
+				}, activeTask && typeof activeTask.subject === 'string' && activeTask.subject !== ''
+					? [h('span', {
+						key: 'mark',
+						className: 'cabinet-task-mark',
+						style: {
+							color: hasHue ? familyColor : '#22c55e',
+							marginRight: 4,
+							// 任务在跑时 ● 带光晕呼吸，与状态点同 keyframes。
+							animation: taskLive ? 'cabinetPulse 1.7s ease-out infinite' : undefined
+						}
+					}, '\u25cf'), activeTask.subject]
+					: '无进行中任务'),
+				// 故障必须可见：member.error 整行红字（模型行已按截图移除）。
+				member.error ? h('div', {
+					key: 'err',
+					style: { fontSize: 11, color: '#f25a5a', marginTop: 4, wordBreak: 'break-all' }
+				}, member.error) : null,
+				// 行3-5：token 数字(不带字样) + 42% 分段条 + 时间·N步与百分比。
 				usage ? h('div', {
 					key: 'usage',
 					className: 'cabinet-usage',
-					style: { display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', minWidth: 0, fontSize: 10, color: INK2 }
+					style: { display: 'flex', flexDirection: 'column', gap: 5, minWidth: 0, marginTop: 6 }
 				}, [
-					h('span', { key: 'tok', style: { flex: 'none' }, title: tt('usage.tokens') },
-						tt('usage.tokens') + ' ' + (formatTokenCount(usage.tokens) ?? tt('usage.none'))),
-					h('span', { key: 'el', style: { flex: 'none' }, title: tt('usage.elapsed') },
-						tt('usage.elapsed') + ' ' + (formatElapsed(usage.elapsedMs) ?? tt('usage.none'))),
-					usage.context ? h('span', {
-						key: 'ctx',
-						title: usage.context.percent !== undefined ? tt('usage.context') + ' ' + usage.context.percent + '%' : tt('usage.context'),
-						style: { display: 'inline-flex', alignItems: 'center', gap: 4, flex: 'none' }
+					h('div', {
+						key: 'line',
+						style: { display: 'flex', alignItems: 'baseline', gap: 8, minWidth: 0 }
 					}, [
-						usage.context.percent !== undefined ? h('span', {
-							key: 'bar',
+						h('span', {
+							key: 'tok',
+							style: { fontSize: 14.5, fontWeight: 600, color: INK, flex: 'none' },
+							title: tt('usage.tokens')
+						}, formatTokenCount(usage.tokens) ?? tt('usage.none')),
+						teamUsage ? h('span', {
+							key: 'team',
+							style: { fontSize: 10.5, color: INK3, marginLeft: 'auto', flex: 'none' },
+							title: tt('usage.team')
+						}, tt('usage.team') + ' ' + (formatTokenCount(teamUsage.tokens) ?? tt('usage.none'))) : null
+					]),
+					typeof usage.context === 'object' && usage.context !== null && usage.context.percent !== undefined
+						? h('div', {
+							key: 'meter',
+							'data-cabinet-meter': '1',
 							className: 'cabinet-ctxbar',
-							'aria-hidden': 'true'
+							'aria-hidden': 'true',
+							// 分段条左对齐、约42% 卡宽（inline 覆盖 CSS 的 width:100%）。
+							style: { width: '42%' },
+							title: tt('usage.context') + ' ' + usage.context.percent + '%'
 						}, usage.context.segments.map((segment) => h('i', {
 							key: segment.key,
 							className: 'cabinet-ctxbar-' + segment.key,
 							style: { width: Math.max(0, Math.min(100, segment.ratio * 100)) + '%' }
 						}))) : null,
-						h('span', { key: 'pct' }, usage.context.percent !== undefined
-							? usage.context.percent + '%'
-							: (formatTokenCount(usage.context.projectedTokens) ?? tt('usage.none')))
-					]) : null,
-					teamUsage ? h('span', { key: 'team', style: { flex: 'none' }, title: tt('usage.team') },
-						tt('usage.team') + ' ' + (formatTokenCount(teamUsage.tokens) ?? tt('usage.none'))) : null
+					activity || usage.context
+						? h('div', {
+							key: 'foot',
+							style: { display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, fontSize: 11.5 }
+						}, [
+							h('span', {
+								key: 'time',
+								style: { color: INK2, flex: 'none', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+								title: tt('usage.elapsed')
+							}, (formatElapsed(usage.elapsedMs) ?? tt('usage.none'))
+								+ (activity && typeof activity.count === 'number' && activity.count > 0 ? ' \u00b7 ' + activity.count + ' 条记录' : '')),
+							h('span', { key: 'pct', style: { color: pctColor, fontWeight: 600, marginLeft: 'auto', flex: 'none' } },
+								pctValue !== undefined
+									? pctValue + '%'
+									: (formatTokenCount(usage.context && usage.context.projectedTokens) ?? tt('usage.none')))
+						]) : null
 				]) : null,
-				// the member's own task list hangs inside the card (品字形 layout)
+				activity && activity.known === false ? h('span', { key: 'activity-unknown', 'data-cabinet-activity-state': 'unknown', title: '名册未订阅消息历史，活动记录数未知', style: { fontSize: 11, color: INK3 } }, '活动 —') : null,
+				h(MemberDispatch, { key: 'dispatch:' + member.id, memberId: member.id, running, service: dispatchService, t: tt, disabled: member.phase === 'failed' || member.phase === 'provisioning' }),
+				// Collapsed task details remain independent from dispatch.
 				children
 			]);
 		}
@@ -3701,8 +3883,11 @@ window.__ModuleLoader__.load({
 			return value.filter((scope) => typeof scope === 'string' && scope.trim() !== '');
 		}
 
-		function TaskLine({ task, blockerOf, t, taskLabel, ownerRunning, onOpenOwner }) {
+		function TaskLine({ task, blockerOf, t, taskLabel, ownerRunning, onOpenOwner, expanded }) {
 			const [openBlockers, setOpenBlockers] = React.useState(true);
+			const [sheetOpenRaw, setSheetOpen] = React.useState(false);
+			// 任务书默认折叠成一行；expanded 供测试/受控场景直接指定展开态。
+			const sheetOpen = typeof expanded === 'boolean' ? expanded : sheetOpenRaw;
 			const status = TASK_COLOR[task.status] ? task.status : 'pending';
 			const color = TASK_COLOR[status];
 			const blockers = Array.isArray(task.blockedBy) ? [...new Set(task.blockedBy.filter((id) => typeof id === 'string' && id !== task.id))] : [];
@@ -3747,28 +3932,38 @@ window.__ModuleLoader__.load({
 			const description = taskDescriptionText(task.description);
 			const writeScopes = taskWriteScopeList(task.writeScopes);
 			const sheetStyle = { display: 'flex', alignItems: 'baseline', gap: 4, flexWrap: 'wrap', width: '100%', paddingLeft: 14, fontSize: 11, color: INK2, minWidth: 0 };
+			// 默认一行（~24px 单行、超长省略）：点行空白切换任务书；点标题/Owner
+			// 仍走各自的下钻 opener（它们 stopPropagation，不冒到行）。任务书两行
+			// 默认不渲染（不是隐藏占位），展开才出现；受控 expanded 时点击不切换。
+			parts.push(h('button', { key: 'sheet-toggle', type: 'button', 'data-cabinet-task-sheet-toggle': task.id, 'aria-expanded': sheetOpen, 'aria-label': t('task.description'), onClick: (event) => { stopPropagation(event); if (typeof expanded !== 'boolean') setSheetOpen(value => !value); }, style: { marginLeft: 'auto', border: 0, background: 'transparent', color: INK2, cursor: 'pointer', font: 'inherit' } }, sheetOpen ? '▾' : '▸'));
 			const children = [h('div', {
 				key: 'line',
-				style: { display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', minWidth: 0, width: '100%' }
-			}, parts),
-			h('div', { key: 'sheet', style: sheetStyle }, [
-				h('span', { key: 'dl', style: { flex: 'none' } }, t('task.description')),
-				h('span', {
-					key: 'dv',
-					'data-cabinet-task-sheet': 'description',
-					title: description !== '' ? task.description.trim() : undefined,
-					style: { minWidth: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }
-				}, description !== '' ? description : t('task.absent'))
-			]),
-			h('div', { key: 'scopes', style: sheetStyle }, [
-				h('span', { key: 'sl', style: { flex: 'none' } }, t('task.writeScopes')),
-				h('span', {
-					key: 'sv',
-					'data-cabinet-task-sheet': 'writeScopes',
-					title: writeScopes.length > 0 ? writeScopes.join(', ') : undefined,
-					style: { minWidth: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }
-				}, writeScopes.length > 0 ? writeScopes.join(', ') : t('task.absent'))
-			])];
+				'data-cabinet-task-row': '1',
+				onClick: (event) => { stopPropagation(event); if (typeof expanded !== 'boolean') setSheetOpen((value) => !value); },
+				style: { display: 'flex', alignItems: 'center', gap: 6, height: 24, minWidth: 0, width: '100%', overflow: 'hidden', whiteSpace: 'nowrap', cursor: 'pointer' }
+			}, parts)];
+			if (sheetOpen) {
+				children.push(
+					h('div', { key: 'sheet', style: sheetStyle, onClick: (event) => stopPropagation(event) }, [
+						h('span', { key: 'dl', style: { flex: 'none' } }, t('task.description')),
+						h('span', {
+							key: 'dv',
+							'data-cabinet-task-sheet': 'description',
+							title: description !== '' ? task.description.trim() : undefined,
+							style: { minWidth: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }
+						}, description !== '' ? description : t('task.absent'))
+					]),
+					h('div', { key: 'scopes', style: sheetStyle, onClick: (event) => stopPropagation(event) }, [
+						h('span', { key: 'sl', style: { flex: 'none' } }, t('task.writeScopes')),
+						h('span', {
+							key: 'sv',
+							'data-cabinet-task-sheet': 'writeScopes',
+							title: writeScopes.length > 0 ? writeScopes.join(', ') : undefined,
+							style: { minWidth: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }
+						}, writeScopes.length > 0 ? writeScopes.join(', ') : t('task.absent'))
+					])
+				);
+			}
 			if (blockers.length > 0) {
 				children.push(h('div', {
 					key: 'block',
@@ -3862,94 +4057,55 @@ window.__ModuleLoader__.load({
 		// line ever crosses a card. Returns null while the panel is hidden
 		// (zero-size rects) so a collapsed pane keeps no stale drawing.
 		function buildConnectorPaths(base, lead, nodes, channelX) {
-			if (!base || !lead || base.width === 0 || base.height === 0 || lead.width === 0) return null;
-			const live = nodes.filter((node) => node.width > 0 && node.height > 0);
-			if (live.length === 0) return [];
-			const channel = typeof channelX === 'number' ? channelX : -8;
-			const cards = live.map((rect) => {
-				const left = rect.left - base.left;
-				const top = rect.top - base.top;
-				return { left, top, right: left + rect.width, bottom: top + rect.height, cx: left + rect.width / 2 };
-			});
-			const ax = lead.left + lead.width / 2 - base.left;
-			const ay = lead.top + lead.height - base.top;
-
-			// Cluster cards into grid rows by their top edge (8px tolerance); the
-			// auto-fill grid is row-major, so DOM order already walks rows.
-			const rowTops = [];
-			const rows = [];
-			for (const card of cards) {
-				let index = rowTops.findIndex((top) => Math.abs(top - card.top) <= 8);
-				if (index === -1) {
-					rowTops.push(card.top);
-					rows.push([]);
-					index = rows.length - 1;
-				}
-				rows[index].push(card);
+			// 弧线版（dsh-context 截图）：每条线从来源卡底部中点出发，先走 14px
+			// 竖直小段，再以三次贝塞尔 S 形弯到目标卡顶部中点；控制点分居两侧、
+			// 弧度明显。拓扑：所有层均从首辅出发；后层经外侧通道，
+			// 不将视觉换行伪装成成员父子关系。线色跟随目标卡（path.color），无箭头。
+			if (!base || typeof base !== 'object' || !lead || typeof lead !== 'object') return null;
+			// 隐藏面板：返回 null 让调用方保留上次绘制（旧版语义）。
+			if (base.width === 0 || base.height === 0 || lead.width === 0) return null;
+			if (!Array.isArray(nodes)) return null;
+			if (nodes.length === 0) return [];
+			// 视口坐标 → 容器内坐标：svg 挂在 roster 容器 (0,0)，聚类与绘制必须用
+			// 同一套局部坐标（漏减 base 会把线整体画到容器外——3e2bd67 的 bug）。
+			const toLocal = (rect) => ({ left: rect.left - base.left, top: rect.top - base.top, width: rect.width, height: rect.height, color: rect.color });
+			const leadLocal = toLocal(lead);
+			const valid = nodes.filter((node) => node && isFinite(node.left) && isFinite(node.top) && isFinite(node.width) && isFinite(node.height) && node.width > 0 && node.height > 0).map(toLocal);
+			if (valid.length === 0) return [];
+			// 按 top 聚类成层（8px 容差，与旧 bus 同规则）。
+			const sorted = valid.slice().sort((a, b) => (a.top - b.top) || (a.left - b.left));
+			const layers = [];
+			for (const node of sorted) {
+				const last = layers[layers.length - 1];
+				if (last && Math.abs(node.top - last.top) <= 8) last.cards.push(node);
+				else layers.push({ top: node.top, cards: [node] });
 			}
-			const info = rows.map((row, index) => {
-				const sorted = row.slice().sort((a, b) => a.cx - b.cx);
-				const top = Math.min.apply(null, row.map((card) => card.top));
-				// Row bus sits 8px above the cards. Row 0 additionally keeps the bus
-				// below the lead card's bottom edge (never through it) and above the
-				// cards (never inside them); the midpoint handles a squeezed gap.
-				let busY = top - 8;
-				if (index === 0 && busY < ay + 2) busY = Math.min(top - 2, Math.max(ay + 2, (ay + top) / 2));
-				return { cards: sorted, busY, left: sorted[0].cx, right: sorted[sorted.length - 1].cx };
-			});
-
-			const hits = (x1, y1, x2, y2) => {
-				const loX = Math.min(x1, x2);
-				const hiX = Math.max(x1, x2);
-				const loY = Math.min(y1, y2);
-				const hiY = Math.max(y1, y2);
-				return cards.some((r) => hiX > r.left && loX < r.right && hiY > r.top && loY < r.bottom);
-			};
-			const maxRight = Math.max.apply(null, cards.map((r) => r.right));
-			const minLeft = Math.min.apply(null, cards.map((r) => r.left));
-
 			const paths = [];
-			const first = info[0];
-			// lead → row 0 bus; horizontal join first when the axis is off-span.
-			paths.push('M ' + ax + ' ' + ay + ' L ' + ax + ' ' + first.busY);
-			if (ax < first.left - 0.5) paths.push('M ' + ax + ' ' + first.busY + ' L ' + first.left + ' ' + first.busY);
-			else if (ax > first.right + 0.5) paths.push('M ' + ax + ' ' + first.busY + ' L ' + first.right + ' ' + first.busY);
-
-			for (let index = 0; index < info.length; index++) {
-				const row = info[index];
-				// (1) this row's bus + (2) one stub per card down to its top centre.
-				if (row.right - row.left > 0.5) paths.push('M ' + row.left + ' ' + row.busY + ' L ' + row.right + ' ' + row.busY);
-				for (const card of row.cards) paths.push('M ' + card.cx + ' ' + row.busY + ' L ' + card.cx + ' ' + card.top);
-				if (index === 0) continue;
-
-				// (4) row N → row N-1: a polyline off the row bus's END. Candidates run
-				// right side first, then left (lead's order), with clear air beyond the
-				// cards and the margin channel last; the first whose segments clear
-				// every card rect wins.
-				const prev = info[index - 1];
-				const candidates = [
-					row.right, prev.right, maxRight + 10,
-					row.left, prev.left, minLeft - 10,
-					channel
-				];
-				const plan = (side) => {
-					const segs = [[side, row.busY, side, prev.busY]];
-					if (side > row.right + 0.5) segs.push([row.right, row.busY, side, row.busY]);
-					else if (side < row.left - 0.5) segs.push([row.left, row.busY, side, row.busY]);
-					if (side > prev.right + 0.5) segs.push([side, prev.busY, prev.right, prev.busY]);
-					else if (side < prev.left - 0.5) segs.push([side, prev.busY, prev.left, prev.busY]);
-					return segs;
-				};
-				let chosen = null;
-				for (const candidate of candidates) {
-					const segs = plan(candidate);
-					if (segs.every((s) => !hits(s[0], s[1], s[2], s[3]))) {
-						chosen = segs;
-						break;
-					}
+			const fan = (from, targets) => {
+				const stub = 14;
+				const y1 = from.y + stub;
+				for (const target of targets) {
+					const cx = target.left + target.width / 2;
+					const top = target.top;
+					const bow = Math.max(24, (top - y1) * 0.6);
+					const d = 'M ' + from.x + ' ' + from.y + ' L ' + from.x + ' ' + y1
+						+ ' C ' + from.x + ' ' + (y1 + bow) + ', ' + cx + ' ' + (top - bow) + ', ' + cx + ' ' + top;
+					paths.push({ d, color: typeof target.color === 'string' ? target.color : '' });
 				}
-				if (chosen === null) chosen = plan(channel); // margin channel never hits (x < every card)
-				for (const s of chosen) paths.push('M ' + s[0] + ' ' + s[1] + ' L ' + s[2] + ' ' + s[3]);
+			};
+			fan({ x: leadLocal.left + leadLocal.width / 2, y: leadLocal.top + leadLocal.height }, layers[0].cards);
+			// Later visual rows remain siblings. Route from the lead through an outside
+			// gutter, never from a geometrically convenient (but unrelated) member.
+			const ax = leadLocal.left + leadLocal.width / 2;
+			const ay = leadLocal.top + leadLocal.height;
+			const gutter = Math.min(typeof channelX === 'number' ? channelX : -8, ...valid.map(node => node.left - 8));
+			for (const layer of layers.slice(1)) for (const target of layer.cards) {
+				const cx = target.left + target.width / 2;
+				const y = target.top - 16;
+				paths.push({ d: 'M ' + ax + ' ' + ay + ' L ' + ax + ' ' + (ay + 14)
+					+ ' L ' + gutter + ' ' + (ay + 14) + ' L ' + gutter + ' ' + y
+					+ ' C ' + gutter + ' ' + y + ', ' + cx + ' ' + y + ', ' + cx + ' ' + target.top,
+					color: typeof target.color === 'string' ? target.color : '' });
 			}
 			return paths;
 		}
@@ -4196,7 +4352,7 @@ window.__ModuleLoader__.load({
 				);
 			});
 			React.useEffect(() => {
-				if (activeTab !== 'groupchat') return undefined;
+				if (activeTab !== 'groupchat' && activeTab !== 'timeline') return undefined;
 				const abort = new AbortController();
 				let disposed = false;
 				const bump = () => { if (!disposed) setRevision((revision) => revision + 1); };
@@ -4302,7 +4458,7 @@ window.__ModuleLoader__.load({
 			// waiting for an event that will never come. The flag makes this dep
 			// change exactly once per mount.
 			const refilledRef = React.useRef(false);
-			const refilled = activeTab === 'groupchat'
+			const refilled = (activeTab === 'groupchat' || activeTab === 'timeline')
 				&& members.some((member) => member && typeof member.id === 'string' && state.records.has(member.id) && state.views.get(member.id) === undefined)
 				&& !refilledRef.current;
 			React.useEffect(() => {
@@ -4782,7 +4938,7 @@ window.__ModuleLoader__.load({
 				line
 			]);
 		}
-		function CabinetPanel({ sessionId, parentSessionIdHint, useSession, useSessions, useSessionStatus, t, activeTab: activeTabProp, hideTabs, focusSessionId, onGroupSnapshot }) {
+		function CabinetPanel({ sessionId, parentSessionIdHint, useSession, useSessions, useSessionStatus, t, activeTab: activeTabProp, hideTabs, focusSessionId, onGroupSnapshot, onTabChange }) {
 			// Panel view tabs: 群聊 (merged member messages) and the roster view.
 			// Hooks must run before any early return — an effect that is skipped
 			// on one render and run on the next would desynchronise the retain/
@@ -4841,16 +4997,21 @@ window.__ModuleLoader__.load({
 				if (!tree || !leadEl) return;
 				const base = tree.getBoundingClientRect();
 				const leadRect = leadEl.getBoundingClientRect();
-				const nodes = Array.from(tree.querySelectorAll('[data-cabinet-node]')).map((el) => el.getBoundingClientRect());
+				const nodes = Array.from(tree.querySelectorAll('[data-cabinet-node]')).map((el) => {
+					const rect = el.getBoundingClientRect();
+					const color = typeof el.getAttribute === 'function' ? (el.getAttribute('data-cabinet-family') || '') : '';
+					return { left: rect.left, top: rect.top, width: rect.width, height: rect.height, color };
+				});
 				const paths = buildConnectorPaths(base, leadRect, nodes, -8);
 				if (paths === null) return; // hidden pane: keep the last drawing, redraw on wake
-				setLinkPaths((prev) => (prev.join(' ') === paths.join(' ') ? prev : paths));
+				setLinkPaths((prev) => (JSON.stringify(prev) === JSON.stringify(paths) ? prev : paths));
 				// Dependency edges: endpoints are the two task-row rects
 				// (data-cabinet-task anchors) in overlay coordinates; a row that is
 				// not rendered (or a task removed from the board) drops its edge.
 				const rectById = new Map();
 				for (const row of tree.querySelectorAll('[data-cabinet-task]')) {
-					rectById.set(row.getAttribute('data-cabinet-task'), row.getBoundingClientRect());
+					const rect = row.getBoundingClientRect();
+					if (rect.width > 0 && rect.height > 0) rectById.set(row.getAttribute('data-cabinet-task'), rect);
 				}
 				const cards = Array.from(tree.querySelectorAll('.cabinet-card'), (card) => {
 					const rect = card.getBoundingClientRect();
@@ -4899,7 +5060,7 @@ window.__ModuleLoader__.load({
 				let mo = null;
 				if (typeof MutationObserver !== 'undefined') {
 					mo = new MutationObserver(schedule);
-					mo.observe(tree, { childList: true, subtree: true, characterData: true });
+					mo.observe(tree, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['open'] });
 				}
 				window.addEventListener('resize', schedule);
 				// The panel is the scroll container; scroll does not change relative
@@ -5006,7 +5167,7 @@ window.__ModuleLoader__.load({
 			// The 5s usage tick also folds the newest event window while the tab is
 			// open, so a settled message lands without waiting for the next frame.
 			React.useEffect(() => {
-				if (activeTab !== 'groupchat' || !groupService) return undefined;
+				if ((activeTab !== 'groupchat' && activeTab !== 'timeline') || !groupService) return undefined;
 				const timer = setInterval(() => group.forceSync(), PROJECTION_REFRESH_MS);
 				return () => clearInterval(timer);
 			}, [activeTab, groupService]);
@@ -5205,10 +5366,11 @@ window.__ModuleLoader__.load({
 				role: 'tab',
 				'aria-selected': activeTab === id,
 				'data-cabinet-panel-tab': id,
+				'data-cabinet-rail-tab': id,
 				'data-cabinet-panel-active': activeTab === id ? '1' : '0',
 				style: { fontSize: 11, cursor: 'pointer', padding: '3px 8px', borderRadius: 6, border: '1px solid var(--dsw-alias-border-l3, rgba(127,127,127,.4))', background: activeTab === id ? 'rgba(79,140,255,.16)' : 'transparent', color: activeTab === id ? INK : INK2 },
-				onClick: () => setActiveTab(id)
-			}, tt('panel.tab.' + id)))));
+				onClick: () => { setActiveTab(id); if (typeof onTabChange === 'function') onTabChange(id); }
+			}, id === 'timeline' ? '时间线' : tt('panel.tab.' + id)))));
 			// ---- click-to-open a member's child session (optional channel) ----
 			// cabinetOpenSession is filled by ctx.inject(['uiWorkspace']) in apply()
 			// and stays null when the service is missing — the helpers below then
@@ -5490,6 +5652,147 @@ window.__ModuleLoader__.load({
 				return h('div', { ref: panelRef, style: PANEL }, body);
 			}
 
+			// ---- 泳道时间线（右栏第二视图，MVP）----
+			// 数据 = 群聊那份折叠行（groupRows：每行带 time/seq/kind 与 member 归属），
+			// 不新建 RPC、不新订阅；事件 = 带真实时间戳的行（error/pending 行 time 为 0，
+			// 不算事件，对应成员落进「安静泳道」折叠）。右栏 <420px 时横向滚动。
+			if (activeTab === 'timeline') {
+				const authorOf = (row) => (row !== null && row !== undefined && row.member !== null && row.member !== undefined && typeof row.member.id === 'string' && row.member.id !== '' ? row.member.id : (typeof row.memberName === 'string' ? row.memberName : ''));
+				const lanes = chatMembers.filter((member) => member !== null && member !== undefined && typeof member.id === 'string' && member.id !== '');
+				const eventsOf = (member) => groupRows.filter((row) => authorOf(row) === member.id && typeof row.time === 'number' && row.time > 0);
+				const timed = groupRows.filter((row) => row.kind !== 'error' && typeof row.time === 'number' && row.time > 0);
+				const unresolved = lanes.map(member => ({ member, view: group.views(member.id) })).filter(({view}) => view.error !== null || view.fold === null);
+				const minTime = timed.reduce((min, row) => Math.min(min, row.time), Infinity);
+				const maxTime = timed.reduce((max, row) => Math.max(max, row.time), -Infinity);
+				const span = maxTime - minTime;
+				// 线性映射 [最早, 最新] → [2%, 98%]：首尾方块不被容器裁掉。
+				const percentOf = (time) => (span > 0 ? 2 + ((time - minTime) / span) * 96 : 50);
+				// 家族色：黄金角散列，与宿主编队同式 hsl(round(i*137.508)%360 58% 52%)。
+				const hueOf = (index) => 'hsl(' + (Math.round(index * 137.508) % 360) + ' 58% 52%)';
+				// 无事件的成员不画泳道（本步不做静默折叠，留后续）。
+				const laneNodes = lanes.filter((member) => eventsOf(member).length > 0).map((member) => {
+					const laneIndex = lanes.findIndex((candidate) => candidate !== null && candidate !== undefined && candidate.id === member.id);
+					const rows = eventsOf(member);
+					const hue = hueOf(laneIndex);
+					// 左块第二行数据：模型/Token 来自会话投影（无投影不显示），任务数
+					// 与事件数是真实计数——缺的不编。
+					const model = modelOf(member.id);
+					const usage = usageOfMember(member);
+					const taskCount = tasks.filter((task) => task !== null && task !== undefined && task.ownerName === (member.name || member.id)).length;
+					const canOpen = typeof openMemberSession === 'function' && openableMember(member);
+					return h('div', {
+						key: member.id,
+						'data-cabinet-timeline-lane': member.id,
+						// 行高 48 + 1px 分隔线：对齐截图密度。
+						style: { display: 'flex', alignItems: 'stretch', height: 48, borderBottom: '1px solid rgba(127,127,127,.18)' }
+					}, [
+						// 左块（固定 144px）：行1 头像(家族色环)+粗体名+↗；行2 模型/token/任务·事件。
+						h('div', {
+							key: 'head',
+							'data-cabinet-timeline-lane-head': '1',
+							style: { width: 144, flex: 'none', minWidth: 0, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 2, padding: '4px 6px 4px 2px', boxSizing: 'border-box', borderRight: '1px solid rgba(127,127,127,.10)' }
+						}, [
+							h('div', {
+								key: 'r1',
+								style: { display: 'flex', alignItems: 'center', gap: 5, minWidth: 0 }
+							}, [
+								h(Avatar, { key: 'a', name: member.name || member.id, size: 18, live: member.phase === 'running', ring: hue }),
+								h('span', {
+									key: 'n',
+									title: memberLabel(member.name || member.id),
+									style: { fontSize: 12, fontWeight: 600, color: INK, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: '1 1 auto' }
+								}, memberLabel(member.name || member.id)),
+								canOpen ? h('button', {
+									key: 'open',
+									type: 'button',
+									'data-cabinet-timeline-lane-open': member.id,
+									title: '打开该成员会话',
+									onClick: (event) => { stopPropagation(event); return openMemberSession(member); },
+									style: { font: 'inherit', fontSize: 11, lineHeight: '14px', width: 16, height: 16, padding: 0, flex: 'none', border: 0, background: 'transparent', color: INK2, cursor: 'pointer' }
+								}, '\u2197') : null
+							]),
+							h('div', {
+								key: 'meta',
+								'data-cabinet-timeline-lane-meta': '1',
+								style: { display: 'flex', flexWrap: 'wrap', gap: 4, minWidth: 0, fontSize: 10, color: INK2, lineHeight: '13px' }
+							}, [
+								model ? h('span', {
+									key: 'model',
+									title: model,
+									style: { minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: '1 1 100%' }
+								}, model) : null,
+								usage ? h('span', {
+									key: 'tok',
+									style: { flex: 'none' },
+									title: tt('usage.tokens')
+								}, tt('usage.tokens') + ' ' + (formatTokenCount(usage.tokens) ?? tt('usage.none'))) : null,
+								h('span', { key: 'cnt', style: { flex: 'none', color: INK3 } },
+									taskCount + ' 个任务 · ' + rows.length + ' 个事件')
+							])
+						]),
+						h('div', {
+							key: 'axis',
+							'data-cabinet-timeline-axis': '1',
+							style: { position: 'relative', flex: '1 1 auto', minWidth: 0, height: '100%' }
+						}, [
+							// 淡色基线（1px，主题边框令牌低透明度）。
+							h('div', {
+								key: 'base',
+								'data-cabinet-timeline-baseline': '1',
+								style: { position: 'absolute', left: 0, right: 0, bottom: 6, height: 1, background: 'var(--dsw-alias-border-l2, rgba(127,127,127,.28))' }
+							}),
+							...rows.flatMap((row, rowIndex) => {
+								const taskId = typeof row.taskId === 'string' && row.taskId !== '' ? row.taskId : '';
+								// 方块数字：有任务号写任务号，没有写该行序号。
+								const mark = taskId !== '' ? taskId : String(row.seq);
+								const left = percentOf(row.time) + '%';
+								return [
+									// 方块到基线的家族色短连线（40% 透明）。
+									h('div', {
+										key: member.id + '#stem#' + rowIndex,
+										'data-cabinet-timeline-stem': mark,
+										style: { position: 'absolute', left, top: 21, width: 1, height: 19, transform: 'translateX(-50%)', background: hue, opacity: 0.4 }
+									}),
+									h('div', {
+										key: member.id + '#' + rowIndex,
+										'data-cabinet-timeline-event': mark,
+										'data-cabinet-timeline-event-task': taskId !== '' ? taskId : undefined,
+										'data-cabinet-timeline-event-seq': String(row.seq),
+										className: 'cabinet-timeline-event',
+										style: {
+											position: 'absolute', left, top: 7, transform: 'translateX(-50%)',
+											width: 14, height: 14, borderRadius: 4, boxSizing: 'border-box',
+											background: hue, color: '#fff', fontSize: 10, lineHeight: '14px', textAlign: 'center',
+											padding: 0, border: 'none', cursor: 'pointer', overflow: 'hidden', zIndex: 1
+										}
+									}, [h('span', { key: 't', style: { display: 'inline-block', maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', verticalAlign: 'top', lineHeight: '14px' } }, mark)])
+								];
+							})
+						])
+					]);
+				});
+				body.push(h('div', {
+					key: 'timeline',
+					'data-cabinet-timeline': '1',
+					// 与群聊面板同款撑满右栏的 flex 列；宽度不足时区域自身横向滚动。
+					style: { ...PANEL, display: 'flex', flexDirection: 'column', overflow: 'auto', marginTop: 12, gap: 6 }
+				}, [
+					// 顶部计数行：记录总量 · 泳道数（都从现有 groupRows/lanes 算）。
+					h('div', {
+						key: 'count',
+						'data-cabinet-timeline-count': '1',
+						style: { fontSize: 10.5, color: INK2, display: 'flex', alignItems: 'center', gap: 6, flex: 'none' }
+					}, timed.length + ' 条记录 · ' + laneNodes.length + ' 条泳道'),
+					...unresolved.map(({member,view}) => h('div', { key: 'state:' + member.id, role: 'status', 'data-cabinet-timeline-state': view.error !== null ? 'error' : 'pending', 'data-cabinet-timeline-state-member': member.id, style: { fontSize: 12, color: INK2 } }, memberLabel(member.name || member.id) + ' · ' + tt(view.error !== null ? 'groupchat.unavailable' : 'groupchat.pending'))),
+					h('div', {
+						key: 'inner',
+						'data-cabinet-timeline-inner': '1',
+						style: { minWidth: 420 }
+					}, laneNodes.length > 0 ? laneNodes : unresolved.length > 0 ? null : h('div', { key: 'empty', 'data-cabinet-timeline-empty': '1', style: { fontSize: 12, color: INK2, padding: '8px 2px' } }, '暂无事件'))
+				]));
+				return h('div', { ref: panelRef, style: PANEL }, body);
+			}
+
 			const isLeadTask = (task) => task.ownerName === 'lead' || (lead !== undefined && task.ownerName === lead.name);
 			const unassigned = tasks.filter((task) => !task.ownerName);
 			const leadOwn = tasks.filter((task) => task.ownerName !== undefined && isLeadTask(task));
@@ -5513,6 +5816,23 @@ window.__ModuleLoader__.load({
 			// rail. Rows wrap freely (品 = 1 up / 2 down, more nodes spill to further
 			// rows); connectors re-route through a column gutter or the left margin
 			// so no line ever crosses a card.
+			// 家族色：黄金角散列（与时间线同式）；主控卡固定金色系（环/边框）。
+			const familyColorOf = (index) => 'hsl(' + (Math.round(index * 137.508) % 360) + ' 58% 52%)';
+			// 底行活动数据：该成员在群聊折叠行里的条数与最后一条时间（真实行，
+			// 不编数）；无消息的成员 count 0、time 0，底行左半边整段省略。
+			const activityOf = (member) => {
+				// Roster does not own a history subscription. Never label missing data as zero steps.
+				if (activeTab === 'roster') return { known: false };
+				let count = 0;
+				let time = 0;
+				for (const row of groupRows) {
+					const author = row !== null && row !== undefined && row.member !== null && row.member !== undefined && typeof row.member.id === 'string' && row.member.id !== '' ? row.member.id : (typeof row.memberName === 'string' ? row.memberName : '');
+					if (author !== member.id) continue;
+					count += 1;
+					if (typeof row.time === 'number' && row.time > time) time = row.time;
+				}
+				return { count, time };
+			};
 			const leadCard = h(MemberCard, {
 				member: leadShown,
 				running: runningOf(leadShown.id),
@@ -5524,14 +5844,21 @@ window.__ModuleLoader__.load({
 				t: tt,
 				onOpen: openMemberSession,
 				usage: leadUsage,
-				teamUsage: teamUsageOf([leadUsage, ...mateUsages])
+				teamUsage: teamUsageOf([leadUsage, ...mateUsages]),
+				familyColor: 'rgba(245,197,24,.9)',
+				activity: activityOf(leadShown),
+				// 首辅卡同样只显示当前一个任务（截图同款单行）。
+				activeTask: activeTaskOf(leadOwn),
+				dispatchService: groupService
 			});
 
 			// Cells: every minister first, then 未分派 / 首辅自办 / 不在册 as
 			// ordinary grid cells — same width and column cadence as the ministers,
 			// laid out after them (no full-width row, no span: equal cells win).
 			const cells = [];
-			for (const member of mates) cells.push({ key: 'member:' + member.id, member });
+			for (const [memberIndex, member] of mates.entries()) {
+				cells.push({ key: 'member:' + member.id, member, familyColor: familyColorOf(memberIndex), activity: activityOf(member) });
+			}
 			if (unassigned.length > 0) cells.push({ key: 'group:unassigned', title: tt('task.unassigned'), tasks: unassigned });
 			if (leadOwn.length > 0) cells.push({ key: 'group:leadown', title: tt('task.leadOwn'), tasks: leadOwn });
 			for (const owner of foreignOwners) {
@@ -5543,10 +5870,10 @@ window.__ModuleLoader__.load({
 					key: 'links',
 					'aria-hidden': 'true',
 					style: { position: 'absolute', left: 0, top: 0, width: '100%', height: '100%', pointerEvents: 'none', overflow: 'visible', zIndex: 0 }
-				}, linkPaths.map((d, index) => h('path', {
+				}, linkPaths.map((path, index) => h('path', {
 					key: index,
-					d,
-					style: { fill: 'none', stroke: LINE, strokeWidth: 2, strokeLinecap: 'round' }
+					d: typeof path === 'string' ? path : path.d,
+					style: { fill: 'none', stroke: typeof path === 'string' || !path || !path.color ? LINE : path.color, strokeWidth: 2, strokeLinecap: 'round' }
 				}))),
 				// dependency edges paint above the cards (endpoints sit on task rows
 				// inside cards) but never take pointer events
@@ -5559,20 +5886,30 @@ window.__ModuleLoader__.load({
 			];
 
 			if (cells.length > 0) {
+				// 分层：每层最多 3 个（用户要求“一排最多三个不挤，更多阁臣再下一层”）。
+				// 定长分组而非 grid auto-fill——360px 右栏也强制 3 个一行，卡宽靠
+				// basis 收缩 + 省略号；每层 flex 居中，不满 3 个的层同样居中。
+				const cellRows = [];
+				for (let startIndex = 0; startIndex < cells.length; startIndex += 3) {
+					cellRows.push(cells.slice(startIndex, startIndex + 3));
+				}
 				treeChildren.push(h('div', {
 					key: 'grid',
 					style: {
 						position: 'relative',
 						zIndex: 1,
-						display: 'grid',
-						// auto-fill + minmax(140px,1fr)：列宽下限 140、按容器宽度
-						// 自动定列数并换行成多行（第15轮实证：min 0 时列数会按项数
-						// 展开——9 成员 9 列×40px 挤成一条横排、名字竖排破版）。
-						gridTemplateColumns: 'repeat(auto-fill,minmax(140px,1fr))',
-						gap: '12px 14px',
+						display: 'flex',
+						flexDirection: 'column',
+						// 层间 96px 给弧线留走线空间（任务书 90-110）；列距由行容器 12 承担。
+						rowGap: 96,
+						columnGap: 12,
 						width: '100%'
 					}
-				}, cells.map((cell) => {
+				}, cellRows.map((rowCells, rowIndex) => h('div', {
+					key: 'row-' + rowIndex,
+					'data-cabinet-tree-row': String(rowIndex + 1),
+					style: { display: 'flex', justifyContent: 'center', gap: 12, alignItems: 'stretch', minWidth: 0 }
+				}, rowCells.map((cell) => {
 					let content;
 					if (cell.member !== undefined) {
 						const member = cell.member;
@@ -5587,18 +5924,22 @@ window.__ModuleLoader__.load({
 							t: tt,
 							onOpen: openMemberSession,
 							usage: usageOfMember(member),
+							familyColor: cell.familyColor,
+							activity: cell.activity,
 							// tasks live inside the card, elbow-connected by RailList
-							children: own.length > 0
-								? h(RailList, { key: 'tasks', style: { marginTop: 4 } }, own.map((task) => h(TaskLine, {
-									key: task.id,
-									task,
-									blockerOf,
-									t: tt,
-									taskLabel,
-									ownerRunning: memberRunning,
-									onOpenOwner: ownerOpener(task)
-								})))
-								: h('div', { key: 'tasks', style: { fontSize: 11, color: INK3, padding: '2px 0' } }, tt('task.none'))
+							// 阁臣卡不再挂任务列表（用户：「不要一个很长的卡片」）——
+							// 卡上只显示当前一个任务（in_progress 优先，否则最近一个）。
+							activeTask: activeTaskOf(own),
+							dispatchService: groupService,
+							children: own.length > 0 ? h('details', {
+								key: 'all-tasks', 'data-cabinet-member-tasks': member.id,
+								onClick: stopPropagation,
+								style: { marginTop: 4 }
+							}, [h('summary', { key: 'summary', style: { cursor: 'pointer', fontSize: 11 } }, '全部任务 (' + own.length + ')'),
+								h(RailList, { key: 'all' }, own.map(task => h(TaskLine, {
+									key: task.id, task, blockerOf, t: tt, taskLabel,
+									ownerRunning: memberRunning, onOpenOwner: ownerOpener(task)
+								})))]) : null
 						});
 					} else {
 						content = h('div', { className: 'cabinet-card', style: { position: 'relative', zIndex: 1 } }, [
@@ -5620,15 +5961,16 @@ window.__ModuleLoader__.load({
 					return h('div', {
 						key: cell.key,
 						'data-cabinet-node': '1',
-						// 卡片最小宽 140：既盖掉 grid item 的 min-content 自动最小
-						// 尺寸（nowrap 整行文本会把卡顶到 203+），又与列下限 140 对齐；
-						// 卡片内部 .cabinet-card 本就 min-width:0，允许内容收缩省略。
-						style: { minWidth: 140 }
+						'data-cabinet-family': cell.familyColor,
+						// 分层后每层 ≤3 卡：basis=(可用宽-2列距)/3——460/600 右栏分别
+					// 约 141/184px；360px 右栏收缩到 ~104px 仍保 3 个一行（用户硬
+					// 要求），文本全靠省略号；maxWidth 200 封顶宽 rail 下的卡片。
+					style: { flex: '0 1 calc((100% - 24px) / 3)', minWidth: 0, maxWidth: 200 }
 					}, content);
-				})));
+				})))));
 			}
 
-			body.push(h('div', { key: 'tree', ref: treeRef, style: { position: 'relative', marginTop: 10 } }, treeChildren));
+			body.push(h('div', { key: 'tree', ref: treeRef, 'data-cabinet-roster': '1', style: { position: 'relative', marginTop: 10 } }, treeChildren));
 			body.push(h('div', {
 				key: 'legend',
 				style: { marginTop: 12, fontSize: 10.5, color: INK3, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }
@@ -6249,6 +6591,8 @@ window.__ModuleLoader__.load({
 			const toggleSplit = () => setSplitOpen((open) => !open);
 			// 右栏宽度：首渲染读 localStorage（读不到/非法回默认 360，见 readRailWidth）。
 			const [railWidth, setRailWidth] = React.useState(() => readRailWidth());
+			// 右栏视图切换：默认「名册」，用户点「时间线」才换；主列群聊不受影响。
+			const [railView, setRailView] = React.useState('roster');
 			// 拖拽中的解绑函数挂 ref：mouseup 与组件卸载共用，杜绝悬挂 document 监听。
 			const railDragCleanupRef = React.useRef(null);
 			React.useEffect(() => () => {
@@ -6627,7 +6971,8 @@ window.__ModuleLoader__.load({
 					useSessions: readSessions,
 					useSessionStatus: readStatus,
 					t: tt,
-					activeTab: 'roster',
+					activeTab: railView,
+					onTabChange: setRailView,
 					hideTabs: false,
 					focusSessionId: '',
 					onGroupSnapshot: () => {}
@@ -6917,6 +7262,18 @@ window.__ModuleLoader__.load({
 			'section.roster': '首辅与阁臣 · 派活与任务',
 			'lead.tag': '内阁首辅',
 			'current': '当前',
+			'dispatch.open': "派活",
+			'dispatch.close': "收起",
+			'dispatch.placeholder': "派活内容",
+			'dispatch.send': "排队发送",
+			'dispatch.interrupt': "插话",
+			'dispatch.queued': "已排队",
+			'dispatch.steered': "已提交插话",
+			'dispatch.pending': "提交中，请勿重复发送",
+			'dispatch.unknown': "投递结果未知，未自动重发。请先核对目标会话。",
+			'dispatch.confirm': "我已核对会话，允许再次手动发送",
+			'dispatch.rejected': "请求被明确拒绝，草稿已保留",
+			'dispatch.unavailable': "发送通道不可用",
 			'status.running': '干活中',
 			'status.inactive': '空闲',
 			'status.provisioning': '启动中',
@@ -7066,6 +7423,18 @@ window.__ModuleLoader__.load({
 			'section.roster': 'Lead and ministers · dispatch',
 			'lead.tag': '内阁首辅',
 			'current': 'current',
+			'dispatch.open': "Dispatch",
+			'dispatch.close': "Close",
+			'dispatch.placeholder': "Dispatch message",
+			'dispatch.send': "Queue message",
+			'dispatch.interrupt': "Steer",
+			'dispatch.queued': "Queued",
+			'dispatch.steered': "Steer request accepted",
+			'dispatch.pending': "Submitting; do not resend",
+			'dispatch.unknown': "Delivery outcome unknown; not resent. Check the target conversation first.",
+			'dispatch.confirm': "I checked the conversation; allow another manual send",
+			'dispatch.rejected': "Request rejected; draft retained",
+			'dispatch.unavailable': "Send channel unavailable",
 			'status.running': 'working',
 			'status.inactive': 'idle',
 			'status.provisioning': 'starting',

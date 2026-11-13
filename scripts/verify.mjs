@@ -385,7 +385,7 @@ if (existsSync(PATCH_PATH)) {
 }
 
 // ---------- fallback scripts ----------
-for (const test of ['test-member-settings.mjs', 'test-model-routing.mjs', 'test-model-picker.mjs', 'test-install.mjs', 'test-client.mjs', 'test-groupchat-reducer.mjs', 'test-groupchat-v2-regression.mjs', 'test-groupchat-lifecycle.mjs', 'test-client-inject.mjs', 'test-avatars.mjs', 'test-roster.mjs']) {
+for (const test of ['test-member-settings.mjs', 'test-model-routing.mjs', 'test-model-picker.mjs', 'test-install.mjs', 'test-client.mjs', 'test-rail-redesign-regression.mjs', 'test-groupchat-reducer.mjs', 'test-groupchat-v2-regression.mjs', 'test-groupchat-lifecycle.mjs', 'test-client-inject.mjs', 'test-avatars.mjs', 'test-roster.mjs']) {
   const result = spawnSync(process.execPath, [join(ROOT, 'scripts', test)], {
     encoding: 'utf8', timeout: 30000, windowsHide: true,
   });

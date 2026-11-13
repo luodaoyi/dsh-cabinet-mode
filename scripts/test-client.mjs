@@ -55,6 +55,7 @@ const React = {
   useCallback: (callback) => callback,
   useLayoutEffect: () => {}, useEffect: (fn, deps) => { recordedEffects.push({ fn, deps }); },
 };
+const structuralHookSurfaces = [React];
 // The panel decides whether to mount its usage ticker; the spy observes the real
 // setInterval/clearInterval call the component makes (not a proxy assertion).
 const recordedEffects = [];
@@ -92,7 +93,7 @@ const PAGE_NOW = Date.now();
 // ageOf 保序：原值越大 ⇒ 时间越新，且所有映射结果都落在最近 ~12 天内
 // （小于 30 天窗口，不会触发新鲜度过滤），既有排序断言的语义不变。
 const ageOf = (value) => PAGE_NOW - (1000000 - value);
-const exportList = 'return { inject, apply, avatarFor, displayName, chatBubbleName, chatBubbleNames, bureauOf, CabinetPanel, MemberCard, TaskLine, TaskEdgeLayer, buildTaskEdges, taskEdgesEqual, zh, en, BUREAUX, AVATARS, setMemberConfig, memberLabel, configuredAvatar, configuredPrompt, factoryPromptFor, DEFAULT_MEMBER_PROMPTS, DEFAULT_LEAD_PROMPT, CabinetMemberSettings, MemoryPluginCard, memoryPluginInstalledOf, SETTINGS_TABS, formatTokenCount, formatElapsed, tokenTotalOf, usageFor, planProjectionRequests, teamUsageOf, groupChatFold, markdownBlocksOf, markdownBlocksCached, inlineMarkdownTokens, markdownLinkHref, modelOptionsOf, modelCatalogNotice, modelSelectionOf, cabinetSessionChoices, cabinetSessionFilters, cabinetSessionGroups, defaultCabinetSession, CabinetMarkdown, CabinetPage, CabinetPanelIcon, GroupChatRow, STYLE_CSS, cabinetGroupMemberStates, mergeGroupChat, cabinetChatViewRows, chatStampNeeded, nearChatBottom, scrollChatToBottom, scrollFollowingTail, cabinetScopeRows, openCabinetSession };';
+const exportList = 'return { inject, apply, avatarFor, displayName, chatBubbleName, chatBubbleNames, bureauOf, CabinetPanel, MemberCard, MemberDispatch, TaskLine, TaskEdgeLayer, buildTaskEdges, buildConnectorPaths, taskEdgesEqual, zh, en, BUREAUX, AVATARS, setMemberConfig, memberLabel, configuredAvatar, configuredPrompt, factoryPromptFor, DEFAULT_MEMBER_PROMPTS, DEFAULT_LEAD_PROMPT, CabinetMemberSettings, MemoryPluginCard, memoryPluginInstalledOf, SETTINGS_TABS, formatTokenCount, formatElapsed, tokenTotalOf, usageFor, planProjectionRequests, teamUsageOf, groupChatFold, markdownBlocksOf, markdownBlocksCached, inlineMarkdownTokens, markdownLinkHref, modelOptionsOf, modelCatalogNotice, modelSelectionOf, cabinetSessionChoices, cabinetSessionFilters, cabinetSessionGroups, defaultCabinetSession, CabinetMarkdown, CabinetPage, CabinetPanelIcon, GroupChatRow, STYLE_CSS, cabinetGroupMemberStates, mergeGroupChat, cabinetChatViewRows, chatStampNeeded, nearChatBottom, scrollChatToBottom, scrollFollowingTail, cabinetScopeRows, openCabinetSession };';
 runInNewContext(source.replace(exportPoint, exportList), {
   setTimeout: (fn, ms) => setTimeout(fn, ms === 120000 ? 20 : ms), clearTimeout,
   Date: RealmDate,
@@ -236,6 +237,27 @@ function elements(tree) {
   if (typeof tree.type === 'function') {
     const props = { ...tree.props };
     if (tree.children.length) props.children = tree.children.flat();
+    if (tree.type.name === 'MemberDispatch') {
+      // This structural renderer historically flattens child hooks into the
+      // panel's slots. Dispatch has its own React fiber, not a continuation of
+      // the panel hook list. Render its collapsed initial structure with fresh
+      // refs/state and its own effect scope. Its interactive lifecycle is tested
+      // with actual React in test-dispatch-browser, not this static renderer.
+      const savedRefs = persistentRefs;
+      const effectStart = recordedEffects.length;
+      const savedHooks = structuralHookSurfaces.map(surface => ({ surface, useState: surface.useState, useRef: surface.useRef, useEffect: surface.useEffect }));
+      for (const { surface } of savedHooks) {
+        surface.useState = initial => [typeof initial === 'function' ? initial() : initial, () => {}];
+        surface.useRef = initial => ({ current: initial });
+        surface.useEffect = () => {};
+      }
+      persistentRefs = null;
+      try { return elements(tree.type(props)); }
+      finally {
+        for (const { surface, ...hooks } of savedHooks) Object.assign(surface, hooks);
+        persistentRefs = savedRefs; recordedEffects.splice(effectStart);
+      }
+    }
     return elements(tree.type(props));
   }
   return [tree, ...tree.children.flatMap(elements)];
@@ -262,10 +284,10 @@ for (const [i, group] of groups.entries()) {
   assert.equal(group.children[0], labels[i]);
   assert.equal(group.props.title, labels[i]);
 }
-// The actual panel leaf renderer uses the same asset for every supported alias.
+// 方块头像新规格：每个别名渲染圆角方块头像节点（字母由名字派生）。
 for (const name of ['lead', 'hanlin-bianxiu', 'gongbu-zhushi', 'dalisi-pingshi', 'jiancha-yushi', 'unknown-person']) {
   const card = elements(client.MemberCard({member:{name,phase:'active'},statusLabel:s=>s}));
-  assert.ok(card.some(n=>n.type==='img' && n.props.src===client.avatarFor(name)), name);
+  assert.ok(card.some(n=>n.props?.['data-cabinet-avatar-block'] !== undefined), name + ' renders the rounded-square avatar block');
 }
 // --- task dependency edges: cross-member blockedBy wires with three states ---
 const edgeRect = (left, top) => ({ left, top, right: left + 140, bottom: top + 26, width: 140, height: 26 });
@@ -356,9 +378,17 @@ const depTeam = {
   tasks: edgeTasks,
 };
 const depEls = elements(render(depTeam, client.zh));
+// 新规格：阁臣卡只显示当前一个任务（其行带锚供依赖边测量），组卡任务行照旧带锚；
+// 组件层契约（每条 TaskLine 都带锚）由直调断言单独覆盖。
 const anchored = depEls.filter((node) => node.props && 'data-cabinet-task' in node.props);
-assert.equal(anchored.length, edgeTasks.length, 'every task row carries a data-cabinet-task anchor');
-assert.deepEqual(anchored.map((node) => node.props['data-cabinet-task']).sort(), edgeTasks.map((task) => task.id).sort());
+const panelTaskLines = depEls.filter((node) => node.props && ('data-cabinet-task' in node.props || node.props?.['data-cabinet-task-desc'] !== undefined));
+assert.ok(anchored.length > 0, 'rendered task rows still expose measurement anchors, got ' + anchored.length);
+assert.ok(anchored.length <= panelTaskLines.length && panelTaskLines.length > 0, 'every rendered task line is either anchored or the single-task card line');
+assert.ok(anchored.every((node) => typeof node.props['data-cabinet-task'] === 'string'), 'anchors carry the task id');
+const directAnchored = edgeTasks.flatMap((task) => elements(client.TaskLine({ task, blockerOf: () => false, t: (key) => key, taskLabel: (status) => status })))
+  .filter((node) => node.props && 'data-cabinet-task' in node.props);
+assert.equal(directAnchored.length, edgeTasks.length, 'every TaskLine row carries a data-cabinet-task anchor (component contract)');
+assert.deepEqual(directAnchored.map((node) => node.props['data-cabinet-task']).sort(), edgeTasks.map((task) => task.id).sort());
 assert.ok(!depEls.some((node) => node.props && 'data-cabinet-edge' in node.props),
   'edges are drawn only after measurement, never from stale render state');
 // TaskLine forwards the anchor id through Row onto the row element
@@ -372,7 +402,7 @@ const rowEl = elements(depLine).find((node) => node.props && 'data-cabinet-task'
 assert.equal(rowEl.props['data-cabinet-task'], 't-build');
 // reduced-motion + palette: CSS keeps the static line, kills only the flow
 const reducedLines = source.split('\n').filter((line) => line.includes('prefers-reduced-motion'));
-const reducedMedia = reducedLines.find((line) => line.includes('@media'));
+const reducedMedia = reducedLines.find((line) => line.includes('@media') && line.includes('.cabinet-edge-active'));
 assert.ok(reducedMedia, 'a prefers-reduced-motion media query must exist');
 assert.ok(reducedMedia.includes('.cabinet-edge-active') && reducedMedia.includes('animation:none'),
   'flow animation stands still under prefers-reduced-motion while the dashed line stays');
@@ -440,16 +470,21 @@ const clickTeam = {
 const clickEls = elements(render(clickTeam, client.zh));
 const subjectByTitle = new Map();
 for (const node of clickEls) if (node.props?.key === 'subj') subjectByTitle.set(node.props.title, node);
-assert.equal(subjectByTitle.size, clickTeam.tasks.length, 'every task subject rendered');
+// 新规格：阁臣卡不挂任务列表——own 任务（works/dali/yushi）不再上卡，lead/unassigned
+// 仍走组卡；opener 分配规则（mate 可开/failed·provisioning·lead·未分派不开）由
+// TaskLine 直调按组件契约覆盖。
+assert.equal(subjectByTitle.size, 5, 'group cards and collapsed member details preserve all task subjects, got ' + subjectByTitle.size + ': ' + [...subjectByTitle.keys()].join(','));
 assert.equal(subjectByTitle.get('lead owns this').props.onClick, undefined, 'lead task: panel hands no opener');
 assert.equal(subjectByTitle.get('no owner').props.onClick, undefined, 'unassigned task: panel hands no opener');
-assert.equal(typeof subjectByTitle.get('works owns this').props.onClick, 'function', 'teammate task binds');
-assert.equal(subjectByTitle.get('dali owns this').props.onClick, undefined, 'failed-owner task: no opener');
-assert.equal(subjectByTitle.get('yushi owns this').props.onClick, undefined, 'provisioning-owner task: no opener');
-assert.equal(subjectByTitle.get('works owns this').props.style.cursor, 'pointer', 'clickable subject shows the pointer');
 assert.equal(subjectByTitle.get('lead owns this').props.style.cursor, undefined, 'lead task keeps the plain cursor');
+const directSubject = (task, opener) => elements(client.TaskLine({ task, blockerOf: () => false, t: (key) => key, taskLabel: (status) => status, onOpenOwner: opener })).find((node) => node.props?.key === 'subj');
+const worksTask = { id: 'k-works', subject: 'works owns this', ownerName: 'works', status: 'pending' };
+assert.equal(typeof directSubject(worksTask, () => true).props.onClick, 'function', 'teammate task binds');
+assert.equal(directSubject({ id: 'k-dali', subject: 'dali owns this', ownerName: 'dali', status: 'pending' }, null).props.onClick, undefined, 'failed-owner task: no opener');
+assert.equal(directSubject({ id: 'k-yushi', subject: 'yushi owns this', ownerName: 'yushi', status: 'pending' }, null).props.onClick, undefined, 'provisioning-owner task: no opener');
+assert.equal(directSubject(worksTask, () => true).props.style.cursor, 'pointer', 'clickable subject shows the pointer');
 // a bound click with no uiWorkspace channel must degrade silently, never throw
-assert.equal(subjectByTitle.get('works owns this').props.onClick(), false, 'missing channel → silent false, no throw');
+assert.equal(directSubject(worksTask, () => false).props.onClick(), false, 'missing channel → silent false, no throw');
 // member cards: same inert rule as the native roster row (self / failed / provisioning)
 const cardWho = (member, extra) => elements(client.MemberCard({
   member, statusLabel: (status) => status, ...extra,
@@ -695,8 +730,9 @@ const usageCard = elements(client.MemberCard({
 })).find((node) => node.props?.key === 'usage');
 assert.ok(usageCard, 'the card renders a usage line');
 const usageText = JSON.stringify(usageCard);
-assert.ok(usageText.includes(client.zh['usage.tokens'] + ' 3M'), 'token total is rendered compactly: ' + usageText.slice(0, 160));
-assert.ok(usageText.includes(client.zh['usage.elapsed'] + ' 17s'), 'elapsed time is rendered');
+const bareTok = elements(usageCard).find((node) => node.props?.key === 'tok');
+assert.ok(bareTok && bareTok.children.join('') === '3M', 'token renders as a bare number without the label, got: ' + JSON.stringify(bareTok && bareTok.children));
+assert.ok(usageText.includes('17s'), 'elapsed time is rendered in the foot row');
 assert.ok(usageText.includes('30%'), 'context percent is rendered');
 assert.ok(usageText.includes(client.zh['usage.team'] + ' 3K'), 'the lead card shows the team total');
 const bars = elements(usageCard).filter((node) => node.props?.className === 'cabinet-ctxbar-system');
@@ -706,14 +742,171 @@ const dashCard = elements(client.MemberCard({
   statusLabel: (status) => status,
   t: zhT,
   usage: empty,
+  activity: { time: 0, count: 0 },
 })).find((node) => node.props?.key === 'usage');
 const dashText = JSON.stringify(dashCard);
-assert.ok(dashText.includes(client.zh['usage.tokens'] + ' ' + client.zh['usage.none']), 'a missing token projection renders the em dash');
-assert.ok(dashText.includes(client.zh['usage.elapsed'] + ' ' + client.zh['usage.none']), 'a missing timing projection renders the em dash');
+const dashTok = elements(dashCard).find((node) => node.props?.key === 'tok');
+assert.ok(dashTok && dashTok.children.join('') === client.zh['usage.none'], 'a missing token projection renders the em dash');
+const dashTime = elements(dashCard).find((node) => node.props?.key === 'time');
+assert.ok(dashTime && dashTime.children.join('') === client.zh['usage.none'], 'a missing timing projection renders the em dash');
 assert.ok(!dashText.includes('cabinet-ctxbar'), 'no context bar without a pressure projection');
 const noUsageCard = elements(client.MemberCard({ member: { name: 'works', phase: 'active' }, statusLabel: (status) => status, t: (key) => key }))
   .filter((node) => node.props?.key === 'usage');
 assert.equal(noUsageCard.length, 0, 'a member without a session id renders no usage line at all');
+
+// 阶段一卡片高保真：五行结构里的计量条、百分比、token·耗时文本、家族色环。
+const dressed = elements(client.MemberCard({
+  member: { id: 'm-works', name: 'works', phase: 'active' },
+  statusLabel: (status) => status,
+  t: zhT,
+  usage: full,
+  familyColor: 'hsl(138 58% 52%)',
+  activity: { time: 1700000000000, count: 12 },
+}));
+const meterNode = dressed.find((node) => node.props?.['data-cabinet-meter'] !== undefined);
+assert.ok(meterNode, 'the card renders the segmented context meter (data-cabinet-meter)');
+const dressedText = JSON.stringify(dressed);
+assert.ok(dressedText.includes('30%'), 'the card shows the context percent text');
+assert.ok(dressedText.includes('3M') && dressedText.includes('17s'), 'the card keeps the token · 耗时 data points');
+const blockNode = dressed.find((node) => node.props?.['data-cabinet-avatar-block'] !== undefined);
+assert.ok(blockNode, 'the avatar is a rounded square block (data-cabinet-avatar-block)');
+assert.equal(blockNode.props.style.borderRadius, 9, 'the avatar block uses a 9px rounded square, not a circle');
+assert.ok(typeof blockNode.props.style.border === 'string' && blockNode.props.style.border.includes('hsl(138 58% 52%)'), 'the avatar block wears the family-color border');
+const dotNode = dressed.find((node) => node.props?.['data-cabinet-status'] !== undefined);
+assert.ok(dotNode, 'the head row carries the status dot');
+const descNode = dressed.find((node) => node.props?.['data-cabinet-task-desc'] !== undefined);
+assert.ok(descNode && descNode.children.join('') === '无进行中任务', 'a card without an in_progress task labels task absence independently from process state, got: ' + JSON.stringify(descNode && descNode.children));
+const meterStyled = dressed.find((node) => node.props?.['data-cabinet-meter'] !== undefined);
+assert.equal(meterStyled.props.style.width, '42%', 'the segmented bar is left-aligned at ~42% card width');
+const footNode = dressed.find((node) => node.props?.key === 'foot');
+const footTime = footNode && elements(footNode).find((node) => node.props?.key === 'time');
+assert.ok(footTime && footTime.children.join('') === '17s \u00b7 12 条记录', 'the foot row reads 时间 · N 条记录, got: ' + JSON.stringify(footTime && footTime.children));
+assert.ok(footNode && JSON.stringify(footNode).includes('30%'), 'the foot row carries the context percent');
+const pctNode = footNode && elements(footNode).find((node) => node.props?.key === 'pct');
+assert.ok(pctNode && pctNode.props.style.color === '#22c55e', 'a ≤60% percent stays green, got: ' + JSON.stringify(pctNode && pctNode.props.style));
+const pctColorOf = (percent) => {
+  const card = elements(client.MemberCard({
+    member: { id: 'm-pct', name: 'pct', phase: 'active' },
+    statusLabel: (status) => status,
+    t: zhT,
+    usage: { tokens: 1, elapsedMs: 1, context: { percent, segments: [] } },
+  })).find((node) => node.props?.key === 'foot');
+  const node = card && elements(card).find((child) => child.props?.key === 'pct');
+  return node ? node.props.style.color : undefined;
+};
+assert.equal(pctColorOf(70), '#f59e0b', 'a >60% percent turns amber');
+assert.equal(pctColorOf(90), '#ef4444', 'a >85% percent turns red');
+assert.equal(pctColorOf(80), '#f59e0b', 'the screenshot 80.2% case stays amber under the >85 red threshold');
+// 状态点强化：运行=实心绿+呼吸动画+卡片外发光；空闲=同尺寸空心灰圈。
+const busyTree = elements(client.MemberCard({
+  member: { id: 'm-busy', name: 'busy', phase: 'active' },
+  running: true,
+  statusLabel: (status) => status,
+  t: zhT,
+  familyColor: 'hsl(138 58% 52%)',
+  activeTask: { id: 'tb', subject: '正在改弧线', status: 'in_progress' },
+}));
+const busyDot = busyTree.find((node) => node.props?.['data-cabinet-status'] !== undefined);
+assert.ok(busyDot, 'the running card renders its status dot');
+assert.equal(busyDot.props.style.background, '#22c55e', 'a running dot is solid-filled green, got: ' + JSON.stringify(busyDot.props.style));
+assert.ok(String(busyDot.props.style.animation).includes('cabinetPulse'), 'the running dot breathes with the cabinetPulse box-shadow keyframes');
+assert.equal(busyDot.props.style.border, undefined, 'a running dot has no hollow ring');
+const busyDesc = busyTree.find((node) => node.props?.['data-cabinet-task-desc'] !== undefined);
+const walkText = (node) => {
+  if (typeof node === 'string') return node;
+  if (Array.isArray(node)) return node.map(walkText).join('');
+  if (node && Array.isArray(node.children)) return node.children.map(walkText).join('');
+  return '';
+};
+const busyFlat = busyDesc && walkText(busyDesc.children);
+assert.ok(busyFlat && busyFlat.indexOf('\u25cf正在改弧线') === 0, 'the in_progress title renders after the marker, got: ' + JSON.stringify(busyFlat));
+const busyRoot = busyTree[0];
+assert.equal(busyRoot.props['data-cabinet-sweep'], '1', 'the animating card carries the live-border marker');
+assert.equal(busyRoot.props.style.overflow, 'hidden', 'the live card opens the sweep window (overflow hidden)');
+assert.equal(busyRoot.props.style['--cab-live-hue'], 'hsl(138 58% 52%)', 'the sweep hue rides the family color variable, got: ' + JSON.stringify(busyRoot.props.style['--cab-live-hue']));
+const calmTree = elements(client.MemberCard({
+  member: { id: 'm-calm', name: 'calm', phase: 'active' },
+  running: false,
+  statusLabel: (status) => status,
+  t: zhT,
+  familyColor: 'hsl(24 72% 52%)',
+  activeTask: undefined,
+}));
+const calmDot = calmTree.find((node) => node.props?.['data-cabinet-status'] !== undefined);
+assert.equal(calmDot.props.style.background, 'transparent', 'an idle dot is hollow, got: ' + JSON.stringify(calmDot.props.style));
+assert.ok(String(calmDot.props.style.border).indexOf('1.5px solid ') === 0, 'an idle dot is a 1.5px-stroked ring, got: ' + JSON.stringify(calmDot.props.style.border));
+assert.equal(calmDot.props.style.animation, undefined, 'an idle dot does not animate');
+assert.notDeepEqual(calmDot.props.style, busyDot.props.style, 'running and idle dots differ in style');
+assert.equal(calmTree[0].props['data-cabinet-sweep'], undefined, 'an idle card carries no live-border marker');
+assert.equal(calmTree[0].props.style.overflow, undefined, 'an idle card opens no sweep window');
+assert.equal(busyDot.props.style.width, 8, 'both dots are 8px');
+assert.equal(calmDot.props.style.width, 8, 'both dots are 8px (idle matches)');
+// Task animation is distinct from the truthful process status dot.
+const taskOnlyTree = elements(client.MemberCard({
+  member: { id: 'm-taskonly', name: 'tasker', phase: 'active' },
+  running: false,
+  statusLabel: (status) => status,
+  t: zhT,
+  familyColor: 'hsl(138 58% 52%)',
+  activeTask: { id: 'tt', subject: '任务在动', status: 'in_progress' },
+}));
+const taskOnlyDot = taskOnlyTree.find((node) => node.props?.['data-cabinet-status'] !== undefined);
+assert.equal(taskOnlyDot.props['data-cabinet-status'], 'inactive', 'an in_progress task cannot override the idle process status, got: ' + taskOnlyDot.props['data-cabinet-status']);
+assert.equal(taskOnlyDot.props.style.animation, undefined, 'the process dot does not animate merely because a task remains in_progress');
+assert.equal(taskOnlyTree[0].props['data-cabinet-sweep'], undefined, 'an idle process never wears the running card marker');
+assert.equal(taskOnlyTree[0].props.style.overflow, undefined, 'a task alone does not open the sweep window');
+assert.equal(taskOnlyTree[0].props.style['--cab-live-hue'], undefined, 'a task alone does not start the card animation');
+const taskOnlyDesc = taskOnlyTree.find((node) => node.props?.['data-cabinet-task-desc'] !== undefined);
+const findMark = (node) => {
+  if (Array.isArray(node)) { for (const child of node) { const hit = findMark(child); if (hit) return hit; } return null; }
+  if (node && typeof node === 'object') {
+    if (node.props && node.props.key === 'mark') return node;
+    if (Array.isArray(node.children)) return findMark(node.children);
+  }
+  return null;
+};
+const taskMark = findMark(taskOnlyDesc && taskOnlyDesc.children);
+assert.ok(taskMark, 'the in-progress marker renders');
+assert.ok(String(taskMark.props.style.animation).includes('cabinetPulse'), 'the ● marker breathes with the same keyframes, got: ' + JSON.stringify(taskMark.props.style));
+// keyframes 必须真的在 STYLE_CSS 里——只有 animation 没有 @keyframes 会被浏览器静默忽略。
+const pulseCss = Array.isArray(client.STYLE_CSS) ? client.STYLE_CSS.join('\n') : String(client.STYLE_CSS || '');
+assert.ok(pulseCss.includes('@keyframes cabinetPulse'), 'cabinetPulse keyframes are injected via STYLE_CSS (no silent-ignore)');
+assert.ok(pulseCss.includes('@keyframes cabinetSpin'), 'cabinetSpin keyframes are injected (the sweep must not silently ignore)');
+assert.ok(pulseCss.includes('[data-cabinet-sweep]::before') && pulseCss.includes('conic-gradient'), 'the border sweep is a conic-gradient rule scoped to the live marker');
+assert.ok(pulseCss.includes('cabinetSpin 2.4s linear infinite'), 'the sweep runs on the shared spin animation');
+assert.ok(pulseCss.includes('prefers-reduced-motion'), 'the sweep stops under prefers-reduced-motion');
+assert.ok(pulseCss.includes('will-change:transform'), 'the sweep animates transform only (GPU compositing), will-change hinted');
+assert.ok(pulseCss.includes('pointer-events:none'), 'the sweep layer never blocks card clicks');
+// 成本：宿主无 ¥ 数据源（tokenUsage 投影只有 4 个分项 token，无金额字段）——卡上不出现货币符号、不编数。
+const costProbe = elements(client.MemberCard({
+  member: { id: 'm-cost', name: 'coster', phase: 'active' },
+  statusLabel: (status) => status,
+  t: zhT,
+  usage: { tokens: 3000000, elapsedMs: 1000, context: { percent: 40, segments: [] } },
+}));
+assert.ok(!JSON.stringify(costProbe).includes('¥'), 'the card shows no fabricated currency (host exposes no cost source)');
+assert.ok(JSON.stringify(costProbe).includes('3M'), 'token total still renders as the cost-free figure');
+
+// 家族色：不同成员的卡片边框色不同（黄金角散列，同色即错）。
+const huePanel = elements(client.CabinetPanel({
+  sessionId: 'lead-session',
+  useSession: (select) => select({}),
+  useSessions: (select) => select({ projectionsBySession: {
+    'lead-session': { values: { agentTeam: { members: [
+      { id: 'lead-session', name: 'lead', role: 'lead', phase: 'active' },
+      { id: 'm-a', name: 'alice', role: 'mate', phase: 'active' },
+      { id: 'm-b', name: 'bob', role: 'mate', phase: 'active' },
+    ], tasks: [] } } },
+  } }),
+  useSessionStatus: (select) => select(new Map()),
+  t: (key) => client.zh[key] || key,
+}));
+const hueCards = huePanel.filter((node) => typeof node.props?.className === 'string'
+  && node.props.className.split(' ').includes('cabinet-card')
+  && !node.props.className.split(' ').includes('cabinet-card-lead'));
+assert.equal(hueCards.length, 2, 'two mate cards render for the hue check, got ' + hueCards.length);
+assert.ok(typeof hueCards[0].props.style?.borderColor === 'string' && typeof hueCards[1].props.style?.borderColor === 'string', 'mate cards carry a family border color');
+assert.notEqual(hueCards[0].props.style.borderColor, hueCards[1].props.style.borderColor, 'different members get different family colors: ' + hueCards[0].props.style.borderColor + ' vs ' + hueCards[1].props.style.borderColor);
 
 // Panel wiring: the usage line appears for a member whose projection exists.
 const usagePanel = elements(client.CabinetPanel({
@@ -815,6 +1008,10 @@ const factsUsageText = (nodes) => nodes
   .filter((node) => node.props?.key === 'usage')
   .map((node) => JSON.stringify(node))
   .join('|');
+const factsTokText = (nodes) => nodes
+  .filter((node) => node.props?.key === 'tok')
+  .map((node) => node.children.join(''))
+  .join('|');
 
 clockState.now = 2000000;
 recordedEffects.length = 0;
@@ -824,7 +1021,7 @@ resetHookCursor();
 const factsFirst = factsPanel(2000);
 const factsStop = factsRunEffects();
 assert.deepEqual(Array.from(factsReads).sort(), ['lead-session', 'm-works'], 'the first pass ensures every member once (an idle one included)');
-assert.ok(factsUsageText(factsFirst).includes(' 2K'), 'the first read paints the member total');
+assert.ok(factsTokText(factsFirst).includes('2K'), 'the first read paints the member total');
 const factsCallsAfterFirst = factsCalls.length;
 const factsReadsAfterFirst = factsReads.length;
 await new Promise((resolve) => setTimeout(resolve, 0));
@@ -848,8 +1045,8 @@ const factsCallsBeforePush = factsCalls.length;
 resetHookCursor();
 const factsPushed = factsPanel(5000);
 factsRunEffects();
-assert.ok(factsUsageText(factsPushed).includes(' 5K'), 'a Host-pushed projection frame updates the card to the new total');
-assert.ok(!factsUsageText(factsPushed).includes(' 2K'), 'the card shows the pushed value, not the stale one');
+assert.ok(factsTokText(factsPushed).includes('5K'), 'a Host-pushed projection frame updates the card to the new total');
+assert.ok(!factsTokText(factsPushed).includes('2K'), 'the card shows the pushed value, not the stale one');
 assert.equal(factsReads.length, factsReadsAfterFirst, 'the update came from the push, not from re-reading the session');
 assert.equal(factsCalls.length, factsCallsBeforePush, 'a push never re-reads or re-requests on its own');
 factsStop();
@@ -916,6 +1113,7 @@ const SettingsReact = {
     return [settingsState[index], (next) => { settingsState[index] = typeof next === 'function' ? next(settingsState[index]) : next; }];
   },
 };
+structuralHookSurfaces.push(SettingsReact);
 runInNewContext(source.replace(exportPoint, exportList), {
   setTimeout: (fn, ms) => setTimeout(fn, ms === 120000 ? 20 : ms), clearTimeout, localStorage: pluginSpecStorage, window: { __ModuleLoader__: { load: ({ factory }) => { settingsClient = factory((name) => { assert.equal(name, 'react'); return SettingsReact; }); } } },
 });
@@ -1327,6 +1525,7 @@ assert.equal(client.usageFor({tokenUsage:{outputTokens:-1},contextPressure:{cont
     },
     t: (key) => client.zh[key] || key,
     taskLabel: (status) => status,
+    expanded: true,
   });
   const descriptionNode = sheetNode(filled, 'description');
   const scopeNode = sheetNode(filled, 'writeScopes');
@@ -1340,6 +1539,7 @@ assert.equal(client.usageFor({tokenUsage:{outputTokens:-1},contextPressure:{cont
     task: { id: 'blank', subject: '只有标题', status: 'pending', description: '   ', writeScopes: ['  ', 7] },
     t: (key) => client.zh[key] || key,
     taskLabel: (status) => status,
+    expanded: true,
   });
   assert.equal(shown(sheetNode(blank, 'description')), '未记载');
   assert.equal(shown(sheetNode(blank, 'writeScopes')), '未记载');
@@ -1349,24 +1549,160 @@ assert.equal(client.usageFor({tokenUsage:{outputTokens:-1},contextPressure:{cont
     task: { id: 'omitted', subject: '缺字段', status: 'in_progress', description: '完成了但没跑', writeScopes: 'index.js' },
     t: (key) => client.zh[key] || key,
     taskLabel: (status) => status,
+    expanded: true,
   });
   assert.equal(shown(sheetNode(omitted, 'description')), '完成了但没跑');
   assert.equal(shown(sheetNode(omitted, 'writeScopes')), '未记载', 'a non-array writeScopes value is absent, not split');
   const rendered = elements(omitted).flatMap((node) => node.children.flat()).filter((child) => typeof child === 'string').join('');
   assert.ok(!rendered.includes('未验证'), 'wording in the description does not add an unverified label');
-  const panel = JSON.stringify(render({
+  // stringify 原树只到 h(TaskLine) 元素层（task prop 自带字段文本），必须
+  // elements() 展开后查真实渲染文本，才区分得了「收起」与「传参」。
+  const panelNodes = elements(render({
     members: [{ id: 'm-works', name: 'works', role: 'mate', phase: 'active' }],
     tasks: [{ id: 'panel-1', subject: '面板任务', status: 'pending', ownerName: 'works', description: '目标：改右栏', writeScopes: ['client.js'] }],
   }, client.zh));
-  assert.ok(panel.includes('目标：改右栏'));
-  assert.ok(panel.includes('client.js'));
+  // 单任务行新规格：阁臣卡不挂任务行，卡上只显示当前一个任务的标题。
+  assert.ok(panelNodes.some((node) => node.props?.['data-cabinet-task-row'] !== undefined), 'all tasks remain in the native collapsed details');
+  const details = panelNodes.find(node => node.props?.['data-cabinet-member-tasks'] === 'm-works');
+  assert.equal(details.type, 'details'); assert.equal(details.props.open, undefined);
+  assert.ok(elements(details).some(node => node.type === 'summary'));
+  assert.ok(panelNodes.some((node) => node.props?.['data-cabinet-task-desc'] !== undefined), 'the card shows its single current-task line');
+  assert.ok(JSON.stringify(panelNodes).includes('面板任务'), 'a pending task remains available in collapsed details');
+  const pickTree = JSON.stringify(elements(render({
+    members: [{ id: 'm-pick', name: 'pick', role: 'mate', phase: 'active' }],
+    tasks: [
+      { id: 't-old', subject: '最近的旧任务', status: 'pending', ownerName: 'pick' },
+      { id: 't-now', subject: '进行中的任务', status: 'in_progress', ownerName: 'pick', updatedAt: 200 },
+      { id: 't-now2', subject: '较旧的进行中', status: 'in_progress', ownerName: 'pick', updatedAt: 100 },
+    ],
+  }, client.zh)));
+  assert.ok(pickTree.includes('进行中的任务'), 'the in_progress task title wins on the card');
+  assert.ok(pickTree.includes('最近的旧任务'), 'non-active tasks remain available in collapsed details');
+  assert.ok(pickTree.includes('较旧的进行中'), 'other in_progress tasks remain available in collapsed details');
+  const pickDescs = elements(render({
+    members: [{ id: 'm-pick', name: 'pick', role: 'mate', phase: 'active' }],
+    tasks: [
+      { id: 't-old', subject: '最近的旧任务', status: 'pending', ownerName: 'pick' },
+      { id: 't-now', subject: '进行中的任务', status: 'in_progress', ownerName: 'pick', updatedAt: 200 },
+    ],
+  }, client.zh)).filter((node) => node.props?.['data-cabinet-task-desc'] !== undefined);
+  const descFlat = (desc) => {
+    const walk = (node) => {
+      if (typeof node === 'string') return node;
+      if (Array.isArray(node)) return node.map(walk).join('');
+      if (node && Array.isArray(node.children)) return node.children.map(walk).join('');
+      return '';
+    };
+    return walk(desc.children);
+  };
+  assert.ok(pickDescs.some((desc) => descFlat(desc).indexOf('\u25cf') === 0 && descFlat(desc).includes('进行中的任务')), 'the in-progress marker dot prefixes the title on the task line, got: ' + JSON.stringify(pickDescs.map((desc) => desc.children)));
+  // Completed tasks are not current work but remain accessible in details.
+  const idleTree = JSON.stringify(elements(render({
+    members: [{ id: 'm-idle', name: 'idler', role: 'mate', phase: 'active' }],
+    tasks: [{ id: 't-done', subject: '做完了的旧活', status: 'completed', ownerName: 'idler' }],
+  }, client.zh)));
+  assert.ok(idleTree.includes('无进行中任务'), 'a member with only completed tasks explicitly has no current task');
+  assert.ok(idleTree.includes('做完了的旧活'), 'completed tasks remain available in collapsed details');
   const english = client.TaskLine({
     task: { id: 'en-1', subject: 'sheet', status: 'pending' },
     t: (key) => client.en[key] || key,
     taskLabel: (status) => status,
+    expanded: true,
   });
   assert.equal(shown(sheetNode(english, 'description')), 'not recorded');
   assert.equal(shown(sheetNode(english, 'writeScopes')), 'not recorded');
+}
+
+
+// 家族树分层：每层最多 3 个、层内居中（9/4/2 个阁臣 → 3/2/1 层），弧线连线几何实测。
+{
+  const layerTeam = (count) => ({
+    members: [
+      { id: 'lead-session', name: 'lead', role: 'lead', phase: 'active' },
+      ...Array.from({ length: count }, (_, index) => ({ id: 'm-' + index, name: 'mate' + index, role: 'mate', phase: 'active' })),
+    ],
+    tasks: [],
+  });
+  const treeRows = (count) => elements(render(layerTeam(count), client.zh))
+    .filter((node) => node.props?.['data-cabinet-tree-row'] !== undefined);
+  const cardsIn = (row) => elements([row]).filter((node) => node.props?.['data-cabinet-node'] !== undefined);
+  const rows9 = treeRows(9);
+  assert.equal(rows9.length, 3, 'nine ministers lay out in three rows, got ' + rows9.length);
+  for (const [rowIndex, row] of rows9.entries()) {
+    assert.equal(cardsIn(row).length, 3, 'row ' + (rowIndex + 1) + ' holds three cards, got ' + cardsIn(row).length);
+    assert.equal(row.props.style.justifyContent, 'center', 'row ' + (rowIndex + 1) + ' centers its cards');
+    const flexStyles = new Set(cardsIn(row).map((card) => JSON.stringify(card.props.style)));
+    assert.equal(flexStyles.size, 1, 'row ' + (rowIndex + 1) + ' cards share one width style (equal width), got ' + flexStyles.size);
+  }
+  const rows4 = treeRows(4);
+  assert.equal(rows4.length, 2, 'four ministers lay out in two rows (3+1), got ' + rows4.length);
+  assert.deepEqual(rows4.map((row) => cardsIn(row).length), [3, 1], 'the second row holds the overflow minister');
+  assert.equal(rows4[1].props.style.justifyContent, 'center', 'the 1-card row still centers');
+  const rows2 = treeRows(2);
+  assert.equal(rows2.length, 1, 'two ministers share one row, got ' + rows2.length);
+  assert.equal(cardsIn(rows2[0]).length, 2, 'the single row holds both cards');
+  const gridBox = elements(render(layerTeam(9), client.zh)).find((node) => node.props?.key === 'grid');
+  assert.ok(gridBox && gridBox.props.style.rowGap >= 90, 'layers keep a 90px+ vertical gap for the arcs, got ' + JSON.stringify(gridBox && gridBox.props.style.rowGap));
+  // 弧线连线几何实测（buildConnectorPaths 真跑合成矩形）：lead 扇形同点出发、
+  // 每卡一条贝塞尔止于顶中点、每层居中卡扇形连下一层、线色随目标卡。
+  const connBase = { left: 0, top: 0, width: 600, height: 900 };
+  const connLead = { left: 260, top: 0, width: 80, height: 60 };
+  const connNodes = [];
+  for (let rowIndex = 0; rowIndex < 3; rowIndex += 1) {
+    for (let colIndex = 0; colIndex < 3; colIndex += 1) {
+      connNodes.push({ left: 40 + colIndex * 180, top: 200 + rowIndex * 160, width: 160, height: 120, color: 'hsl(' + (rowIndex * 3 + colIndex) + ' 58% 52%)' });
+    }
+  }
+  const connPaths = client.buildConnectorPaths(connBase, connLead, connNodes, -8);
+  assert.ok(Array.isArray(connPaths) && connPaths.length > 0, 'connector arcs build for a 3x3 layered tree');
+  const connD = connPaths.map((path) => (typeof path === 'string' ? path : path.d));
+  const leadFan = connD.filter((d) => d.indexOf('M 300 60 L 300 74 C ') === 0);
+  assert.equal(leadFan.length, 3, 'lead fans out to layer 1 from one point after a vertical stub, got ' + leadFan.length);
+  let arrived = 0;
+  for (const node of connNodes) {
+    const cx = node.left + node.width / 2;
+    if (connD.some((d) => d.includes(' C ') && d.endsWith(' ' + cx + ' ' + node.top))) arrived += 1;
+  }
+  assert.equal(arrived, 9, 'every layered card receives an arc ending at its top centre, got ' + arrived);
+  const hubFan = connD.filter((d) => d.indexOf('M 300 320 L 300 334 C ') === 0);
+  assert.equal(hubFan.length, 0, 'no member is made the parent of the next visual row, got ' + hubFan.length);
+  assert.equal(connPaths.length, 9);
+  assert.ok(connD.every(d => d.startsWith('M 300 60 ')), 'every visual row remains a sibling sourced from Lead');
+  const colored = connPaths.filter((path) => typeof path === 'object' && typeof path.color === 'string' && path.color.indexOf('hsl(') === 0);
+  assert.ok(colored.length >= 9, 'arcs carry the target cards family colors, got ' + colored.length);
+
+  // 非零 base 回归用例：矩形是视口坐标，path 必须落在容器内坐标 [0,base.w]×[0,base.h]。
+  const offBase = { left: 300, top: 200, width: 800, height: 600 };
+  const offLead = { left: 500, top: 220, width: 200, height: 80 };
+  const offNodes = [];
+  for (let rowIndex = 0; rowIndex < 2; rowIndex += 1) {
+    for (let colIndex = 0; colIndex < 3; colIndex += 1) {
+      offNodes.push({ left: 340 + colIndex * 220, top: 420 + rowIndex * 220, width: 180, height: 140, color: 'hsl(' + (rowIndex * 3 + colIndex) + ' 58% 52%)' });
+    }
+  }
+  const offPaths = client.buildConnectorPaths(offBase, offLead, offNodes, -8);
+  assert.ok(Array.isArray(offPaths) && offPaths.length === 6, 'six arcs build against a non-zero base, got ' + JSON.stringify(offPaths && offPaths.length));
+  const coordRe = /[-+]?\d*\.?\d+/g;
+  for (const path of offPaths) {
+    const nums = path.d.match(coordRe).map(Number);
+    for (const value of nums) {
+      assert.ok(value >= -8 && value <= offBase.width + 0.5, 'x within [0, base.width], got ' + value + ' in ' + path.d);
+    }
+    for (let i = 1; i < nums.length; i += 2) {
+      assert.ok(nums[i] >= -0.5 && nums[i] <= offBase.height + 0.5, 'y within [0, base.height], got ' + nums[i] + ' in ' + path.d);
+    }
+  }
+  assert.ok(offPaths[0].d.indexOf('M 300 100 ') === 0, 'first arc starts at the lead bottom-centre in container coords (300,100), got: ' + offPaths[0].d);
+  // 平移不变量：base 与所有矩形同移 (dx,dy)，d 逐字相同。
+  const dx = 111, dy = -77;
+  const movedPaths = client.buildConnectorPaths(
+    { ...offBase, left: offBase.left + dx, top: offBase.top + dy },
+    { ...offLead, left: offLead.left + dx, top: offLead.top + dy },
+    offNodes.map((node) => ({ ...node, left: node.left + dx, top: node.top + dy })),
+    -8);
+  assert.deepEqual(movedPaths.map((path) => path.d), offPaths.map((path) => path.d), 'translating base+rects leaves every arc byte-identical');
+  // 收尾：清 CabinetPanel 入队的 effect，防泄漏给后续块（3b47d6a2 教训）。
+  recordedEffects.length = 0;
 }
 
 // The dispatch button is gone, so an injected workspace channel must not resurrect
@@ -1623,12 +1959,14 @@ console.log('PASS 内阁 Bot section removal: no section box, office rows, 现�
     return { tree, stop };
   };
 
-  // 1) Right pane: roster only. 群聊 now lives in the 左侧「内阁」整页
-  //    (`activeTab: 'groupchat'`), so the two surfaces no longer show the same
-  //    conversation; the roster keeps the five-tab settings section intact.
+  // 1) Right pane: 名册 + 时间线 (the right rail's two views). 群聊 lives in
+  //    the 左侧「内阁」整页 (`activeTab: 'groupchat'`), so the two surfaces no
+  //    longer show the same conversation; the roster keeps its five-tab
+  //    settings section intact and stays the default view.
   const first = groupRender();
   const tabNodes = findNodes(first.tree, (node) => node.props?.['data-cabinet-panel-tab'] !== undefined);
-  assert.deepEqual(tabNodes.map((node) => node.props['data-cabinet-panel-tab']), ['roster'], 'the right pane keeps the roster tab only');
+  assert.deepEqual(tabNodes.map((node) => node.props['data-cabinet-panel-tab']), ['roster', 'timeline'], 'the right pane keeps 名册 + 时间线');
+  assert.deepEqual(tabNodes.map((node) => node.props['data-cabinet-rail-tab']), ['roster', 'timeline'], 'both right-pane tabs carry the rail hook');
   assert.ok(!tabNodes.some((node) => node.props['data-cabinet-panel-tab'] === 'groupchat'), 'the right pane exposes no 群聊 tab');
   assert.equal(tabNodes[0].props['data-cabinet-panel-active'], '1', 'the roster view stays the default');
   assert.equal(findNodes(first.tree, (node) => node.props?.['data-cabinet-groupchat'] !== undefined).length, 0, 'the right pane no longer hosts the group chat');
@@ -2443,6 +2781,110 @@ console.log('PASS 内阁 Bot section removal: no section box, office rows, 现�
     assert.ok(releases.includes('lead-session'), 'unmounting the page releases the retained session, got ' + JSON.stringify(releases.slice(-3)));
     persistentRefs = null;
     groupTab = 'roster';
+  }
+
+  // ---- 泳道时间线（MVP）：数据 = 群聊那份折叠行；不新建 RPC ----
+  {
+    // 前面的页内渲染把 CabinetPage 布局的 ref/state 写进了 groupSlots 与
+    // hookStates.slots（基准偏移与独立 groupRender 不同）；本块从 0 基准起，先清干净。
+    groupSlots.length = 0;
+    hookStates.slots.length = 0;
+    // 页内渲染留下的 effect 队列带着 CabinetPage 的槽位基准，进本块的
+    // runGroupEffects 会按错误索引写槽（实测把 linkPaths 槽写成 null）——先清空。
+    recordedEffects.length = 0;
+    resetHookCursor();
+    const tlTeam = { members: [
+      { id: 'lead-session', name: 'lead', role: 'lead', phase: 'active' },
+      { id: 'm-works', name: 'works', role: 'mate', phase: 'active' },
+      { id: 'm-quiet', name: 'quiet', role: 'mate', phase: 'active' }
+    ], tasks: [{ id: '7', subject: '时间线联动任务', status: 'in_progress', ownerName: 'works' }] };
+    // lead：3 条真实消息，前两条带 taskId（方块写任务号），第三条没有（写序号）；
+    // works：3 条不带 taskId（全部写序号）；
+    // quiet：没有 source → 快照读取失败 → 不可用行（time 0）→ 无事件 → 不画泳道。
+    sources['lead-session'] = makeSource([
+      durable('user/message', 1, 1000, { role: 'user', content: [{ type: 'text', text: '第一问' }], source: { kind: 'user', rpcId: 'r-lead-1' }, taskId: '7' }),
+      durable('assistant/message', 2, 2000, { message: { role: 'assistant', content: [{ type: 'text', text: '答一' }] }, taskId: '7' }),
+      durable('user/message', 3, 3000, { role: 'user', content: [{ type: 'text', text: '第二问' }], source: { kind: 'user', rpcId: 'r-lead-3' } })
+    ]);
+    sources['m-works'] = makeSource([
+      durable('user/message', 1, 1500, { role: 'user', content: [{ type: 'text', text: '开工' }], source: { kind: 'user', rpcId: 'r-works-1' } }),
+      durable('assistant/message', 2, 2500, { message: { role: 'assistant', content: [{ type: 'text', text: '在做' }] } }),
+      durable('assistant/message', 3, 3500, { message: { role: 'assistant', content: [{ type: 'text', text: '完成' }] } })
+    ]);
+    const nodesOf = (tree, attr) => findNodes(tree, (node) => node.props?.[attr] !== undefined);
+    const flatText = (node) => {
+      const collect = (item) => (item && Array.isArray(item.children) ? item.children : [])
+        .flat(Infinity)
+        .map((child) => (typeof child === 'string' ? child : collect(child)))
+        .join('');
+      return collect(node);
+    };
+
+    // 默认仍是名册：无时间线容器，有名册树。
+    const tlDefault = groupRender({ activeTab: 'roster', team: tlTeam });
+    assert.equal(nodesOf(tlDefault.tree, 'data-cabinet-timeline').length, 0, 'the default right pane renders no timeline');
+    assert.ok(nodesOf(tlDefault.tree, 'data-cabinet-roster').length > 0, 'the default right pane renders the roster tree');
+
+    // 首次时间线渲染才开始 retain；ready 落定后折叠行才进视图（同群聊段
+    // :1653 的 settled→merged 时序）。
+    groupRender({ activeTab: 'timeline', team: tlTeam });
+    for (const resolve of pendingReady.values()) resolve({});
+    pendingReady.clear();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const tlView = groupRender({ activeTab: 'timeline', team: tlTeam });
+    assert.equal(nodesOf(tlView.tree, 'data-cabinet-timeline').length, 1, 'switching to 时间线 renders the timeline container');
+    assert.equal(nodesOf(tlView.tree, 'data-cabinet-roster').length, 0, 'the roster tree disappears on 时间线');
+
+    const lanes = nodesOf(tlView.tree, 'data-cabinet-timeline-lane');
+    assert.deepEqual(lanes.map((node) => node.props['data-cabinet-timeline-lane']), ['lead-session', 'm-works'], 'two event lanes render; the member without events draws no lane');
+
+    const events = nodesOf(tlView.tree, 'data-cabinet-timeline-event');
+    assert.equal(events.length, 6, 'six events render (3 per lane), got ' + events.length);
+
+    // 时间线视觉还原：左块两行（头像+名字 / meta）、48px 行高、家族色事件点、顶部计数。
+    const head0 = findNodes([lanes[0]], (node) => node.props?.['data-cabinet-timeline-lane-head'] !== undefined)[0];
+    assert.ok(head0, 'the lane renders its head block (data-cabinet-timeline-lane-head)');
+    assert.ok(findNodes([head0], (node) => node.type === 'img' || (typeof node.type === 'function' && node.type.name === 'Avatar')).length >= 1, 'the head block carries the avatar');
+    assert.ok(flatText(head0).includes('lead'), 'the head block carries the member name, got: ' + JSON.stringify(flatText(head0)));
+    const meta0 = findNodes([lanes[0]], (node) => node.props?.['data-cabinet-timeline-lane-meta'] !== undefined)[0];
+    assert.ok(meta0, 'the head block carries the meta line (data-cabinet-timeline-lane-meta)');
+    assert.ok(flatText(meta0).includes('个任务') && flatText(meta0).includes('个事件'), 'meta counts tasks and events, got: ' + JSON.stringify(flatText(meta0)));
+    assert.equal(lanes[0].props.style.height, 48, 'lane rows compress to 48px');
+    assert.ok(typeof lanes[0].props.style.borderBottom === 'string' && lanes[0].props.style.borderBottom.includes('1px'), 'lanes keep a 1px separator');
+    const countNode = nodesOf(tlView.tree, 'data-cabinet-timeline-count')[0];
+    assert.ok(countNode, 'the timeline shows its count row (data-cabinet-timeline-count)');
+    assert.ok(flatText(countNode).includes('条泳道'), 'count row reads N 条泳道, got: ' + JSON.stringify(flatText(countNode)));
+    const leadHue = events[0].props.style.background;
+    assert.ok(typeof leadHue === 'string' && leadHue.indexOf('hsl(') === 0, 'events carry the family hue background, got: ' + leadHue);
+    assert.notEqual(leadHue, events[3].props.style.background, 'different lanes use different family hues: ' + leadHue + ' vs ' + events[3].props.style.background);
+    assert.ok(nodesOf(tlView.tree, 'data-cabinet-timeline-stem').length === 6, 'each event draws a stem down to the baseline');
+    // X 位置随时间单调递增：每个泳道内，事件按时间排序，left% 严格递增。
+    for (const lane of lanes) {
+      const laneEvents = findNodes([lane], (node) => node.props?.['data-cabinet-timeline-event'] !== undefined);
+      const lefts = laneEvents.map((node) => parseFloat(node.props.style.left));
+      assert.equal(lefts.length, 3, 'the lane keeps its three events');
+      for (let i = 1; i < lefts.length; i += 1) {
+        assert.ok(lefts[i] > lefts[i - 1], 'event X positions increase with time in ' + lane.props['data-cabinet-timeline-lane'] + ': ' + JSON.stringify(lefts));
+      }
+    }
+    // 方块数字：有任务号写任务号；没有任务号写该行序号。
+    const leadEvents = findNodes([lanes[0]], (node) => node.props?.['data-cabinet-timeline-event'] !== undefined);
+    assert.equal(leadEvents[0].props['data-cabinet-timeline-event-task'], '7', 'the first event carries its task id');
+    assert.ok(flatText(leadEvents[0]).includes('7'), 'the block renders the task number, got: ' + JSON.stringify(flatText(leadEvents[0])));
+    assert.equal(leadEvents[2].props['data-cabinet-timeline-event-task'], undefined, 'an event without a task has no task attr');
+    assert.equal(flatText(leadEvents[2]), String(leadEvents[2].props['data-cabinet-timeline-event-seq']), 'an event without a task shows its sequence number, got: ' + JSON.stringify(flatText(leadEvents[2])));
+    const worksEvents = findNodes([lanes[1]], (node) => node.props?.['data-cabinet-timeline-event'] !== undefined);
+    for (const eventNode of worksEvents) {
+      assert.ok(flatText(eventNode).length > 0, 'every taskless block still shows its sequence number, got: ' + JSON.stringify(flatText(eventNode)));
+    }
+    // 收尾：恢复默认名册。
+    groupRender({ activeTab: 'roster', team: tlTeam });
+    // 段尾契约：交还 persistentRefs=null，并清空本块写下的群聊布局残留槽——
+    // 段后的页面渲染按页面基址读槽，读到群聊布局残留会把 linkPaths 槽
+    // 当成非数组（实测 linkPaths.map 崩），清空后各块从 initial 值起步。
+    persistentRefs = null;
+    groupSlots.length = 0;
+    hookStates.slots.length = 0;
   }
 }
 console.log('PASS 群聊 tab: the right pane keeps the roster only (no 群聊 tab, rows or composer) while the group chat is mounted through the standalone 内阁 page, which retains/releases its selected SessionId, settings tabs untouched, retain first argument is a SessionId string with source cabinetGroupChat, messages merge in time order with officer portrait/name and body, the user\'s own durable prompt renders as 「你」 with no bureau name or portrait while injected user-role rows are filtered, the composer queues prompt(parts,\'queue\') to the Lead session and keeps its draft across re-renders, refuses duplicates while sending and degrades to a disabled hint without a SessionFace, long replies (>12 lines or 600+ chars) fold with 展开/收起 and short ones do not, only the newest 30 rows mount until 显示更早, the fold cache reuses an unchanged window revision instead of re-reading entries, two tool calls collapse to 「2 个工具」, a failed member degrades to 不可用, the bilingual empty state renders, a tab switch and unmount each release every reference exactly once, the 5s tick folds an appended window, and two text-delta frames concatenate inside one message');
@@ -3317,15 +3759,15 @@ assert.ok(!/background:\s*'(#fff|white)'/.test(source), 'no bare white backgroun
       const ofRail = ofTree.find((node) => node.props?.['data-cabinet-cabinet-rail'] !== undefined);
       assert.equal(ofRail.props.style.minWidth, 0, 'the rail container keeps minWidth:0');
       assert.equal(ofRail.props.style.overflow, 'hidden', 'the rail container clips instead of stretching');
-      const gridNode = ofTree.find((node) => typeof node.props?.style?.gridTemplateColumns === 'string' && node.props.style.gridTemplateColumns.includes('auto-fill'));
-      assert.ok(gridNode, 'the roster grid renders with members');
-      assert.ok(gridNode.props.style.gridTemplateColumns.includes('auto-fill'), 'the roster grid auto-fills columns by container width, got ' + gridNode.props.style.gridTemplateColumns);
-      assert.ok(gridNode.props.style.gridTemplateColumns.includes('minmax(140px'), 'roster grid columns floor at 140px, got ' + gridNode.props.style.gridTemplateColumns);
+      // 分层布局（每层 ≤3 卡、层内居中）取代 auto-fill grid：断言改为分层语义。
+      const treeRowNodes = ofTree.filter((node) => node.props?.['data-cabinet-tree-row'] !== undefined);
+      assert.ok(treeRowNodes.length > 0, 'the roster renders layered tree rows (data-cabinet-tree-row)');
+      for (const treeRow of treeRowNodes) assert.equal(treeRow.props.style?.justifyContent, 'center', 'every tree row centers its cards');
       const cellNodes = ofTree.filter((node) => node.props?.['data-cabinet-node'] !== undefined);
       assert.ok(cellNodes.length > 0, 'roster grid cells render');
-      for (const cell of cellNodes) assert.equal(cell.props.style?.minWidth, 140, 'every grid cell wrapper carries the 140px card floor');
+      for (const cell of cellNodes) assert.equal(cell.props.style?.flex, '0 1 calc((100% - 24px) / 3)', 'every cell wrapper uses the 3-per-row flex basis');
       // 成员名必须单行省略——竖排 = whiteSpace 没锁（御史第15轮实测症状）。
-      const nameSpans = ofTree.filter((node) => node.props?.style?.fontSize === 13 && node.props?.style?.fontWeight === 600 && typeof node.props?.title === 'string' && node.props.title.includes('·'));
+      const nameSpans = ofTree.filter((node) => node.props?.style?.fontSize === 14 && node.props?.style?.fontWeight === 600 && typeof node.props?.title === 'string' && node.props.title.includes('·'));
       assert.ok(nameSpans.length > 0, 'roster member name spans render');
       for (const nameSpan of nameSpans) {
         assert.equal(nameSpan.props.style.whiteSpace, 'nowrap', 'roster member names stay on one line (nowrap), never stacked per character');
@@ -3339,7 +3781,14 @@ assert.ok(!/background:\s*'(#fff|white)'/.test(source), 'no bare white backgroun
         assert.equal(senderSpan.props.style.textOverflow, 'ellipsis', 'chat sender names ellipsize, got ' + senderSpan.props.title);
       }
       // Owner 标签（带成员名的长文本）必须可收缩 + 单行省略，否则窄卡内被固有宽度撑破。
-      const ownerTags = ofTree.filter((node) => node.props?.style?.fontSize === 10 && typeof node.props?.title === 'string' && node.props.title.includes('·'));
+      // 新规格下阁臣 own 任务不挂卡——Owner tag 由 TaskLine 直调按组件契约覆盖。
+      const ownerTags = elements(client.TaskLine({
+        task: { id: 'o-1', subject: 'x', status: 'pending', ownerName: 'gongbu-shangshu-2' },
+        blockerOf: () => false,
+        t: (key) => pageClient.zh[key] || key,
+        taskLabel: (status) => status,
+        onOpenOwner: null,
+      })).filter((node) => node.props?.style?.fontSize === 10 && typeof node.props?.title === 'string' && node.props.title.includes('·'));
       assert.ok(ownerTags.length > 0, 'the Owner tag carrying a member name renders');
       for (const ownerTag of ownerTags) {
         assert.equal(ownerTag.props.style.minWidth, 0, 'the Owner tag can shrink (minWidth:0)');
@@ -3361,6 +3810,54 @@ assert.ok(!/background:\s*'(#fff|white)'/.test(source), 'no bare white backgroun
       resetHookCursor();
       elements(pageClient.CabinetPage({
         useSessions: (select) => select({ ids: ['s-of'], byId: { 's-of': { title: '溢出修复', updatedAt: ageOf(8) } }, projectionsBySession: {} }),
+        useSessionStatus: (select) => select(new Map()),
+        t: (key) => pageClient.zh[key] || key
+      }));
+    }
+
+    // ---- 右栏视图切换：名册 / 时间线（页面级：点 tab 真的能切）----
+    {
+      // 清槽位 + 无成员基线，块内 CabinetPage 渲染同构（同宽度/溢出块收尾约定）。
+      hookStates.slots.length = 0;
+      persistentRefs = { cursor: 0, slots: [] };
+      resetHookCursor();
+      const tlProps = {
+        useSessions: (select) => select({ ids: ['s-lead'], byId: { 's-lead': { title: '首辅会话', updatedAt: ageOf(50) } }, projectionsBySession: { 's-lead': { values: { agentTeam: { members: [
+          { name: 'lead', role: 'lead', id: 's-lead' },
+          { name: 'works', role: 'mate', id: 'm-works' },
+          { name: 'quiet', role: 'mate', id: 'm-quiet' }
+        ], tasks: [] } } } } }),
+        useSessionStatus: (select) => select(new Map()),
+        t: (key) => pageClient.zh[key] || key
+      };
+      const railTabsOf = (tree) => tree.filter((node) => node.props?.['data-cabinet-rail-tab'] !== undefined);
+      const baseTree = elements(pageClient.CabinetPage(tlProps));
+      const baseTabs = railTabsOf(baseTree);
+      assert.deepEqual(baseTabs.map((node) => node.props['data-cabinet-rail-tab']), ['roster', 'timeline'], 'the right rail offers 名册 + 时间线');
+      assert.equal(baseTabs.find((node) => node.props['data-cabinet-rail-tab'] === 'roster').props['data-cabinet-panel-active'], '1', '名册 is the default rail view');
+      assert.equal(baseTree.find((node) => node.props?.['data-cabinet-timeline'] !== undefined), undefined, 'no timeline renders on the default rail view');
+      // 点「时间线」→ 时间线容器出现、名册容器消失。
+      baseTabs.find((node) => node.props['data-cabinet-rail-tab'] === 'timeline').props.onClick();
+      resetHookCursor();
+      const tlTree = elements(pageClient.CabinetPage(tlProps));
+      assert.ok(tlTree.find((node) => node.props?.['data-cabinet-timeline'] !== undefined) !== undefined, 'clicking 时间线 renders the timeline container');
+      assert.equal(tlTree.find((node) => node.props?.['data-cabinet-roster'] !== undefined), undefined, 'the roster tree leaves the rail on 时间线');
+      // 页面级无 sessions 服务 → 全员无事件 → 时间线渲染空态（不画泳道）。
+      assert.equal(tlTree.find((node) => node.props?.['data-cabinet-timeline-empty'] !== undefined), undefined, 'unavailable history must not claim an empty timeline');
+      assert.ok(tlTree.some(node => node.props?.['data-cabinet-timeline-state'] !== undefined), 'unresolved member history exposes explicit status');
+      assert.equal(tlTree.find((node) => node.props?.['data-cabinet-timeline-lane'] !== undefined), undefined, 'members without events draw no lane');
+      // 再点「名册」回到默认视图。
+      tlTree.filter((node) => node.props?.['data-cabinet-rail-tab'] === 'roster')[0].props.onClick();
+      resetHookCursor();
+      const backTree = elements(pageClient.CabinetPage(tlProps));
+      assert.ok(backTree.find((node) => node.props?.['data-cabinet-roster'] !== undefined) !== undefined, 'clicking 名册 brings the roster back');
+      assert.equal(backTree.find((node) => node.props?.['data-cabinet-timeline'] !== undefined), undefined, 'the timeline leaves the rail');
+      // 收尾：清槽位 + 无成员基线渲染（同溢出块收尾），别把 3 成员布局泄漏给后续块。
+      hookStates.slots.length = 0;
+      persistentRefs = { cursor: 0, slots: [] };
+      resetHookCursor();
+      elements(pageClient.CabinetPage({
+        useSessions: (select) => select({ ids: ['s-of'], byId: { 's-of': { title: '时间线收尾', updatedAt: ageOf(8) } }, projectionsBySession: {} }),
         useSessionStatus: (select) => select(new Map()),
         t: (key) => pageClient.zh[key] || key
       }));
