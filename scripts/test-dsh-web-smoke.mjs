@@ -1,7 +1,10 @@
 // Real official DSH host smoke, no model requests and no user profiles/credentials.
 // Requires DSH_MODULE_ROOT pointing at official runtime node_modules and pnpm on PATH.
+// Optional --headless requires DSH_BROWSER_TEST_ROOT/playwright-core and CHROME_PATH.
 // Raw host output, launch tokens, cookies and authenticated HTML never leave memory.
+// No browser traces, screenshots, storage state or raw browser diagnostics are saved.
 import {spawn} from 'node:child_process';
+import {createRequire} from 'node:module';
 import {mkdtemp,mkdir,rm,readFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join,resolve,dirname} from 'node:path';
@@ -39,6 +42,52 @@ function failure(label,state){
  return Error(label+': '+reason+' (raw diagnostics withheld to protect authentication material)');
 }
 async function run(args,label){const s=start(args);const deadline=Date.now()+180000;while(!s.done&&Date.now()<deadline)await pause(100);if(!s.done||s.code!==0){const e=failure(label,s);await stop(s);throw e}const output=s.output;await stop(s);return output}
+async function browserSmoke(auth,origin,batchUrl){
+ let browser,stage='dependency setup';
+ try{
+  const testRoot=process.env.DSH_BROWSER_TEST_ROOT;
+  if(!testRoot||!process.env.CHROME_PATH)throw Error('missing browser configuration');
+  const require=createRequire(join(resolve(testRoot),'package.json'));
+  stage='Chromium launch';
+  browser=await require('playwright-core').chromium.launch({executablePath:process.env.CHROME_PATH,headless:true,args:['--no-sandbox'],env,timeout:30000});
+  const context=await browser.newContext({viewport:{width:1400,height:900},serviceWorkers:'block'});
+  // Real official services only. Block third-party HTTP requests, never stub host APIs.
+  await context.route('**/*',route=>{
+   const url=new URL(route.request().url());
+   return url.origin===origin?route.continue():route.abort();
+  });
+  const page=await context.newPage();page.setDefaultTimeout(30000);
+  let pageErrors=0,assetSeen=false;
+  page.on('pageerror',()=>pageErrors++);
+  const expected=new URL('/'+batchUrl.replace(/^\//,''),origin).href;
+  page.on('response',response=>{if(response.url()===expected&&response.status()===200)assetSeen=true});
+  stage='authenticated official page navigation';
+  await page.goto(auth.href,{waitUntil:'domcontentloaded',timeout:45000});
+  await page.waitForURL(url=>url.origin===origin&&url.search==='',{timeout:15000});
+  stage='Cabinet client bootstrap and sidebar entry';
+  const icon=page.locator('[data-cabinet-panel-icon]').first();await icon.waitFor({state:'visible',timeout:45000});
+  if(!assetSeen)throw Error('official client asset not requested');
+  await icon.click();
+  stage='Cabinet page rendered by real host';
+  await page.locator('[data-cabinet-page]').waitFor({state:'visible'});
+  await page.locator('[data-cabinet-page-note]').waitFor({state:'visible'});
+  if(await page.locator('[data-cabinet-page-session] option').count()!==0)throw Error('fresh profile unexpectedly has visible sessions');
+  stage='Cabinet native sidebar interactions';
+  const toggle=page.locator('[data-cabinet-split-toggle]');
+  await toggle.click();await page.waitForFunction(()=>document.querySelector('[data-cabinet-cabinet-rail]')?.getAttribute('data-cabinet-rail-open')==='0');
+  await toggle.click();await page.waitForFunction(()=>document.querySelector('[data-cabinet-cabinet-rail]')?.getAttribute('data-cabinet-rail-open')==='1');
+  await page.locator('[data-cabinet-conversation-settings]').click();
+  await page.locator('[data-cabinet-page-settings][data-cabinet-page-settings-open="1"]').waitFor({state:'visible'});
+  await page.locator('[data-cabinet-settings-close]').click();
+  await page.locator('[data-cabinet-page-list][data-cabinet-page-list-open="1"]').waitFor({state:'visible'});
+  if(pageErrors!==0)throw Error('browser runtime error');
+  console.log('PASS real official host Chromium: client batch requested, Cabinet entry/page, empty profile, rail toggles and settings navigation');
+ }catch(error){
+  const reason=/EPERM|Operation not permitted|Permission denied/.test(String(error?.message||''))?' (permission denied)':/executable.*doesn.t exist|ENOENT/i.test(String(error?.message||''))?' (browser executable missing)':'';
+  // Playwright exceptions can embed the authenticated navigation URL. Never forward them.
+  throw Error('real-host browser smoke failed at '+stage+reason+'; raw browser diagnostics withheld');
+ }finally{try{await browser?.close()}catch{}}
+}
 let signalHandler;
 try{
  signalHandler=()=>{for(const s of children){try{process.kill(-s.child.pid,'SIGKILL')}catch{}}process.exit(130)};
@@ -68,7 +117,10 @@ try{
  const javascript=await asset.text();const localClient=await readFile(join(repo,'client.js'),'utf8');
  if(!javascript.includes(localClient.trim()))throw Error('served boot batch does not contain this checkout client.js');
  console.log('PASS real host HTTP authentication, rendered boot graph and exact checkout client bytes served');
- console.log('BOUNDARY: browser execution, visual navigation and model inference are NOT tested by this HTTP smoke');
+ if(process.argv.includes('--headless')){
+  await browserSmoke(auth,origin,batch.url);
+  console.log('BOUNDARY: real empty-profile UI boot/navigation tested; populated workspaces, model inference and live agent runs are NOT tested');
+ }else console.log('BOUNDARY: browser execution, visual navigation and model inference are NOT tested by this HTTP smoke');
  await stop(host);
 }catch(error){
  // Only our own static messages escape; never print underlying host/fetch exception stacks.

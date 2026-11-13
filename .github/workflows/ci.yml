@@ -110,11 +110,17 @@ jobs:
             node scripts/test-model-selection.cjs
           fi
           node scripts/test-prompt-assembly.cjs
-      - name: Isolated real DSH web startup and plugin asset smoke (no model)
+      - name: Isolated real DSH host browser smoke (no model)
         if: matrix.dsh == '0.2.2-rc.1'
         env:
           DSH_MODULE_ROOT: ${{ runner.temp }}/cabinet-runtime/node_modules
-        run: node scripts/test-dsh-web-smoke.mjs
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --prefix "$RUNNER_TEMP/cabinet-host-browser" --ignore-scripts --no-audit --no-fund playwright-core@1.65.0
+          export DSH_BROWSER_TEST_ROOT="$RUNNER_TEMP/cabinet-host-browser"
+          export CHROME_PATH="$(command -v google-chrome || command -v chromium)"
+          node scripts/test-dsh-web-smoke.mjs --headless
 
 
   browser-regression:
