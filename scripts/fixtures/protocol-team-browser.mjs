@@ -81,7 +81,7 @@ export async function teamBrowser({auth,env,repo,members}){
     const response=await route.fetch({maxRetries:0,maxRedirects:0,timeout:30000});
     const ack=await response.json();
     if(response.status()!==200||ack.type!=='server-response'||ack.rpcId!==envelope.rpcId||ack.result?.ok!==true||ack.result.value?.accepted!==true)throw Error('host did not accept');
-    proofs.push({marker,requestId:request.requestId});
+    proofs.push({marker,requestId:request.requestId,sessionId:lead.id});
     if(marker==='CABINET_UI_ACK_LOST_V1')await route.abort('failed');
     else await route.fulfill({response});
    }catch{routeFailed=true;try{await route.abort('failed')}catch{}}
@@ -103,9 +103,44 @@ export async function teamBrowser({auth,env,repo,members}){
     if(!/Delivery outcome unknown; not resent|发送结果未知，未自动重发/.test(await hint.innerText()))throw Error('missing explicit uncertain-delivery warning');
    }
   }
+  stage='accepted mentioned member prompt with acknowledgement lost';
+  const memberMarker='CABINET_UI_MEMBER_ACK_LOST_V1';
+  // A member is addressed through the real subagents API, whose successful
+  // value is an inbox messageId, NOT the session/prompt accepted boolean.
+  await context.route(origin+'/api/subagents/prompt',async route=>{
+   try{
+    const envelope=route.request().postDataJSON(),request=envelope?.payload?.args?.request;
+    const marker=request?.content?.length===1&&request.content[0].type==='text'?request.content[0].text:undefined;
+    if(marker!==memberMarker){await route.continue();return}
+    promptCounts.set(marker,(promptCounts.get(marker)||0)+1);
+    if(envelope.type!=='client-request'||envelope.method!=='subagents/prompt'||request.parentSessionId!==lead.id||request.childSessionId!==member.id||request.mode!=='continuable'||request.delivery!=='queue'||typeof request.requestId!=='string'||promptCounts.get(marker)!==1)throw Error('unexpected routed prompt');
+    const response=await route.fetch({maxRetries:0,maxRedirects:0,timeout:30000});
+    const ack=await response.json();
+    if(response.status()!==200||ack.type!=='server-response'||ack.rpcId!==envelope.rpcId||ack.result?.ok!==true||typeof ack.result.value?.messageId!=='string'||!ack.result.value.messageId)throw Error('host did not accept routed prompt');
+    proofs.push({marker,requestId:request.requestId,sessionId:member.id,messageId:ack.result.value.messageId});
+    await route.abort('failed');
+   }catch{routeFailed=true;try{await route.abort('failed')}catch{}}
+  });
+  // Select an actual mention option. Merely typing an @label is not selection.
+  await input.fill('@');
+  await page.locator(`[data-cabinet-mention-option=${JSON.stringify(member.id)}]`).click();
+  const mentionedDraft=(await input.inputValue())+memberMarker;
+  await input.fill(mentionedDraft);
+  await page.locator(`[data-cabinet-mention-chip=${JSON.stringify(member.id)}]`).waitFor({state:'visible'});
+  await page.locator('[data-cabinet-groupchat-send]').click();
+  await page.waitForFunction(()=>document.querySelector('[data-cabinet-groupchat-send]')?.getAttribute('data-cabinet-groupchat-sending')==='0');
+  await group.locator('[data-cabinet-groupchat-row="assistant"]').filter({has:page.locator(`[data-cabinet-open-session=${JSON.stringify(member.id)}]`)}).filter({hasText:memberMarker+'_REPLY'}).first().waitFor({state:'visible'});
+  // Completion legitimately wakes the Lead. Its independently-budgeted response
+  // proves notification processing; it is not a fallback resend of member input.
+  await group.locator('[data-cabinet-groupchat-row="assistant"]').filter({has:page.locator(`[data-cabinet-open-session=${JSON.stringify(lead.id)}]`)}).filter({hasText:'CABINET_UI_MEMBER_SETTLED_V1_REPLY'}).first().waitFor({state:'visible'});
+  if(routeFailed||promptCounts.get(memberMarker)!==1||proofs.filter(p=>p.marker===memberMarker).length!==1||await input.inputValue()!==mentionedDraft)throw Error('routed acceptance or draft proof failed');
+  if(await page.locator('[data-cabinet-mention-fallback]').count())throw Error('member prompt fell back to Lead');
+  const memberHint=page.locator('[data-cabinet-groupchat-composer-hint]');
+  await memberHint.waitFor({state:'visible'});
+  if(!/Delivery outcome unknown; not resent|发送结果未知，未自动重发/.test(await memberHint.innerText()))throw Error('missing routed uncertain-delivery warning');
   if(pageErrors||routeFailed||[...promptCounts.values()].some(n=>n!==1))throw Error('browser prompt runtime or duplication failure');
   await screenshot();
-  console.log('PASS real Cabinet sends: normal ACK and accepted-then-lost Lead ACK, one request per fixed prompt');
+  console.log('PASS real Cabinet sends: normal ACK and accepted-then-lost Lead/member ACK, one request per fixed prompt');
   return proofs;
 
 

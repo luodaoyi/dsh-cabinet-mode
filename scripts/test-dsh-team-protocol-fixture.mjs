@@ -18,7 +18,7 @@ const root=await mkdtemp(join(tmpdir(),'cabinet-protocol-fixture-'));
 const prompt='CABINET_PROTOCOL_TEAM_V1';
 const answer='CABINET_PROTOCOL_TEAM_REPLY_V1';
 const sentinel='local-protocol-fixture-not-a-real-credential';
-let child,server,requests=0,violation=false;const rejected=new Set();const calls=[];const uiCalls={};const uiMarkers=['CABINET_UI_SEND_V1','CABINET_UI_ACK_LOST_V1'];let releaseCount=0,releaseMember;const memberGate=new Promise(resolve=>{releaseMember=resolve});
+let child,server,requests=0,violation=false;const rejected=new Set();const calls=[];const uiCalls={};const memberMarker='CABINET_UI_MEMBER_ACK_LOST_V1';const completionMarker='CABINET_UI_MEMBER_SETTLED_V1';let memberSessionId;const uiMarkers=['CABINET_UI_SEND_V1','CABINET_UI_ACK_LOST_V1',memberMarker];let releaseCount=0,releaseMember;const memberGate=new Promise(resolve=>{releaseMember=resolve});
 let output='',exitCode=null,done=false;
 const env={PATH:dirname(process.execPath)+':'+join(resolve(modules),'.bin')+':'+(process.env.PATH||'/usr/bin:/bin'),HOME:join(root,'home'),DSH_HOME:join(root,'dsh'),XDG_CONFIG_HOME:join(root,'config'),XDG_DATA_HOME:join(root,'data'),XDG_CACHE_HOME:join(root,'cache'),XDG_STATE_HOME:join(root,'state'),TMPDIR:join(root,'tmp'),NPM_CONFIG_USERCONFIG:join(root,'empty-npmrc'),NPM_CONFIG_CACHE:join(root,'npm-cache'),CI:'true',NO_COLOR:'1',LANG:'C.UTF-8',DEEPSEEK_API_KEY:sentinel};
 const pause=ms=>new Promise(r=>setTimeout(r,ms));
@@ -67,12 +67,16 @@ try{
    let body='';for await(const chunk of req){body+=chunk;assert(Buffer.byteLength(body)<1024*1024,'body budget')}
    const request=JSON.parse(body);
    assert(request.stream===true&&request.model==='deepseek-flash','protocol');
-   const lead=req.headers['x-deepseek-harness-session-id']==='session-cabinet-protocol-lead';
+   const sessionId=req.headers['x-deepseek-harness-session-id'];
+   const lead=sessionId==='session-cabinet-protocol-lead';
    assert(Array.isArray(request.messages),'fixed input');
    const lastUser=[...request.messages].reverse().find(m=>m.role==='user');
-   const uiMarker=uiMarkers.find(marker=>lastUser?.content?.some(c=>c.type==='text'&&c.text===marker));
+   const directMarker=uiMarkers.find(marker=>lastUser?.content?.some(c=>c.type==='text'&&c.text===marker));
+   const settlement=lead&&lastUser?.content?.some(c=>c.type==='text'&&c.text===memberMarker+'_REPLY')&&lastUser.content.some(c=>c.type==='text'&&c.text===`Background subagent ${memberSessionId} finished and will do no further work unless you send it more.`);
+   const uiMarker=settlement?completionMarker:directMarker;
    if(uiMarker){
-    assert(headless&&lead&&(uiCalls[uiMarker]??0)===0,'UI request budget');
+    assert(headless&&(uiCalls[uiMarker]??0)===0&&(uiMarker===memberMarker?sessionId===memberSessionId:lead),'UI request budget');
+    if(settlement)assert(uiCalls[memberMarker]===1,'UI request budget');
     uiCalls[uiMarker]=1;
     const events=[{type:'message_start',message:{id:'fixture-ui-'+uiMarker,type:'message',role:'assistant',model:'deepseek-flash',content:[],usage:{input_tokens:1,output_tokens:0}}},{type:'content_block_start',index:0,content_block:{type:'text',text:uiMarker+'_REPLY'}},{type:'content_block_stop',index:0},{type:'message_delta',delta:{stop_reason:'end_turn'},usage:{output_tokens:1}},{type:'message_stop'}];
     res.writeHead(200,{'content-type':'text/event-stream','cache-control':'no-store'});
@@ -85,6 +89,7 @@ try{
    assert(request.messages.some(m=>m.role==='user'&&m.content?.some(c=>c.type==='text'&&c.text===(lead?prompt:'CABINET_PROTOCOL_MEMBER_V1'))),'fixed input');
    assert(!spawning||!calls.some(c=>c.role==='lead'),'single spawn');
    assert(lead||!calls.some(c=>c.role==='teammate'),'single teammate request');
+   if(!lead){assert(typeof sessionId==='string'&&sessionId.length>0,'fixed input');memberSessionId=sessionId;}
    if(spawning)assert(request.tools?.some(t=>t.name==='spawn_teammate'),'fixed tool availability');
    if(lead&&!spawning)assert(results.length===1&&results[0].tool_use_id==='fixture-spawn-1'&&!results[0].is_error,'fixed tool result');
    const text=lead?answer:'CABINET_PROTOCOL_MEMBER_REPLY_V1';
@@ -136,19 +141,22 @@ try{
   const auth=new URL(match[1]);
   assert(auth.hostname==='127.0.0.1'&&auth.protocol==='http:'&&auth.port&&!auth.username&&!auth.password&&auth.pathname==='/','official host endpoint unexpected');
   const proofs=await teamBrowser({auth,env,repo,members:report.members});
-  assert(!violation&&requests===4&&uiMarkers.every(marker=>uiCalls[marker]===1),'expected independent UI model budgets');
+  assert(!violation&&requests===4&&[...uiMarkers,completionMarker].every(marker=>uiCalls[marker]===1),'expected independent UI model budgets');
   // Graceful official Host shutdown drains its own persistence. Never write or
   // fabricate log entries, and read the new evidence only after browser sends.
   process.kill(-child.pid,'SIGTERM');
   const flushDeadline=Date.now()+15000;while(!done&&Date.now()<flushDeadline)await pause(100);
   assert(done,'official host did not shut down for persistence verification');
-  const persisted=[];for(const log of await files(join(env.DSH_HOME,'sessions')))persisted.push(...(await readFile(log,'utf8')).trim().split('\n').map(line=>JSON.parse(line)));
+  const persisted=[];for(const log of await files(join(env.DSH_HOME,'sessions'))){const data=(await readFile(log,'utf8')).trim().split('\n').map(line=>JSON.parse(line));persisted.push(...data.map(row=>({...row,fixtureSessionId:data[0].id})));}
+  assert(proofs.length===3,'expected three real browser acceptance proofs');
   for(const proof of proofs){
    const accepted=persisted.filter(row=>row.type==='user/message'&&row.data?.source?.kind==='user'&&row.data.source.rpcId===proof.requestId);
-   assert(accepted.length===1&&accepted[0].data.content.some(c=>c.type==='text'&&c.text===proof.marker),'persisted UI prompt must appear exactly once with real request identity');
+   assert(accepted.length===1&&accepted[0].fixtureSessionId===proof.sessionId&&(!proof.messageId||accepted[0].data.id===proof.messageId)&&accepted[0].data.content.some(c=>c.type==='text'&&c.text===proof.marker),'persisted UI prompt must appear exactly once with real request identity');
   }
+  const memberInputs=persisted.filter(row=>row.type==='user/message'&&row.data?.content?.some(c=>c.type==='text'&&c.text===memberMarker));
+  assert(memberInputs.length===1&&memberInputs[0].fixtureSessionId===memberSessionId,'persisted member prompt must not be resent or forwarded to Lead');
   assert(persisted.filter(r=>r.type==='tool/call').length===1,'persisted unexpected tool during UI sends');
-  console.log('PASS browser-send persistence: normal and ACK-lost Lead prompts each accepted exactly once with real RPC identity');
+  console.log('PASS browser-send persistence: normal and ACK-lost Lead/member prompts each accepted exactly once with real RPC identity');
  }
  console.log('BOUNDARY: deterministic protocol fixture, not real model inference or UI-created sessions'+(headless?'; real browser read/navigation, normal send and accepted-ACK-loss tested':'; browser not tested'));
 
