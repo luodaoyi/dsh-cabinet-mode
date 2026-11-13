@@ -97,7 +97,7 @@ jobs:
         run: npm install --prefix "$RUNNER_TEMP/cabinet-runtime" --ignore-scripts --no-audit --no-fund @deepseek-ai/dsh@${{ matrix.dsh }}
       - name: Install official browser-store contract dependency
         if: matrix.dsh == '0.2.2-rc.1'
-        run: npm install --prefix "$RUNNER_TEMP/cabinet-runtime" --ignore-scripts --no-audit --no-fund @deepseek-ai/dsh-client-store@0.2.2-rc.1
+        run: npm install --prefix "$RUNNER_TEMP/cabinet-runtime" --ignore-scripts --no-audit --no-fund @deepseek-ai/dsh-client-store@0.2.2-rc.1 zustand@4.5.7 immer@10.1.1
       - name: Official component regressions
         env:
           DSH_MODULE_ROOT: ${{ runner.temp }}/cabinet-runtime/node_modules
