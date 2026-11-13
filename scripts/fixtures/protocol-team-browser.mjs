@@ -141,7 +141,7 @@ export async function teamBrowser({auth,env,repo,members,onCreated}){
   if(!/Delivery outcome unknown; not resent|发送结果未知，未自动重发/.test(await memberHint.innerText()))throw Error('missing routed uncertain-delivery warning');
   if(pageErrors||routeFailed||[...promptCounts.values()].some(n=>n!==1))throw Error('browser prompt runtime or duplication failure');
   stage='real UI-created ordinary session and native composer';
-  proofs.push(await createSessionInBrowser({page,context,origin,members,cwd:env.CABINET_FIXTURE_CWD,onCreated}));
+  proofs.push(...await createSessionInBrowser({page,context,origin,members,cwd:env.CABINET_FIXTURE_CWD,onCreated}));
   if(pageErrors)throw Error('browser runtime error during UI creation');
   await screenshot();
   console.log('PASS real Cabinet sends: normal ACK and accepted-then-lost Lead/member ACK, one request per fixed prompt');
