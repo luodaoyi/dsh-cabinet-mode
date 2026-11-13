@@ -775,7 +775,14 @@ assert.ok(typeof blockNode.props.style.border === 'string' && blockNode.props.st
 const dotNode = dressed.find((node) => node.props?.['data-cabinet-status'] !== undefined);
 assert.ok(dotNode, 'the head row carries the status dot');
 const descNode = dressed.find((node) => node.props?.['data-cabinet-task-desc'] !== undefined);
-assert.ok(descNode && descNode.children.join('') === '无进行中任务', 'a card without an in_progress task labels task absence independently from process state, got: ' + JSON.stringify(descNode && descNode.children));
+assert.ok(descNode && descNode.children.join('') === '空闲', 'a card without an in_progress task shows the merged idle line, got: ' + JSON.stringify(descNode && descNode.children));
+const idleFlat = JSON.stringify(dressed);
+// 顶层恰好一个渲染中的任务行节点（收集器的嵌套快照不计入），其文本即唯一空闲文案。
+const topDesc = dressed.filter((node) => node.props?.['data-cabinet-task-desc'] !== undefined);
+assert.equal(topDesc.length, 1, 'exactly one rendered task-desc node at the card top level, got ' + topDesc.length);
+assert.equal(topDesc[0].children.join(''), '空闲', 'the single task row owns the only idle text');
+assert.ok(!idleFlat.includes('无进行中任务'), 'the redundant task-absence line is gone');
+assert.ok(!dressed.some((node) => node.props?.['data-cabinet-activity-state'] !== undefined), 'no activity placeholder renders without data');
 const meterStyled = dressed.find((node) => node.props?.['data-cabinet-meter'] !== undefined);
 assert.equal(meterStyled.props.style.width, '42%', 'the segmented bar is left-aligned at ~42% card width');
 const footNode = dressed.find((node) => node.props?.key === 'foot');
@@ -1645,7 +1652,8 @@ assert.equal(client.usageFor({tokenUsage:{outputTokens:-1},contextPressure:{cont
     members: [{ id: 'm-idle', name: 'idler', role: 'mate', phase: 'active' }],
     tasks: [{ id: 't-done', subject: '做完了的旧活', status: 'completed', ownerName: 'idler' }],
   }, client.zh)));
-  assert.ok(idleTree.includes('无进行中任务'), 'a member with only completed tasks explicitly has no current task');
+  assert.ok(idleTree.includes('空闲'), 'a member with only completed tasks shows the merged idle line');
+  assert.ok(!idleTree.includes('无进行中任务'), 'the redundant task-absence line is gone for completed-only members');
   assert.ok(idleTree.includes('做完了的旧活'), 'completed tasks remain available in collapsed details');
   const english = client.TaskLine({
     task: { id: 'en-1', subject: 'sheet', status: 'pending' },
@@ -1710,8 +1718,26 @@ assert.equal(client.usageFor({tokenUsage:{outputTokens:-1},contextPressure:{cont
   assert.equal(arrived, 9, 'every layered card receives an arc ending at its top centre, got ' + arrived);
   const hubFan = connD.filter((d) => d.indexOf('M 300 320 L 300 334 C ') === 0);
   assert.equal(hubFan.length, 0, 'no member is made the parent of the next visual row, got ' + hubFan.length);
-  assert.equal(connPaths.length, 9);
-  assert.ok(connD.every(d => d.startsWith('M 300 60 ')), 'every visual row remains a sibling sourced from Lead');
+  // 总线扇出：3 fan + 1 主干 + 每后续层 1 水平段(2层) + 每卡 1 支线(6卡) = 12。
+  assert.equal(connPaths.length, 12, 'lead fan(3) + trunk(1) + bus segments(2) + branches(6), got ' + connPaths.length);
+  const trunkOnly = connD.filter((d) => /^M 300 60 L 300 \d+$/.test(d));
+  assert.equal(trunkOnly.length, 1, 'exactly one neutral trunk from the lead bottom-centre, got ' + trunkOnly.length);
+  const coordReConn = /[-+]?\d*\.?\d+/g;
+  const busSegs = connD.filter((d) => {
+    const m = d.match(/^M (\d+) (\d+) L (\d+) (\d+)(?: L (\d+) (\d+))?$/);
+    return !!m && m[2] === m[4] && (m[6] === undefined || m[6] === m[2]);
+  });
+  assert.equal(busSegs.length, 2, 'exactly one horizontal segment per later layer, got ' + busSegs.length);
+  const branches = connD.filter((d) => d.includes(' C ') && d.indexOf('M 300 60 ') !== 0);
+  assert.equal(branches.length, 6, 'one family-coloured branch per later-layer card, got ' + branches.length);
+  // 旧 gutter 横穿的负断言：任何 x 都不得伸到最左卡左缘之外。
+  const minConnLeft = Math.min(...connNodes.map((node) => node.left));
+  for (const d of connD) {
+    const nums = d.match(coordReConn).map(Number);
+    for (let i = 0; i < nums.length; i += 2) {
+      assert.ok(nums[i] >= minConnLeft - 0.5, 'no segment reaches left of the outermost card (' + minConnLeft + '), got ' + nums[i] + ' in ' + d);
+    }
+  }
   const colored = connPaths.filter((path) => typeof path === 'object' && typeof path.color === 'string' && path.color.indexOf('hsl(') === 0);
   assert.ok(colored.length >= 9, 'arcs carry the target cards family colors, got ' + colored.length);
 
@@ -1725,12 +1751,12 @@ assert.equal(client.usageFor({tokenUsage:{outputTokens:-1},contextPressure:{cont
     }
   }
   const offPaths = client.buildConnectorPaths(offBase, offLead, offNodes, -8);
-  assert.ok(Array.isArray(offPaths) && offPaths.length === 6, 'six arcs build against a non-zero base, got ' + JSON.stringify(offPaths && offPaths.length));
+  assert.ok(Array.isArray(offPaths) && offPaths.length === 8, 'fan(3)+trunk(1)+bus(1)+branches(3) build against a non-zero base, got ' + JSON.stringify(offPaths && offPaths.length));
   const coordRe = /[-+]?\d*\.?\d+/g;
   for (const path of offPaths) {
     const nums = path.d.match(coordRe).map(Number);
-    for (const value of nums) {
-      assert.ok(value >= -8 && value <= offBase.width + 0.5, 'x within [0, base.width], got ' + value + ' in ' + path.d);
+    for (let i = 0; i < nums.length; i += 2) {
+      assert.ok(nums[i] >= 300 - 170 - 0.5 && nums[i] <= offBase.width + 0.5, 'x never reaches the old gutter (lead fan opens to 130 at the widest), got ' + nums[i] + ' in ' + path.d);
     }
     for (let i = 1; i < nums.length; i += 2) {
       assert.ok(nums[i] >= -0.5 && nums[i] <= offBase.height + 0.5, 'y within [0, base.height], got ' + nums[i] + ' in ' + path.d);

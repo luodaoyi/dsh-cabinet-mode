@@ -8,7 +8,8 @@ const all=node=>Array.isArray(node)?node.flatMap(all):!node||typeof node!=='obje
 const task={id:'task-active',subject:'Active task',status:'in_progress',blockedBy:[],description:'Task sheet',writeScopes:['isolated']};
 const card=client.MemberCard({member:{id:'mate',name:'works',phase:'active'},activeTask:task,statusLabel:x=>x,t:x=>x,activity:{known:false}});
 assert.ok(all(card).some(n=>n.props['data-cabinet-task']===task.id));
-assert.ok(all(card).some(n=>n.props['data-cabinet-activity-state']==='unknown'));
+assert.ok(!all(card).some(n=>n.props['data-cabinet-activity-state']!==undefined),'unknown activity renders no placeholder line');
+assert.ok(!JSON.stringify(all(card)).includes('活动'),'no 活动 text without data');
 let opened=0;const renderTask=()=>{cursor=0;return client.TaskLine({task,blockerOf:()=>null,t:x=>x,taskLabel:x=>x,onOpenOwner:()=>opened++})};
 let tree=renderTask(),button=all(tree).find(n=>n.props['data-cabinet-task-sheet-toggle']===task.id);
 assert.equal(button.type,'button');assert.equal(button.props.type,'button');assert.equal(button.props['aria-expanded'],false);let stopped=0;button.props.onClick({stopPropagation(){stopped++}});tree=renderTask();button=all(tree).find(n=>n.props['data-cabinet-task-sheet-toggle']===task.id);assert.equal(button.props['aria-expanded'],true);assert.equal(opened,0);assert.equal(stopped,1);assert.ok(all(tree).some(n=>n.props['data-cabinet-task-sheet']==='description'));
@@ -32,8 +33,11 @@ console.log('PASS timeline distinguishes failed/pending history from genuinely e
 for (const [phase,running,expected] of [['active',true,'running'],['active',false,'inactive'],['failed',false,'failed'],['provisioning',false,'provisioning']]) {
   const nodes=all(client.MemberCard({member:{id:'m',name:'works',phase},running,statusLabel:s=>'status:'+s}));
   const label=nodes.find(n=>n.props['data-cabinet-member-status']===expected);
-  assert.ok(label);assert.equal(label.children[0],'status:'+expected);
-  assert.equal(nodes.find(n=>n.props['data-cabinet-task-desc']).children[0],'无进行中任务');
+  assert.ok(label);
+  if(expected==='inactive')assert.ok(!String(label.children[0]??''),'idle hides the redundant status text (the task row owns 空闲)');
+  else assert.equal(label.children[0],'status:'+expected);
+  // identity locale (t:x=>x) 下 tt('status.inactive') 原样透出；真中文由 test-client 的 zhT 卡锁。
+  assert.equal(nodes.find(n=>n.props['data-cabinet-task-desc']).children[0],'status.inactive');
 }
 const stale=all(client.MemberCard({member:{id:'m',name:'works',phase:'active'},running:false,activeTask:task,statusLabel:s=>s}));
 assert.ok(stale.some(n=>n.props['data-cabinet-member-status']==='inactive'));
