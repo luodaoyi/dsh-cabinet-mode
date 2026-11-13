@@ -2,6 +2,19 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.9.1] - 2026-11-13
+
+### Changed
+
+- Replace the running-card rotating gradient with a bounded Motion Path dot. Only actual agent activity enables it; stale in-progress tasks do not imply an active agent.
+- Hide the dot for reduced-motion preferences and unsupported Motion Path engines; restore normal behavior when reduced motion is disabled.
+- This maintenance release does not add currency or model-cost estimates.
+
+### Tests
+
+- Restore 11 browser-runner failure-injection regressions covering diagnostic screenshots, original-error preservation, and browser/server cleanup, adapted to the current native-send workflow.
+- Add native computed-style checks for normal/reduced/resumed motion and an isolated unsupported-feature-query fallback check. The latter verifies the fallback declaration, not compatibility with every older browser engine.
+
 ## [0.9.0] - 2026-11-13
 
 ### Added

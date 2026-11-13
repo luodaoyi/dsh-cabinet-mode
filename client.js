@@ -2389,14 +2389,14 @@ window.__ModuleLoader__.load({
 		const STYLE_CSS = [
 			// status dot pulse (panel)
 			'@keyframes cabinetPulse{0%{box-shadow:0 0 0 0 rgba(34,197,94,.55)}70%{box-shadow:0 0 0 7px rgba(34,197,94,0)}100%{box-shadow:0 0 0 0 rgba(34,197,94,0)}}',
-			// 走马灯边框（方案B 旋转大圆）：卡自身 overflow:hidden 当裁窗，::before 用
-			// 家族色 conic 渐变大圆只转 transform（GPU 合成），卡内容 z-index 盖住中段，
-			// 只露出贴边的一段亮光在绕框跑。@property 在旧内核静默失效，故不用方案A。
+			// A bounded dot follows the real running card perimeter. Unsupported engines
+			// hide it, rather than painting a stationary/misplaced activity indicator.
 			'[data-cabinet-sweep]{position:relative;overflow:hidden;border-radius:12px}',
-			'[data-cabinet-sweep]::before{content:"";position:absolute;inset:-60%;background:conic-gradient(from 0deg, transparent 0%, var(--cab-live-hue, rgba(127,127,127,.55)) 18%, transparent 42%);animation:cabinetSpin 2.4s linear infinite;will-change:transform;pointer-events:none}',
+			'[data-cabinet-sweep]::before{content:"";position:absolute;top:0;left:0;width:6px;height:6px;border-radius:50%;background:var(--cab-live-hue, rgba(127,127,127,.55));box-shadow:0 0 6px var(--cab-live-hue, rgba(127,127,127,.55));offset-path:rect(0 100% 100% 0 round 12px);offset-distance:0%;animation:cabinetDotRun 2s linear infinite;will-change:offset-distance;pointer-events:none}',
+			'@keyframes cabinetDotRun{to{offset-distance:100%}}',
+			'@supports not (offset-path:rect(0 100% 100% 0 round 12px)){[data-cabinet-sweep]::before{display:none}}',
 			'[data-cabinet-sweep] > *{position:relative;z-index:1}',
-			// cabinetSpin keyframes 上游已有（头像活动环 :2403 同名复用，勿重复定义）。
-			'@media (prefers-reduced-motion: reduce){[data-cabinet-sweep]::before{animation:none}}',
+			'@media (prefers-reduced-motion: reduce){[data-cabinet-sweep]::before{animation:none!important;display:none}}',
 			// 右栏拖拽手柄 hover 高亮（宽度可调，见 CABINET_RAIL_DEFAULT_WIDTH）。
 			'[data-cabinet-rail-handle]:hover{background:rgba(79,140,255,.45)}',
 			// running avatar: rotating conic ring (panel + native roster) and glow

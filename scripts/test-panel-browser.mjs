@@ -90,7 +90,7 @@ document.getElementById('run').onclick=async()=>{const passed=[];try{
   mounted=true;live=false;render();await wait();document.getElementById('result').textContent='PASS '+passed.length+' '+passed.join('; ');stats();
 }catch(e){document.getElementById('result').textContent='FAIL '+e.stack;stats()}};
 window.taskNavigationCount=()=>opens.length;
-window.motionMount=async()=>{taskRoot.render(React.createElement(cabinet.MemberCard,{member:{id:'motion',name:'motion',phase:'active'},activeTask:{id:'motion-task',subject:'Running',status:'in_progress'},statusLabel:s=>s,t:k=>k}));await wait();};
+window.motionMount=async(running=false)=>{taskRoot.render(React.createElement(cabinet.MemberCard,{member:{id:'motion',name:'motion',phase:'active'},running,activeTask:{id:'motion-task',subject:'Running',status:'in_progress'},statusLabel:s=>s,t:k=>k}));await wait();};
 window.taskKeyboardMount=async()=>{taskRoot.render(React.createElement(cabinet.TaskLine,{task:tasks[0],blockerOf:id=>tasks.find(t=>t.id===id),t:k=>cabinet.en[k]||k,taskLabel:s=>s,onOpenOwner:()=>opens.push(['mate'])}));await wait();return opens.length;};
 window.panelUnmount=async()=>{taskRoot.render(null);mounted=false;render();await wait();assert(timers.size===0,'final unmount cleanup');stats();return{timers:timers.size,errors};};
 render();stats();
@@ -156,6 +156,26 @@ if(process.argv.includes('--headless')){
     if(await mark.evaluate(el=>getComputedStyle(el).animationName)!=='none')throw Error('task pulse ignores reduced motion');
     await page.emulateMedia({reducedMotion:'no-preference'});
     if(await mark.evaluate(el=>getComputedStyle(el).animationName)!=='cabinetPulse')throw Error('task pulse failed to resume');
+    // Stale in-progress task alone must not animate an idle agent.
+    if(await page.locator('#task-fixture [data-cabinet-sweep]').count())throw Error('idle task falsely animates agent');
+    await page.evaluate(()=>window.motionMount(true));
+    const runningCard=page.locator('#task-fixture [data-cabinet-sweep]');
+    await runningCard.waitFor();
+    const supported=await page.evaluate(()=>CSS.supports('offset-path','rect(0 100% 100% 0 round 12px)'));
+    const motion=()=>runningCard.evaluate(el=>{const c=getComputedStyle(el,'::before');return {animation:c.animationName,display:c.display,path:c.offsetPath,pointer:c.pointerEvents}});
+    let normal=await motion();
+    if(supported){if(normal.animation!=='cabinetDotRun'||normal.path==='none'||normal.display==='none'||normal.pointer!=='none')throw Error('motion dot computed style');}
+    else if(normal.display!=='none')throw Error('unsupported native engine must hide dot');
+    await page.emulateMedia({reducedMotion:'reduce'});
+    const reduced=await motion();if(reduced.animation!=='none'||reduced.display!=='none')throw Error('motion dot ignores reduced motion');
+    await page.emulateMedia({reducedMotion:'no-preference'});
+    if(supported&&(await motion()).animation!=='cabinetDotRun')throw Error('motion dot does not resume');
+    // Exercise the exact fallback declaration through a deliberately unsupported
+    // feature query in an isolated stylesheet; not an unsupported-engine claim.
+    await page.evaluate(()=>{const rule=cabinet.STYLE_CSS.match(/@supports not \(offset-path:rect\(0 100% 100% 0 round 12px\)\)\{\[data-cabinet-sweep\]::before\{display:none\}\}/)?.[0];if(!rule)throw Error('missing unsupported fallback');const style=document.createElement('style');style.id='fallback-probe';style.textContent=rule.replace('offset-path:rect(0 100% 100% 0 round 12px)','cabinet-unsupported-probe:yes');document.head.append(style)});
+    if((await motion()).display!=='none')throw Error('unsupported fallback declaration not applied');
+    await page.evaluate(()=>document.getElementById('fallback-probe').remove());
+    if(supported&&(await motion()).display==='none')throw Error('fallback probe leaked');
     if(process.env.CABINET_SCREENSHOT)await page.screenshot({path:process.env.CABINET_SCREENSHOT,fullPage:true});
     const cleanup=await page.evaluate(()=>window.panelUnmount());
     if(errors.length||cleanup.errors.length)throw Error([...errors,...cleanup.errors].join('\n'));
