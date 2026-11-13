@@ -104,6 +104,7 @@ jobs:
           set -euo pipefail
           if [[ "$DSH_TEST_VERSION" == "0.2.2-rc.1" ]]; then
             node scripts/test-model-prepared.mjs
+            node scripts/test-groupchat-contract-v2.mjs
             export PATH="$DSH_MODULE_ROOT/.bin:$PATH"
             node scripts/verify.mjs
           else

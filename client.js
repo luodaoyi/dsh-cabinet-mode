@@ -4796,7 +4796,7 @@ window.__ModuleLoader__.load({
 			const activeTab = typeof activeTabProp === 'string' ? activeTabProp : localTab;
 			const setActiveTab = setLocalTab;
 			// Re-render when the mirrored member settings change (names/avatars).
-			const [, setMemberRevision] = React.useState(0);
+			const [memberRevision, setMemberRevision] = React.useState(0);
 			React.useEffect(() => subscribeMemberConfig(() => setMemberRevision((revision) => revision + 1)), []);
 			const tt = typeof t === 'function' ? t : (key) => key;
 			const statusLabel = (status) => tt('status.' + status);
@@ -5026,7 +5026,7 @@ window.__ModuleLoader__.load({
 			// 是「群聊很卡」的主要来源之一）。
 			const membersSignature = members.map((member) => String(member.id) + ':' + String(member.name) + ':' + String(member.phase)).join('|');
 			// 气泡昵称：同一会话内不同成员必定显示不同名字（规则见 chatBubbleNames）。
-			const bubbleNames = React.useMemo(() => chatBubbleNames(members), [membersSignature]);
+			const bubbleNames = React.useMemo(() => chatBubbleNames(members), [membersSignature, memberRevision]);
 			const edgeLead = members.find((member) => member.role === 'lead');
 			const liveTaskIds = new Set();
 			for (const task of tasks) {

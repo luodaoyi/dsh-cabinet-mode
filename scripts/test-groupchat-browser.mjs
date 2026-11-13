@@ -7,7 +7,7 @@ import {createServer} from 'node:http';
 const root=process.env.DSH_BROWSER_TEST_ROOT;
 if(!root) throw Error('Set DSH_BROWSER_TEST_ROOT to isolated npm test dependencies');
 const require=createRequire(root+'/package.json');
-const source=fs.readFileSync(new URL('../client.js',import.meta.url),'utf8').replace('return { inject, apply };', 'return { inject, apply, CabinetPanel, STYLE_CSS, en, zh, AVATARS, setSessions: s => { cabinetSessions = s; for (const fn of cabinetSessionsListeners) fn(); } };');
+const source=fs.readFileSync(new URL('../client.js',import.meta.url),'utf8').replace('return { inject, apply };', 'return { inject, apply, CabinetPanel, STYLE_CSS, en, zh, AVATARS, setMemberConfig, memberListenersCount: () => MEMBER_LISTENERS.size, setSessions: s => { cabinetSessions = s; for (const fn of cabinetSessionsListeners) fn(); } };');
 const fixture=`
 import React from 'react';import {createRoot} from 'react-dom/client';
 window.__ModuleLoader__={load:({factory})=>window.cabinet=factory(()=>React)};
@@ -51,8 +51,18 @@ window.groupChecks=async()=>{const passed=[];try{
  await setService(createService({bad:'mate'}));assert(active()===1&&document.querySelectorAll('[data-cabinet-groupchat-error]').length===1,'one failed member');assert(document.getElementById('panel').textContent.includes('Lead answer'),'other member survives');passed.push('one member failure');
  const delayed=createService({delay:true});await setService(delayed);mounted=false;render();await wait();delayed.ready.forEach(r=>r());await wait();assert(active()===0&&subscriptions===0&&timers.size===0,'late ready/unmount');passed.push('unmount pending ready');
  mounted=true;members=allMembers;language='zh';render();await wait();await setService(createService());tab('groupchat').click();await wait();assert(document.querySelector('[data-cabinet-groupchat-row="user"]').textContent.includes('user'),'human text in Chinese UI');assert(!document.querySelector('[data-cabinet-groupchat-row="input"]'),'context remains hidden');passed.push('Chinese labels');
+ // Same roster and phase: only the actual singleton config notification changes.
+ const configActive=active(),configSubscriptions=subscriptions,configRetained=retained;
+ const assistantNames=()=>[...document.querySelectorAll('[data-cabinet-groupchat-row="assistant"]')].map(row=>row.textContent).join(' ');
+ cabinet.setMemberConfig({members:[{key:'works',name:'配置改名回归'}]});await wait();
+ assert(assistantNames().includes('配置改名回归'),'saved alias invalidates bubble memo without roster change');
+ cabinet.setMemberConfig({members:[{key:'works',name:'再次改名回归'}]});await wait();
+ assert(assistantNames().includes('再次改名回归')&&!assistantNames().includes('配置改名回归'),'second config notification updates bubble');
+ cabinet.setMemberConfig(undefined);await wait();
+ assert(assistantNames().includes('工部尚书')&&!assistantNames().includes('再次改名回归'),'config reset restores bubble nickname');
+ assert(active()===configActive&&subscriptions===configSubscriptions&&retained===configRetained,'nickname updates must not reacquire session references');passed.push('live singleton nickname notifications and reset');
  const panel=document.getElementById('panel');panel.style.width='340px';await wait();if(!window.fixtureDomOnly)assert(panel.scrollWidth<=panel.clientWidth+1,'narrow overflow');assert(!document.querySelector('button button'),'nested buttons');assert(errors.length===0,'browser errors '+errors.join(';'));passed.push(window.fixtureDomOnly?'DOM validity (layout not tested)':'340px width and DOM');
- window.deliveryStats=()=>deliveries.slice();window.groupStats=()=>({retained,released,subscriptions,timers:timers.size,errors});window.groupUnmount=async()=>{mounted=false;render();await wait();assert(active()===0&&subscriptions===0&&timers.size===0,'final cleanup');return window.groupStats()};
+ window.deliveryStats=()=>deliveries.slice();window.groupStats=()=>({retained,released,subscriptions,timers:timers.size,errors});window.groupUnmount=async()=>{mounted=false;render();await wait();assert(active()===0&&subscriptions===0&&timers.size===0&&cabinet.memberListenersCount()===0,'final cleanup including config subscription');return window.groupStats()};
  document.getElementById('result').textContent='PASS '+passed.length+' '+passed.join('; ');return{passed,stats:window.groupStats()};
  }catch(e){document.getElementById('result').textContent='FAIL '+e.stack;throw e}};
 document.getElementById('run').onclick=()=>window.groupChecks();render();
