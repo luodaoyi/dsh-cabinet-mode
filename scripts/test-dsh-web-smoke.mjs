@@ -68,10 +68,26 @@ async function browserSmoke(auth,origin,batchUrl){
   stage='authenticated official page navigation';
   await page.goto(auth.href,{waitUntil:'domcontentloaded',timeout:45000});
   await page.waitForURL(url=>url.origin===origin&&url.search==='',{timeout:15000});
+  // A fresh official profile has a blocking preview notice followed by model setup.
+  // Exercise their normal UI actions only; never force clicks or remove root.inert.
+  stage='official preview notice';
+  const preview=page.getByRole('dialog').filter({has:page.getByRole('heading',{name:/^(Preview Notice|预览版说明)$/})});
+  await preview.waitFor({state:'visible',timeout:45000});
+  await preview.getByRole('button',{name:/^(Continue|继续)$/}).click();
+  await preview.waitFor({state:'hidden'});
+  stage='official model setup deferred without credentials';
+  const later=page.getByRole('dialog').getByRole('button',{name:/^(Configure later|稍后配置)$/});
+  await later.waitFor({state:'visible'});await later.click();
+  await page.getByRole('dialog').waitFor({state:'hidden'});
+  await page.waitForFunction(()=>document.getElementById('root')?.inert===false);
   stage='Cabinet client bootstrap and sidebar entry';
-  const icon=page.locator('[data-cabinet-panel-icon]').first();await icon.waitFor({state:'visible',timeout:45000});
+  // The custom SVG marker can have no bounding rect; the native sidebar button
+  // is the actual accessible/clickable control. Assert both its name and marker.
+  const entry=page.getByRole('button',{name:/^(Cabinet|内阁)$/}).filter({has:page.locator('[data-cabinet-panel-icon]')});
+  await entry.waitFor({state:'visible',timeout:45000});
+  if(await entry.count()!==1)throw Error('Cabinet sidebar entry must be unique');
   if(!assetSeen)throw Error('official client asset not requested');
-  await icon.click();
+  await entry.click();
   stage='Cabinet page rendered by real host';
   await page.locator('[data-cabinet-page]').waitFor({state:'visible'});
   await page.locator('[data-cabinet-page-note]').waitFor({state:'visible'});
@@ -85,7 +101,7 @@ async function browserSmoke(auth,origin,batchUrl){
   await page.locator('[data-cabinet-settings-close]').click();
   await page.locator('[data-cabinet-page-list][data-cabinet-page-list-open="1"]').waitFor({state:'visible'});
   if(pageErrors!==0)throw Error('browser runtime error');
-  console.log('PASS real official host Chromium: client batch requested, Cabinet entry/page, empty profile, rail toggles and settings navigation');
+  console.log('PASS real official host Chromium: preview acknowledged and model setup deferred via UI, client batch requested, Cabinet entry/page, empty profile, rail toggles and settings navigation');
  }catch(error){
   // Emit only fixed schema booleans/counts and allowlisted categories, never text/URLs.
   const safe={assetSeen,pageErrors,consoleErrors,failedRequests,httpFailures,errorCategories:[...categories].sort()};
