@@ -28,3 +28,24 @@ function timeline(view){const body=[];const member={id:'mate',name:'works'};cons
 for(const [view,state] of [[{fold:null,error:'failed'},'error'],[{fold:null,error:null},'pending']]){const nodes=all(timeline(view));assert.ok(nodes.some(n=>n.props['data-cabinet-timeline-state']===state));assert.ok(!nodes.some(n=>n.props['data-cabinet-timeline-empty']));assert.ok(JSON.stringify(nodes.find(n=>n.props['data-cabinet-timeline-count'])).includes('0 条记录'));}
 assert.ok(all(timeline({fold:{rows:[]},error:null})).some(n=>n.props['data-cabinet-timeline-empty']));
 console.log('PASS timeline distinguishes failed/pending history from genuinely empty history');
+// Process status remains readable independently from task bookkeeping.
+for (const [phase,running,expected] of [['active',true,'running'],['active',false,'inactive'],['failed',false,'failed'],['provisioning',false,'provisioning']]) {
+  const nodes=all(client.MemberCard({member:{id:'m',name:'works',phase},running,statusLabel:s=>'status:'+s}));
+  const label=nodes.find(n=>n.props['data-cabinet-member-status']===expected);
+  assert.ok(label);assert.equal(label.children[0],'status:'+expected);
+  assert.equal(nodes.find(n=>n.props['data-cabinet-task-desc']).children[0],'无进行中任务');
+}
+const stale=all(client.MemberCard({member:{id:'m',name:'works',phase:'active'},running:false,activeTask:task,statusLabel:s=>s}));
+assert.ok(stale.some(n=>n.props['data-cabinet-member-status']==='inactive'));
+assert.equal(stale[0].props['data-cabinet-sweep'],undefined);
+// Hidden details duplicate an active task's anchor. They must not overwrite its
+// visible compact-card anchor; expanded task rows may legitimately supersede it.
+let lookedUp;
+ctx.treeRef.current.querySelectorAll=selector=>selector==='[data-cabinet-task]'?[
+  {getAttribute:()=>task.id,getBoundingClientRect:()=>({left:1,top:50,width:80,height:20})},
+  {getAttribute:()=>task.id,getBoundingClientRect:()=>({left:0,top:0,width:0,height:0})}
+]:[];
+ctx.buildTaskEdges=(base,tasks,lookup)=>{lookedUp=lookup(task.id);return []};
+vm.runInNewContext(source.slice(start,end)+'measureLinks();',{...ctx});
+assert.equal(lookedUp.width,80);
+console.log('PASS actual process status is readable; hidden task details cannot erase visible dependency anchors');

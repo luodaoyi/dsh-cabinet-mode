@@ -451,7 +451,7 @@ for (const node of clickEls) if (node.props?.key === 'subj') subjectByTitle.set(
 // 新规格：阁臣卡不挂任务列表——own 任务（works/dali/yushi）不再上卡，lead/unassigned
 // 仍走组卡；opener 分配规则（mate 可开/failed·provisioning·lead·未分派不开）由
 // TaskLine 直调按组件契约覆盖。
-assert.equal(subjectByTitle.size, 2, 'only the lead/unassigned group cards still mount task subjects, got ' + subjectByTitle.size + ': ' + [...subjectByTitle.keys()].join(','));
+assert.equal(subjectByTitle.size, 5, 'group cards and collapsed member details preserve all task subjects, got ' + subjectByTitle.size + ': ' + [...subjectByTitle.keys()].join(','));
 assert.equal(subjectByTitle.get('lead owns this').props.onClick, undefined, 'lead task: panel hands no opener');
 assert.equal(subjectByTitle.get('no owner').props.onClick, undefined, 'unassigned task: panel hands no opener');
 assert.equal(subjectByTitle.get('lead owns this').props.style.cursor, undefined, 'lead task keeps the plain cursor');
@@ -753,7 +753,7 @@ assert.ok(typeof blockNode.props.style.border === 'string' && blockNode.props.st
 const dotNode = dressed.find((node) => node.props?.['data-cabinet-status'] !== undefined);
 assert.ok(dotNode, 'the head row carries the status dot');
 const descNode = dressed.find((node) => node.props?.['data-cabinet-task-desc'] !== undefined);
-assert.ok(descNode && descNode.children.join('') === '\u7a7a\u95f2', 'a card without an in_progress task shows idle (\u7a7a\u95f2) on its task line, got: ' + JSON.stringify(descNode && descNode.children));
+assert.ok(descNode && descNode.children.join('') === '无进行中任务', 'a card without an in_progress task labels task absence independently from process state, got: ' + JSON.stringify(descNode && descNode.children));
 const meterStyled = dressed.find((node) => node.props?.['data-cabinet-meter'] !== undefined);
 assert.equal(meterStyled.props.style.width, '42%', 'the segmented bar is left-aligned at ~42% card width');
 const footNode = dressed.find((node) => node.props?.key === 'foot');
@@ -819,7 +819,7 @@ assert.equal(calmTree[0].props['data-cabinet-sweep'], undefined, 'an idle card c
 assert.equal(calmTree[0].props.style.overflow, undefined, 'an idle card opens no sweep window');
 assert.equal(busyDot.props.style.width, 8, 'both dots are 8px');
 assert.equal(calmDot.props.style.width, 8, 'both dots are 8px (idle matches)');
-// 「任务在动」不只看进程：agent 没跑但有 in_progress 任务 → 点/卡/● 全部动起来。
+// Task animation is distinct from the truthful process status dot.
 const taskOnlyTree = elements(client.MemberCard({
   member: { id: 'm-taskonly', name: 'tasker', phase: 'active' },
   running: false,
@@ -829,11 +829,11 @@ const taskOnlyTree = elements(client.MemberCard({
   activeTask: { id: 'tt', subject: '任务在动', status: 'in_progress' },
 }));
 const taskOnlyDot = taskOnlyTree.find((node) => node.props?.['data-cabinet-status'] !== undefined);
-assert.equal(taskOnlyDot.props['data-cabinet-status'], 'running', 'an in_progress task alone lights the dot to running (agent idle), got: ' + taskOnlyDot.props['data-cabinet-status']);
-assert.ok(String(taskOnlyDot.props.style.animation).includes('cabinetPulse'), 'the dot breathes while the task runs even with running=false');
-assert.equal(taskOnlyTree[0].props['data-cabinet-sweep'], '1', 'the card wears the live marker while its task runs, agent idle');
-assert.equal(taskOnlyTree[0].props.style.overflow, 'hidden', 'the sweep window opens with the task');
-assert.equal(taskOnlyTree[0].props.style['--cab-live-hue'], 'hsl(138 58% 52%)', 'the sweep follows the family color even when the agent is idle');
+assert.equal(taskOnlyDot.props['data-cabinet-status'], 'inactive', 'an in_progress task cannot override the idle process status, got: ' + taskOnlyDot.props['data-cabinet-status']);
+assert.equal(taskOnlyDot.props.style.animation, undefined, 'the process dot does not animate merely because a task remains in_progress');
+assert.equal(taskOnlyTree[0].props['data-cabinet-sweep'], undefined, 'an idle process never wears the running card marker');
+assert.equal(taskOnlyTree[0].props.style.overflow, undefined, 'a task alone does not open the sweep window');
+assert.equal(taskOnlyTree[0].props.style['--cab-live-hue'], undefined, 'a task alone does not start the card animation');
 const taskOnlyDesc = taskOnlyTree.find((node) => node.props?.['data-cabinet-task-desc'] !== undefined);
 const findMark = (node) => {
   if (Array.isArray(node)) { for (const child of node) { const hit = findMark(child); if (hit) return hit; } return null; }
@@ -1539,9 +1539,12 @@ assert.equal(client.usageFor({tokenUsage:{outputTokens:-1},contextPressure:{cont
     tasks: [{ id: 'panel-1', subject: '面板任务', status: 'pending', ownerName: 'works', description: '目标：改右栏', writeScopes: ['client.js'] }],
   }, client.zh));
   // 单任务行新规格：阁臣卡不挂任务行，卡上只显示当前一个任务的标题。
-  assert.ok(!panelNodes.some((node) => node.props?.['data-cabinet-task-row'] !== undefined), 'roster cards no longer mount task rows');
+  assert.ok(panelNodes.some((node) => node.props?.['data-cabinet-task-row'] !== undefined), 'all tasks remain in the native collapsed details');
+  const details = panelNodes.find(node => node.props?.['data-cabinet-member-tasks'] === 'm-works');
+  assert.equal(details.type, 'details'); assert.equal(details.props.open, undefined);
+  assert.ok(elements(details).some(node => node.type === 'summary'));
   assert.ok(panelNodes.some((node) => node.props?.['data-cabinet-task-desc'] !== undefined), 'the card shows its single current-task line');
-  assert.ok(!JSON.stringify(panelNodes).includes('面板任务'), 'a pending task title stays OFF the card (only in_progress is shown)');
+  assert.ok(JSON.stringify(panelNodes).includes('面板任务'), 'a pending task remains available in collapsed details');
   const pickTree = JSON.stringify(elements(render({
     members: [{ id: 'm-pick', name: 'pick', role: 'mate', phase: 'active' }],
     tasks: [
@@ -1551,8 +1554,8 @@ assert.equal(client.usageFor({tokenUsage:{outputTokens:-1},contextPressure:{cont
     ],
   }, client.zh)));
   assert.ok(pickTree.includes('进行中的任务'), 'the in_progress task title wins on the card');
-  assert.ok(!pickTree.includes('最近的旧任务'), 'non-active tasks stay off the card');
-  assert.ok(!pickTree.includes('较旧的进行中'), 'among several in_progress tasks the most recent (updatedAt) one shows alone');
+  assert.ok(pickTree.includes('最近的旧任务'), 'non-active tasks remain available in collapsed details');
+  assert.ok(pickTree.includes('较旧的进行中'), 'other in_progress tasks remain available in collapsed details');
   const pickDescs = elements(render({
     members: [{ id: 'm-pick', name: 'pick', role: 'mate', phase: 'active' }],
     tasks: [
@@ -1570,13 +1573,13 @@ assert.equal(client.usageFor({tokenUsage:{outputTokens:-1},contextPressure:{cont
     return walk(desc.children);
   };
   assert.ok(pickDescs.some((desc) => descFlat(desc).indexOf('\u25cf') === 0 && descFlat(desc).includes('进行中的任务')), 'the in-progress marker dot prefixes the title on the task line, got: ' + JSON.stringify(pickDescs.map((desc) => desc.children)));
-  // 全 completed 成员：显示「空闲」，旧任务标题绝不出现（用户反馈核心）。
+  // Completed tasks are not current work but remain accessible in details.
   const idleTree = JSON.stringify(elements(render({
     members: [{ id: 'm-idle', name: 'idler', role: 'mate', phase: 'active' }],
     tasks: [{ id: 't-done', subject: '做完了的旧活', status: 'completed', ownerName: 'idler' }],
   }, client.zh)));
-  assert.ok(idleTree.includes('\u7a7a\u95f2'), 'a member with only completed tasks shows idle on the card');
-  assert.ok(!idleTree.includes('做完了的旧活'), 'completed task titles never leak onto the card');
+  assert.ok(idleTree.includes('无进行中任务'), 'a member with only completed tasks explicitly has no current task');
+  assert.ok(idleTree.includes('做完了的旧活'), 'completed tasks remain available in collapsed details');
   const english = client.TaskLine({
     task: { id: 'en-1', subject: 'sheet', status: 'pending' },
     t: (key) => client.en[key] || key,
@@ -1639,8 +1642,9 @@ assert.equal(client.usageFor({tokenUsage:{outputTokens:-1},contextPressure:{cont
   }
   assert.equal(arrived, 9, 'every layered card receives an arc ending at its top centre, got ' + arrived);
   const hubFan = connD.filter((d) => d.indexOf('M 300 320 L 300 334 C ') === 0);
-  assert.equal(hubFan.length, 3, 'the layer-1 middle card fans out to layer 2, got ' + hubFan.length);
-  assert.equal(connPaths.length, 9, 'topology is lead→L1 + hub→L2 + hub→L3 = 9 arcs, got ' + connPaths.length);
+  assert.equal(hubFan.length, 0, 'no member is made the parent of the next visual row, got ' + hubFan.length);
+  assert.equal(connPaths.length, 9);
+  assert.ok(connD.every(d => d.startsWith('M 300 60 ')), 'every visual row remains a sibling sourced from Lead');
   const colored = connPaths.filter((path) => typeof path === 'object' && typeof path.color === 'string' && path.color.indexOf('hsl(') === 0);
   assert.ok(colored.length >= 9, 'arcs carry the target cards family colors, got ' + colored.length);
 
@@ -1659,7 +1663,7 @@ assert.equal(client.usageFor({tokenUsage:{outputTokens:-1},contextPressure:{cont
   for (const path of offPaths) {
     const nums = path.d.match(coordRe).map(Number);
     for (const value of nums) {
-      assert.ok(value >= -0.5 && value <= offBase.width + 0.5, 'x within [0, base.width], got ' + value + ' in ' + path.d);
+      assert.ok(value >= -8 && value <= offBase.width + 0.5, 'x within [0, base.width], got ' + value + ' in ' + path.d);
     }
     for (let i = 1; i < nums.length; i += 2) {
       assert.ok(nums[i] >= -0.5 && nums[i] <= offBase.height + 0.5, 'y within [0, base.height], got ' + nums[i] + ' in ' + path.d);

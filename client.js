@@ -3631,11 +3631,11 @@ window.__ModuleLoader__.load({
 		// 卡高固定：阁臣卡只显示当前一个任务（activeTask），不再挂任务列表。
 		function MemberCard({ member, running, model, isCurrent, lead, statusLabel, t, size, onOpen, usage, teamUsage, familyColor, activity, activeTask, children }) {
 			const tt = typeof t === 'function' ? t : (key) => key;
-			// 「任务在动」判定合并：agent 进程在跑，或卡上挂着 in_progress 任务——
-			// 用户看的是活在动，不只看进程（activeTaskOf 只回 in_progress，双保险再判一次）。
+			// Card activity follows the real process. The task marker independently
+			// indicates task bookkeeping, which may remain in_progress while idle.
 			const taskLive = activeTask !== null && activeTask !== undefined && activeTask.status === 'in_progress';
-			const animating = running === true || taskLive;
-			const status = member.phase === 'active' ? (animating ? 'running' : 'inactive') : member.phase;
+			const animating = member.phase === 'active' && running === true;
+			const status = member.phase === 'active' ? (running === true ? 'running' : 'inactive') : member.phase;
 			const canOpen = typeof onOpen === 'function'
 				&& isCurrent !== true
 				&& member.phase !== 'failed'
@@ -3693,7 +3693,8 @@ window.__ModuleLoader__.load({
 						style: { marginLeft: 'auto', flex: 'none', fontSize: 10, padding: '1px 6px', borderRadius: 6, border: '1px dashed rgba(127,127,127,.7)', color: INK2, whiteSpace: 'nowrap' }
 					}, tt('current')) : null
 				]),
-				// 行2：当前进行中任务的标题（无则最近一个、否则 —），单行省略。
+				// Agent status and task status are independent; a stale task never implies a running agent.
+				h('span', { key: 'state', 'data-cabinet-member-status': status, style: { fontSize: 11, color: INK2 } }, typeof statusLabel === 'function' ? statusLabel(status) : status),
 				h('div', {
 					key: 'taskdesc',
 					'data-cabinet-task-desc': '1',
@@ -3710,7 +3711,7 @@ window.__ModuleLoader__.load({
 							animation: taskLive ? 'cabinetPulse 1.7s ease-out infinite' : undefined
 						}
 					}, '\u25cf'), activeTask.subject]
-					: '\u7a7a\u95f2'),
+					: '无进行中任务'),
 				// 故障必须可见：member.error 整行红字（模型行已按截图移除）。
 				member.error ? h('div', {
 					key: 'err',
@@ -3966,8 +3967,8 @@ window.__ModuleLoader__.load({
 		function buildConnectorPaths(base, lead, nodes, channelX) {
 			// 弧线版（dsh-context 截图）：每条线从来源卡底部中点出发，先走 14px
 			// 竖直小段，再以三次贝塞尔 S 形弯到目标卡顶部中点；控制点分居两侧、
-			// 弧度明显。拓扑：首辅扇形连第一层全部；每层的居中卡扇形连下一层
-			// 全部（单卡层即该卡）。线色跟随目标卡（path.color），无箭头。
+			// 弧度明显。拓扑：所有层均从首辅出发；后层经外侧通道，
+			// 不将视觉换行伪装成成员父子关系。线色跟随目标卡（path.color），无箭头。
 			if (!base || typeof base !== 'object' || !lead || typeof lead !== 'object') return null;
 			// 隐藏面板：返回 null 让调用方保留上次绘制（旧版语义）。
 			if (base.width === 0 || base.height === 0 || lead.width === 0) return null;
@@ -4001,10 +4002,18 @@ window.__ModuleLoader__.load({
 				}
 			};
 			fan({ x: leadLocal.left + leadLocal.width / 2, y: leadLocal.top + leadLocal.height }, layers[0].cards);
-			for (let index = 0; index < layers.length - 1; index += 1) {
-				const layer = layers[index];
-				const hub = layer.cards[Math.floor((layer.cards.length - 1) / 2)];
-				fan({ x: hub.left + hub.width / 2, y: hub.top + hub.height }, layers[index + 1].cards);
+			// Later visual rows remain siblings. Route from the lead through an outside
+			// gutter, never from a geometrically convenient (but unrelated) member.
+			const ax = leadLocal.left + leadLocal.width / 2;
+			const ay = leadLocal.top + leadLocal.height;
+			const gutter = Math.min(typeof channelX === 'number' ? channelX : -8, ...valid.map(node => node.left - 8));
+			for (const layer of layers.slice(1)) for (const target of layer.cards) {
+				const cx = target.left + target.width / 2;
+				const y = target.top - 16;
+				paths.push({ d: 'M ' + ax + ' ' + ay + ' L ' + ax + ' ' + (ay + 14)
+					+ ' L ' + gutter + ' ' + (ay + 14) + ' L ' + gutter + ' ' + y
+					+ ' C ' + gutter + ' ' + y + ', ' + cx + ' ' + y + ', ' + cx + ' ' + target.top,
+					color: typeof target.color === 'string' ? target.color : '' });
 			}
 			return paths;
 		}
@@ -4909,7 +4918,8 @@ window.__ModuleLoader__.load({
 				// not rendered (or a task removed from the board) drops its edge.
 				const rectById = new Map();
 				for (const row of tree.querySelectorAll('[data-cabinet-task]')) {
-					rectById.set(row.getAttribute('data-cabinet-task'), row.getBoundingClientRect());
+					const rect = row.getBoundingClientRect();
+					if (rect.width > 0 && rect.height > 0) rectById.set(row.getAttribute('data-cabinet-task'), rect);
 				}
 				const cards = Array.from(tree.querySelectorAll('.cabinet-card'), (card) => {
 					const rect = card.getBoundingClientRect();
@@ -4958,7 +4968,7 @@ window.__ModuleLoader__.load({
 				let mo = null;
 				if (typeof MutationObserver !== 'undefined') {
 					mo = new MutationObserver(schedule);
-					mo.observe(tree, { childList: true, subtree: true, characterData: true });
+					mo.observe(tree, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['open'] });
 				}
 				window.addEventListener('resize', schedule);
 				// The panel is the scroll container; scroll does not change relative
@@ -5826,7 +5836,16 @@ window.__ModuleLoader__.load({
 							// tasks live inside the card, elbow-connected by RailList
 							// 阁臣卡不再挂任务列表（用户：「不要一个很长的卡片」）——
 							// 卡上只显示当前一个任务（in_progress 优先，否则最近一个）。
-							activeTask: activeTaskOf(own)
+							activeTask: activeTaskOf(own),
+							children: own.length > 0 ? h('details', {
+								key: 'all-tasks', 'data-cabinet-member-tasks': member.id,
+								onClick: stopPropagation,
+								style: { marginTop: 4 }
+							}, [h('summary', { key: 'summary', style: { cursor: 'pointer', fontSize: 11 } }, '全部任务 (' + own.length + ')'),
+								h(RailList, { key: 'all' }, own.map(task => h(TaskLine, {
+									key: task.id, task, blockerOf, t: tt, taskLabel,
+									ownerRunning: memberRunning, onOpenOwner: ownerOpener(task)
+								})))]) : null
 						});
 					} else {
 						content = h('div', { className: 'cabinet-card', style: { position: 'relative', zIndex: 1 } }, [
