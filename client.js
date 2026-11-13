@@ -3921,8 +3921,14 @@ window.__ModuleLoader__.load({
 			// 弧度明显。拓扑：首辅扇形连第一层全部；每层的居中卡扇形连下一层
 			// 全部（单卡层即该卡）。线色跟随目标卡（path.color），无箭头。
 			if (!base || typeof base !== 'object' || !lead || typeof lead !== 'object') return null;
+			// 隐藏面板：返回 null 让调用方保留上次绘制（旧版语义）。
+			if (base.width === 0 || base.height === 0 || lead.width === 0) return null;
 			if (!Array.isArray(nodes) || nodes.length === 0) return null;
-			const valid = nodes.filter((node) => node && isFinite(node.left) && isFinite(node.top) && isFinite(node.width) && isFinite(node.height) && node.width > 0 && node.height > 0);
+			// 视口坐标 → 容器内坐标：svg 挂在 roster 容器 (0,0)，聚类与绘制必须用
+			// 同一套局部坐标（漏减 base 会把线整体画到容器外——3e2bd67 的 bug）。
+			const toLocal = (rect) => ({ left: rect.left - base.left, top: rect.top - base.top, width: rect.width, height: rect.height, color: rect.color });
+			const leadLocal = toLocal(lead);
+			const valid = nodes.filter((node) => node && isFinite(node.left) && isFinite(node.top) && isFinite(node.width) && isFinite(node.height) && node.width > 0 && node.height > 0).map(toLocal);
 			if (valid.length === 0) return null;
 			// 按 top 聚类成层（8px 容差，与旧 bus 同规则）。
 			const sorted = valid.slice().sort((a, b) => (a.top - b.top) || (a.left - b.left));
@@ -3945,7 +3951,7 @@ window.__ModuleLoader__.load({
 					paths.push({ d, color: typeof target.color === 'string' ? target.color : '' });
 				}
 			};
-			fan({ x: lead.left + lead.width / 2, y: lead.top + lead.height }, layers[0].cards);
+			fan({ x: leadLocal.left + leadLocal.width / 2, y: leadLocal.top + leadLocal.height }, layers[0].cards);
 			for (let index = 0; index < layers.length - 1; index += 1) {
 				const layer = layers[index];
 				const hub = layer.cards[Math.floor((layer.cards.length - 1) / 2)];

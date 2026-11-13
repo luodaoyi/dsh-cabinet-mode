@@ -1526,6 +1526,37 @@ assert.equal(client.usageFor({tokenUsage:{outputTokens:-1},contextPressure:{cont
   assert.equal(connPaths.length, 9, 'topology is lead→L1 + hub→L2 + hub→L3 = 9 arcs, got ' + connPaths.length);
   const colored = connPaths.filter((path) => typeof path === 'object' && typeof path.color === 'string' && path.color.indexOf('hsl(') === 0);
   assert.ok(colored.length >= 9, 'arcs carry the target cards family colors, got ' + colored.length);
+
+  // 非零 base 回归用例：矩形是视口坐标，path 必须落在容器内坐标 [0,base.w]×[0,base.h]。
+  const offBase = { left: 300, top: 200, width: 800, height: 600 };
+  const offLead = { left: 500, top: 220, width: 200, height: 80 };
+  const offNodes = [];
+  for (let rowIndex = 0; rowIndex < 2; rowIndex += 1) {
+    for (let colIndex = 0; colIndex < 3; colIndex += 1) {
+      offNodes.push({ left: 340 + colIndex * 220, top: 420 + rowIndex * 220, width: 180, height: 140, color: 'hsl(' + (rowIndex * 3 + colIndex) + ' 58% 52%)' });
+    }
+  }
+  const offPaths = client.buildConnectorPaths(offBase, offLead, offNodes, -8);
+  assert.ok(Array.isArray(offPaths) && offPaths.length === 6, 'six arcs build against a non-zero base, got ' + JSON.stringify(offPaths && offPaths.length));
+  const coordRe = /[-+]?\d*\.?\d+/g;
+  for (const path of offPaths) {
+    const nums = path.d.match(coordRe).map(Number);
+    for (const value of nums) {
+      assert.ok(value >= -0.5 && value <= offBase.width + 0.5, 'x within [0, base.width], got ' + value + ' in ' + path.d);
+    }
+    for (let i = 1; i < nums.length; i += 2) {
+      assert.ok(nums[i] >= -0.5 && nums[i] <= offBase.height + 0.5, 'y within [0, base.height], got ' + nums[i] + ' in ' + path.d);
+    }
+  }
+  assert.ok(offPaths[0].d.indexOf('M 300 100 ') === 0, 'first arc starts at the lead bottom-centre in container coords (300,100), got: ' + offPaths[0].d);
+  // 平移不变量：base 与所有矩形同移 (dx,dy)，d 逐字相同。
+  const dx = 111, dy = -77;
+  const movedPaths = client.buildConnectorPaths(
+    { ...offBase, left: offBase.left + dx, top: offBase.top + dy },
+    { ...offLead, left: offLead.left + dx, top: offLead.top + dy },
+    offNodes.map((node) => ({ ...node, left: node.left + dx, top: node.top + dy })),
+    -8);
+  assert.deepEqual(movedPaths.map((path) => path.d), offPaths.map((path) => path.d), 'translating base+rects leaves every arc byte-identical');
   // 收尾：清 CabinetPanel 入队的 effect，防泄漏给后续块（3b47d6a2 教训）。
   recordedEffects.length = 0;
 }
