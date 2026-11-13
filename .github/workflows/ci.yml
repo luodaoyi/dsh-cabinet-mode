@@ -127,6 +127,11 @@ jobs:
           node-version: '24'
       - name: Install isolated pinned browser test dependencies
         run: npm install --prefix "$RUNNER_TEMP/cabinet-browser" --ignore-scripts --no-audit --no-fund react@19.3.1 react-dom@19.3.1 esbuild@0.25.12 playwright-core@1.65.0
+      - name: Install Chinese fonts for visual regression evidence
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes fonts-noto-cjk
+          fc-match -f '%{family}\n' 'Noto Sans CJK SC' | grep -F 'Noto Sans CJK SC'
       - name: Run real Chromium regressions with synthetic session services
         env:
           DSH_BROWSER_TEST_ROOT: ${{ runner.temp }}/cabinet-browser
