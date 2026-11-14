@@ -4105,24 +4105,34 @@ window.__ModuleLoader__.load({
 				else layers.push({ top: node.top, cards: [node] });
 			}
 			const paths = [];
-			const fan = (from, targets) => {
+			const fan = (from, targets, isFirst, firstTop) => {
 				const stub = 14;
 				const y1 = from.y + stub;
 				for (const target of targets) {
 					const cx = target.left + target.width / 2;
 					const top = target.top;
-					const bow = Math.max(24, (top - y1) * 0.6);
-					// S 形（第一层原公式，全层统一）：控制点1 在起点正下方、控制点2 在
-					// 目标正上方——两端都是竖直切向，x 分别为 from.x 与 cx，弧在中段换向。
+					// bow 比例 0.30（原 0.6 在长距离下兜回贴卡边；0.30–0.38 区间取下限，
+					// 弧最舒展）。第一层保持原画法（c1x=ax，用户认可）；后续层 c1x=cx：
+					// 目标列横移在第一层卡带【上方】完成（c1y 封顶 firstTop-6），卡带内
+					// 弧恒走目标列——线在卡后（SVG z-index 低于卡片）被整卡遮住，不从
+					// 20px 列缝里露出碎段。验算（geo4 采样 500 点）：rowGap 150/160/170
+					// 与 fixture 净隙 40、bow 0.30/0.34/0.38 全组合「不露缝」全清；
+					// 穿卡本身结构性不可避免（ax 在中列卡投影内），由 z-index 遮挡。
+					const bow = Math.max(24, (top - y1) * 0.30);
+					const c1x = isFirst ? from.x : cx;
+					const c1y = Math.min(y1 + bow, firstTop - 6);
 					const d = 'M ' + from.x + ' ' + from.y + ' L ' + from.x + ' ' + y1
-						+ ' C ' + from.x + ' ' + (y1 + bow) + ', ' + cx + ' ' + (top - bow) + ', ' + cx + ' ' + top;
+						+ ' C ' + c1x + ' ' + c1y + ', ' + cx + ' ' + (top - bow) + ', ' + cx + ' ' + top;
 					paths.push({ d, color: typeof target.color === 'string' ? target.color : '' });
 				}
 			};
-			// 第一层原样（用户认可的画法一字未改）；后续层的循环已按用户要求删除。
+			// 恢复全层连线（用户：后面几行的连线直接没了）——每层每卡一条 S 形弧，
+			// 全部从首辅底部中点出发；不引 gutter、不引直角主干。
 			const ax = leadLocal.left + leadLocal.width / 2;
 			const ay = leadLocal.top + leadLocal.height;
-			fan({ x: ax, y: ay }, layers[0].cards);
+			for (let index = 0; index < layers.length; index += 1) {
+				fan({ x: ax, y: ay }, layers[index].cards, index === 0, layers[0].top);
+			}
 			return paths;
 		}
 		// #endregion connectors
@@ -5768,7 +5778,7 @@ window.__ModuleLoader__.load({
 						display: 'flex',
 						flexDirection: 'column',
 						// 层间 96px 给弧线留走线空间（任务书 90-110）；列距由行容器 12 承担。
-						rowGap: 96,
+						rowGap: 160,
 						columnGap: 12,
 						width: '100%'
 					}
