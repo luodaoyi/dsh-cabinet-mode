@@ -4130,11 +4130,11 @@ window.__ModuleLoader__.load({
 		// against the measured card rectangles — a hit tries the next side — so no
 		// line ever crosses a card. Returns null while the panel is hidden
 		// (zero-size rects) so a collapsed pane keeps no stale drawing.
-		function buildConnectorPaths(base, lead, nodes, channelX) {
-			// 弧线版（dsh-context 截图）：每条线从来源卡底部中点出发，先走 14px
-			// 竖直小段，再以三次贝塞尔 S 形弯到目标卡顶部中点；控制点分居两侧、
-			// 弧度明显。拓扑：所有层均从首辅出发；后层经外侧通道，
-			// 不将视觉换行伪装成成员父子关系。线色跟随目标卡（path.color），无箭头。
+		function buildConnectorPaths(base, lead, nodes) {
+			// 只画第一层（用户：跨层连线露出零碎线段「奇奇怪怪的不要了」）：
+			// 每张第一层卡一条 14px 竖直小段 + 三次贝塞尔 S 形弧到卡顶中点，
+			// 从首辅底部中点出发；第二层及以后不画任何线。线色跟随目标卡
+			// （path.color），无箭头。
 			if (!base || typeof base !== 'object' || !lead || typeof lead !== 'object') return null;
 			// 隐藏面板：返回 null 让调用方保留上次绘制（旧版语义）。
 			if (base.width === 0 || base.height === 0 || lead.width === 0) return null;
@@ -4169,14 +4169,10 @@ window.__ModuleLoader__.load({
 					paths.push({ d, color: typeof target.color === 'string' ? target.color : '' });
 				}
 			};
-			// Pure arcs: every card — first row or fourth — draws ONE bezier from the
-			// Lead's bottom-centre (the 14px vertical stub is the shared start, no
-			// right angles). No trunk, no horizontal bus segment, no gutter: the SVG
-			// layer sits under the cards, so an arc crossing a card hides behind it,
-			// which is what the user asked for (弧线, not 直角折线).
+			// 第一层原样（用户认可的画法一字未改）；后续层的循环已按用户要求删除。
 			const ax = leadLocal.left + leadLocal.width / 2;
 			const ay = leadLocal.top + leadLocal.height;
-			for (const layer of layers) fan({ x: ax, y: ay }, layer.cards);
+			fan({ x: ax, y: ay }, layers[0].cards);
 			return paths;
 		}
 		// One cubic per dependency: from the BLOCKER's row to the blocked task's
@@ -5104,7 +5100,7 @@ window.__ModuleLoader__.load({
 					const color = typeof el.getAttribute === 'function' ? (el.getAttribute('data-cabinet-family') || '') : '';
 					return { left: rect.left, top: rect.top, width: rect.width, height: rect.height, color };
 				});
-				const paths = buildConnectorPaths(base, leadRect, nodes, -8);
+				const paths = buildConnectorPaths(base, leadRect, nodes);
 				if (paths === null) return; // hidden pane: keep the last drawing, redraw on wake
 				setLinkPaths((prev) => (JSON.stringify(prev) === JSON.stringify(paths) ? prev : paths));
 				// Dependency edges: endpoints are the two task-row rects

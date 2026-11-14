@@ -1724,17 +1724,22 @@ assert.equal(client.usageFor({tokenUsage:{outputTokens:-1},contextPressure:{cont
   assert.ok(Array.isArray(connPaths) && connPaths.length > 0, 'connector arcs build for a 3x3 layered tree');
   const connD = connPaths.map((path) => (typeof path === 'string' ? path : path.d));
   const leadFan = connD.filter((d) => d.indexOf('M 300 60 L 300 74 C ') === 0);
-  assert.equal(leadFan.length, connNodes.length, 'every card arcs from the lead bottom-centre after the shared 14px stub, got ' + leadFan.length);
+  assert.equal(leadFan.length, 3, 'only the first row arcs from the lead bottom-centre after the shared 14px stub, got ' + leadFan.length);
   let arrived = 0;
   for (const node of connNodes) {
     const cx = node.left + node.width / 2;
     if (connD.some((d) => d.includes(' C ') && d.endsWith(' ' + cx + ' ' + node.top))) arrived += 1;
   }
-  assert.equal(arrived, 9, 'every layered card receives an arc ending at its top centre, got ' + arrived);
+  assert.equal(arrived, 3, 'only first-row cards receive an arc ending at their top centre, got ' + arrived);
+  // 负断言（用户：跨层连线不要了）：第二、三层的卡零命中。
+  for (const cx of [120, 300, 480]) {
+    assert.ok(!connD.some((d) => d.endsWith(' ' + cx + ' 360')), 'no path targets layer 2 card (' + cx + ',360)');
+    assert.ok(!connD.some((d) => d.endsWith(' ' + cx + ' 520')), 'no path targets layer 3 card (' + cx + ',520)');
+  }
   const hubFan = connD.filter((d) => d.indexOf('M 300 320 L 300 334 C ') === 0);
   assert.equal(hubFan.length, 0, 'no member is made the parent of the next visual row, got ' + hubFan.length);
-  // 纯弧线规格（用户：不要直线，全部弧线）：每卡恰 1 条、全部含 C、无长直段。
-  assert.equal(connPaths.length, connNodes.length, 'exactly one arc per card, got ' + connPaths.length);
+  // 只第一层规格：路径数 = 第一层卡数（3），每条含 C、无长直段。
+  assert.equal(connPaths.length, 3, 'exactly one arc per first-row card, got ' + connPaths.length);
   assert.ok(connD.every((d) => d.includes(' C ')), 'every path is a bezier (no bare polyline)');
   const coordReConn = /[-+]?\d*\.?\d+/g;
   // 负断言：任何 L 段不得是水平长直线（|Δy|≈0 且 |Δx|>40）或垂直长主干
@@ -1767,17 +1772,17 @@ assert.equal(client.usageFor({tokenUsage:{outputTokens:-1},contextPressure:{cont
   for (const arc of sShape) {
     if (arc.ax !== arc.cx) assert.ok(arc.c1y !== undefined && arc.c2y !== undefined && arc.c1y !== arc.c2y, 'the two control points differ in y (S, not a point), got: ' + JSON.stringify(arc));
   }
-  // 同层（top=360）三条弧：c1y 相同、c2y 相同（bow 一致），c2x 随目标互异（扇形分散）。
-  const layer2 = [120, 300, 480].map((cx) => {
-    const d = connD.find((line) => line.endsWith(' ' + cx + ' 360'));
-    assert.ok(d, 'a layer-2 arc ends at (' + cx + ',360), got: ' + JSON.stringify(connD));
-    const m = d.match(/C \d+ ([\d.]+), (\d+) ([\d.]+), (\d+) 360$/);
-    assert.ok(m, 'layer-2 arc parses as C _, c2x _, cx360, got: ' + d);
+  // 第一层（top=200）三条弧：c1y 相同、c2y 相同（bow 一致），c2x 随目标互异（扇形分散）。
+  const firstRow = [120, 300, 480].map((cx) => {
+    const d = connD.find((line) => line.endsWith(' ' + cx + ' 200'));
+    assert.ok(d, 'a first-row arc ends at (' + cx + ',200), got: ' + JSON.stringify(connD));
+    const m = d.match(/C \d+ ([\d.]+), (\d+) ([\d.]+), (\d+) 200$/);
+    assert.ok(m, 'first-row arc parses as C _, c2x _, cx 200, got: ' + d);
     return { c1y: Number(m[1]), c2x: Number(m[2]), c2y: Number(m[3]) };
   });
-  assert.equal(new Set(layer2.map((a) => a.c1y)).size, 1, 'same-layer arcs share the start-side control y, got: ' + JSON.stringify(layer2));
-  assert.equal(new Set(layer2.map((a) => a.c2y)).size, 1, 'same-layer arcs share the target-side control y, got: ' + JSON.stringify(layer2));
-  assert.equal(new Set(layer2.map((a) => a.c2x)).size, 3, 'same-layer arcs fan out with distinct target-side control x, got: ' + JSON.stringify(layer2));
+  assert.equal(new Set(firstRow.map((a) => a.c1y)).size, 1, 'first-row arcs share the start-side control y, got: ' + JSON.stringify(firstRow));
+  assert.equal(new Set(firstRow.map((a) => a.c2y)).size, 1, 'first-row arcs share the target-side control y, got: ' + JSON.stringify(firstRow));
+  assert.equal(new Set(firstRow.map((a) => a.c2x)).size, 3, 'first-row arcs fan out with distinct target-side control x, got: ' + JSON.stringify(firstRow));
   // 旧 gutter 横穿的负断言：任何 x 都不得伸到最左卡左缘之外。
   const minConnLeft = Math.min(...connNodes.map((node) => node.left));
   for (const d of connD) {
@@ -1787,7 +1792,7 @@ assert.equal(client.usageFor({tokenUsage:{outputTokens:-1},contextPressure:{cont
     }
   }
   const colored = connPaths.filter((path) => typeof path === 'object' && typeof path.color === 'string' && path.color.indexOf('hsl(') === 0);
-  assert.ok(colored.length >= 9, 'arcs carry the target cards family colors, got ' + colored.length);
+  assert.equal(colored.length, 3, 'the three first-row arcs carry their target cards family colors, got ' + colored.length);
 
   // 非零 base 回归用例：矩形是视口坐标，path 必须落在容器内坐标 [0,base.w]×[0,base.h]。
   const offBase = { left: 300, top: 200, width: 800, height: 600 };
@@ -1799,7 +1804,10 @@ assert.equal(client.usageFor({tokenUsage:{outputTokens:-1},contextPressure:{cont
     }
   }
   const offPaths = client.buildConnectorPaths(offBase, offLead, offNodes, -8);
-  assert.ok(Array.isArray(offPaths) && offPaths.length === 6, 'one arc per card builds against a non-zero base, got ' + JSON.stringify(offPaths && offPaths.length));
+  assert.ok(Array.isArray(offPaths) && offPaths.length === 3, 'one arc per first-row card builds against a non-zero base, got ' + JSON.stringify(offPaths && offPaths.length));
+  for (const cx of [430, 650, 870]) {
+    assert.ok(!offPaths.some((path) => path.d.endsWith(' ' + cx + ' 440')), 'no non-zero-base path targets layer 2 card (' + cx + ',440)');
+  }
   for (const path of offPaths) {
     const tokens = path.d.match(/[MLC][^MLC]*/g) || [];
     let px = 0, py = 0;
