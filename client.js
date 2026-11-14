@@ -4080,56 +4080,6 @@ window.__ModuleLoader__.load({
 			}, children);
 		}
 
-		// Dependency-edge overlay: one cubic path + one blocked-side dot per edge
-		// (the line leaves the blocker's row and lands on the blocked task's row),
-		// masked behind card interiors while endpoint dots remain visible. The
-		// layer is pointer-transparent, so rows stay clickable.
-		// `data-cabinet-edge="<blocked>-><blocker>"` — key format is unchanged by
-		// the geometry flip — plus a cabinet-edge-pending/active/done class makes
-		// every edge assertable.
-		function TaskEdgeLayer({ edges, cards = [] }) {
-			const maskId = React.useId();
-			if (!Array.isArray(edges) || edges.length === 0) return null;
-			return h('svg', {
-				'aria-hidden': 'true',
-				className: 'cabinet-edge-layer',
-				style: { position: 'absolute', left: 0, top: 0, width: '100%', height: '100%', pointerEvents: 'none', overflow: 'visible', zIndex: 2 }
-			}, [
-				h('defs', { key: 'defs' }, h('mask', { id: maskId, maskUnits: 'userSpaceOnUse', x: -20, y: -20, width: '120%', height: '120%' }, [
-					h('rect', { key: 'base', x: -20, y: -20, width: '120%', height: '120%', fill: 'white' }),
-					...cards.map((card, index) => h('rect', { key: index, x: card.left, y: card.top, width: card.width, height: card.height, fill: 'black' }))
-				])),
-				...edges.flatMap((edge) => [
-				h('path', {
-					key: 'p:' + edge.key,
-					className: 'cabinet-edge cabinet-edge-' + edge.state + (edge.live ? ' cabinet-edge-live' : ''),
-					'data-cabinet-edge': edge.key,
-					mask: 'url(#' + maskId + ')',
-					d: edge.d
-				}),
-				h('circle', {
-					key: 'c:' + edge.key,
-					'aria-hidden': 'true',
-					className: 'cabinet-edge-dot cabinet-edge-dot-' + edge.state,
-					'data-cabinet-edge-dot': edge.key,
-					cx: edge.ex,
-					cy: edge.ey,
-					r: 3
-				})
-			])]);
-		}
-
-		// #region connectors — pure geometry (the self-test harness extracts this)
-		// Builds the 品字形 org-chart links per row: every row owns a horizontal bus
-		// 8px above its cards, each card drops a short vertical stub onto that bus,
-		// the lead card feeds row 0's bus with a trunk (joining horizontally when
-		// the lead axis sits off the bus span), and consecutive rows are tied by a
-		// polyline that leaves a bus END, turns at a side clear of every card
-		// (right side first, then left, then the container margin channel) and
-		// lands on the previous row's bus. Every candidate segment is validated
-		// against the measured card rectangles — a hit tries the next side — so no
-		// line ever crosses a card. Returns null while the panel is hidden
-		// (zero-size rects) so a collapsed pane keeps no stale drawing.
 		function buildConnectorPaths(base, lead, nodes) {
 			// 只画第一层（用户：跨层连线露出零碎线段「奇奇怪怪的不要了」）：
 			// 每张第一层卡一条 14px 竖直小段 + 三次贝塞尔 S 形弧到卡顶中点，
@@ -4174,155 +4124,6 @@ window.__ModuleLoader__.load({
 			const ay = leadLocal.top + leadLocal.height;
 			fan({ x: ax, y: ay }, layers[0].cards);
 			return paths;
-		}
-		// One cubic per dependency: from the BLOCKER's row to the blocked task's
-		// row (首辅 → 阁臣 reading on a normal board), both endpoints taken from
-		// task-row DOM rects relative to the overlay container. The edge key stays
-		// `<blocked>-><blocker>` — only the geometry flipped, so data-cabinet-edge
-		// and the CSS class names keep their old form. State mirrors the BLOCKER's
-		// status — completed → solid green, in_progress → flowing dashes
-		// (travelling with the arrow, toward the blocked task, "the dependency is
-		// progressing"), pending → static grey dashes; a missing or deleted
-		// blocker, or an unmeasured row, draws nothing (tolerant, never throws).
-		// Edges sharing a source row or a target row fan their control points
-		// apart so parallel lines never sit exactly on top of each other. Returns
-		// null while the panel is hidden (zero-size base) so a collapsed pane
-		// keeps the last drawing.
-		function buildTaskEdges(base, tasks, rectOf, isLive) {
-			if (!base || base.width === 0 || base.height === 0) return null;
-			const list = Array.isArray(tasks) ? tasks : [];
-			const byId = new Map();
-			for (const task of list) if (task && task.id !== undefined && task.id !== null) byId.set(task.id, task);
-			const seen = new Set();
-			// JSON escaping also handles lone UTF-16 surrogates without URIError.
-			const encodeId = (id) => encodeURIComponent(JSON.stringify(id).slice(1, -1));
-			const edges = [];
-			const rel = (rect) => ({
-				left: rect.left - base.left,
-				top: rect.top - base.top,
-				right: rect.right - base.left,
-				bottom: rect.bottom - base.top
-			});
-			for (const task of list) {
-				if (!task || typeof task.id !== 'string' || task.status === 'deleted') continue;
-				const blockers = Array.isArray(task.blockedBy) ? task.blockedBy : [];
-				for (const blockerId of blockers) {
-					if (typeof blockerId !== 'string' || blockerId === task.id) continue;
-					const key = encodeId(task.id) + '->' + encodeId(blockerId);
-					if (seen.has(key)) continue; // duplicated blocker ids draw once
-					seen.add(key);
-					const blocker = byId.get(blockerId);
-					if (!blocker || blocker.status === 'deleted') continue; // missing/removed task: skip, don't crash
-					// Geometry reversed: the path starts on the blocker's row and
-					// ends on the blocked task's row (the key above still reads
-					// blocked->blocker). from/to drive the anchors, fromId/toId the
-					// parallel-edge fan, and the endpoint dot lands on edge.e — i.e.
-					// on the blocked task.
-					const from = rectOf(blockerId);
-					const to = rectOf(task.id);
-					if (!from || !to || from.width === 0 || from.height === 0 || to.width === 0 || to.height === 0) continue;
-					const state = blocker.status === 'completed' ? 'done'
-						: blocker.status === 'in_progress' ? 'active'
-						: 'pending';
-					edges.push({
-						key,
-						state,
-						live: state === 'active' && typeof isLive === 'function' && isLive(blockerId) === true,
-						fromId: blockerId,
-						toId: task.id,
-						from: rel(from),
-						to: rel(to)
-					});
-				}
-			}
-			// Horizontal pairing faces the other row; same-column pairs use a side gutter.
-			for (const edge of edges) {
-				const f = edge.from;
-				const t = edge.to;
-				const fcx = (f.left + f.right) / 2;
-				const fcy = (f.top + f.bottom) / 2;
-				const tcx = (t.left + t.right) / 2;
-				const tcy = (t.top + t.bottom) / 2;
-				let sx; let sy; let ex; let ey; let c1x; let c1y; let c2x; let c2y;
-				if (Math.abs(tcx - fcx) >= 24) {
-					const dir = tcx >= fcx ? 1 : -1;
-					sx = dir > 0 ? f.right : f.left;
-					sy = fcy;
-					ex = dir > 0 ? t.left : t.right;
-					ey = tcy;
-					const span = Math.max(24, Math.abs(ex - sx) * 0.45);
-					c1x = sx + dir * span; c1y = sy;
-					c2x = ex - dir * span; c2y = ey;
-					edge.axis = 'x';
-				} else {
-					// Adjacent rows can share a top/bottom boundary. Route through
-					// the right gutter instead of collapsing to a zero-length loop.
-					sx = f.right; sy = fcy;
-					ex = t.right; ey = tcy;
-					c1x = c2x = Math.max(f.right, t.right) + 40;
-					c1y = sy; c2y = ey;
-					edge.axis = 'y';
-				}
-				edge.s = [sx, sy];
-				edge.c1 = [c1x, c1y];
-				edge.c2 = [c2x, c2y];
-				edge.e = [ex, ey];
-			}
-			// Parallel-edge offset: edges leaving the same blocker row (or arriving
-			// at the same blocked row) share an anchor, so shift their control
-			// points apart perpendicular to the travel axis (7px pitch, centred on
-			// the group). fromId is the blocker, toId the blocked task.
-			const fan = (pointField, idField, prefix) => {
-				const groups = new Map();
-				for (const edge of edges) {
-					const id = prefix + edge[idField];
-					if (!groups.has(id)) groups.set(id, []);
-					groups.get(id).push(edge);
-				}
-				for (const group of groups.values()) {
-					if (group.length < 2) continue;
-					group.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
-					group.forEach((edge, index) => {
-						const shift = (index - (group.length - 1) / 2) * 7;
-						const point = edge[pointField];
-						if (edge.axis === 'x') point[1] += shift;
-						else point[0] += shift;
-					});
-				}
-			};
-			fan('c1', 'fromId', 's:');
-			fan('c2', 'toId', 't:');
-			const r1 = (value) => Math.round(value * 10) / 10;
-			for (const edge of edges) {
-				edge.d = 'M ' + r1(edge.s[0]) + ' ' + r1(edge.s[1])
-					+ ' C ' + r1(edge.c1[0]) + ' ' + r1(edge.c1[1])
-					+ ' ' + r1(edge.c2[0]) + ' ' + r1(edge.c2[1])
-					+ ' ' + r1(edge.e[0]) + ' ' + r1(edge.e[1]);
-				edge.ex = edge.e[0];
-				edge.ey = edge.e[1];
-				delete edge.from;
-				delete edge.to;
-				delete edge.axis;
-			}
-			return edges;
-		}
-
-		// Geometry freshness gate for the edge state: identical key/state sets with
-		// every anchor within 0.5px need no redraw (rAF-throttled re-measure can
-		// fire often; only a real move, state flip or live-toggle updates React).
-		function taskEdgesEqual(prev, next) {
-			if (prev === next) return true;
-			if (!Array.isArray(prev) || !Array.isArray(next) || prev.length !== next.length) return false;
-			for (let index = 0; index < prev.length; index++) {
-				const a = prev[index];
-				const b = next[index];
-				if (a.key !== b.key || a.state !== b.state || !!a.live !== !!b.live) return false;
-				for (const point of ['s', 'c1', 'c2', 'e']) {
-					if (Math.abs(a[point][0] - b[point][0]) >= 0.5) return false;
-					if (Math.abs(a[point][1] - b[point][1]) >= 0.5) return false;
-				}
-			}
-			return true;
 		}
 		// #endregion connectors
 
@@ -5085,10 +4886,7 @@ window.__ModuleLoader__.load({
 			// Task list + live-owner set for the dependency-edge layer; measureLinks
 			// reads them through refs because it is a stable callback (no deps) while
 			// the task board changes every commit.
-			const edgeDataRef = React.useRef({ tasks: [], live: new Set() });
 			const [linkPaths, setLinkPaths] = React.useState([]);
-			const [edges, setEdges] = React.useState([]);
-			const [edgeCards, setEdgeCards] = React.useState([]);
 			const measureLinks = React.useCallback(() => {
 				const tree = treeRef.current;
 				const leadEl = leadRef.current;
@@ -5103,23 +4901,8 @@ window.__ModuleLoader__.load({
 				const paths = buildConnectorPaths(base, leadRect, nodes);
 				if (paths === null) return; // hidden pane: keep the last drawing, redraw on wake
 				setLinkPaths((prev) => (JSON.stringify(prev) === JSON.stringify(paths) ? prev : paths));
-				// Dependency edges: endpoints are the two task-row rects
-				// (data-cabinet-task anchors) in overlay coordinates; a row that is
-				// not rendered (or a task removed from the board) drops its edge.
-				const rectById = new Map();
-				for (const row of tree.querySelectorAll('[data-cabinet-task]')) {
-					const rect = row.getBoundingClientRect();
-					if (rect.width > 0 && rect.height > 0) rectById.set(row.getAttribute('data-cabinet-task'), rect);
-				}
-				const cards = Array.from(tree.querySelectorAll('.cabinet-card'), (card) => {
-					const rect = card.getBoundingClientRect();
-					return { left: rect.left - base.left, top: rect.top - base.top, width: rect.width, height: rect.height };
-				});
-				setEdgeCards((prev) => JSON.stringify(prev) === JSON.stringify(cards) ? prev : cards);
-				const edgeData = edgeDataRef.current;
-				const nextEdges = buildTaskEdges(base, edgeData.tasks, (id) => rectById.get(id) || null, (id) => edgeData.live.has(id));
-				if (nextEdges === null) return;
-				setEdges((prev) => (taskEdgesEqual(prev, nextEdges) ? prev : nextEdges));
+				// 任务依赖边已整体下线（用户：名册里的乱线不要了）——不再测量
+				// data-cabinet-task 行矩形、不 setEdges/setEdgeCards。
 			}, []);
 			// Re-measure after every commit: React owns card content, so a bare
 			// layout effect catches member/task/model changes without a dep list.
@@ -5286,17 +5069,6 @@ window.__ModuleLoader__.load({
 			const membersSignature = members.map((member) => String(member.id) + ':' + String(member.name) + ':' + String(member.phase)).join('|');
 			// 气泡昵称：同一会话内不同成员必定显示不同名字（规则见 chatBubbleNames）。
 			const bubbleNames = React.useMemo(() => chatBubbleNames(members), [membersSignature, memberRevision]);
-			const edgeLead = members.find((member) => member.role === 'lead');
-			const liveTaskIds = new Set();
-			for (const task of tasks) {
-				if (task.status !== 'in_progress' || !task.ownerName) continue;
-				const member = memberByName.get(task.ownerName);
-				const running = member ? runningOf(member.id)
-					: (edgeLead && (task.ownerName === 'lead' || task.ownerName === edgeLead.name)) ? runningOf(edgeLead.id)
-					: false;
-				if (running) liveTaskIds.add(task.id);
-			}
-			edgeDataRef.current = { tasks, live: liveTaskIds };
 
 			const counts = { pending: 0, in_progress: 0, completed: 0 };
 			for (const task of tasks) if (counts[task.status] !== undefined) counts[task.status] += 1;
@@ -5973,9 +5745,6 @@ window.__ModuleLoader__.load({
 					d: typeof path === 'string' ? path : path.d,
 					style: { fill: 'none', stroke: typeof path === 'string' || !path || !path.color ? LINE : path.color, strokeWidth: 2, strokeLinecap: 'round' }
 				}))),
-				// dependency edges paint above the cards (endpoints sit on task rows
-				// inside cards) but never take pointer events
-				h(TaskEdgeLayer, { key: 'edges', edges, cards: edgeCards }),
 				h('div', {
 					key: 'leadwrap',
 					ref: leadRef,
