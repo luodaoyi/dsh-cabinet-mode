@@ -4106,15 +4106,19 @@ window.__ModuleLoader__.load({
 			}
 			const paths = [];
 			const fan = (from, targets, isFirst, firstTop) => {
-				const stub = 14;
-				const y1 = from.y + stub;
 				for (const target of targets) {
 					const cx = target.left + target.width / 2;
 					const top = target.top;
-					// 首辅→第一层（画法不变，用户认可）：bow 0.30；c1x=ax；
-					// c1y 封顶 firstTop-6，横移在第一层卡带上方完成，不露列缝
-					//（验算 /tmp/geo4.mjs 采样 500 点全清）。
-					const bow = Math.max(24, (top - y1) * 0.30);
+					// 首辅→第一层与相邻层统一 gap 自适应（rowGap 30 与首辅 30 对齐后，
+					// 固定 stub=14/bow=24 在 30 净隙下 c1y=父底+38>子顶必穿卡）：
+					// gap=top-from.y，stub=min(14,max(4,gap*0.25))、
+					// bow=max(4,(gap-stub)*0.5)，并强制 stub+bow<gap
+					//（不满足压 bow 到 gap-stub-1）。c1x=ax 与 firstTop-6 封顶保留。
+					const gap = top - from.y;
+					const stub = Math.min(14, Math.max(4, gap * 0.25));
+					const y1 = from.y + stub;
+					let bow = Math.max(4, (gap - stub) * 0.5);
+					if (stub + bow >= gap) bow = Math.max(4, gap - stub - 1);
 					const c1x = isFirst ? from.x : cx;
 					const c1y = Math.min(y1 + bow, firstTop - 6);
 					const d = 'M ' + from.x + ' ' + from.y + ' L ' + from.x + ' ' + y1
@@ -4141,13 +4145,14 @@ window.__ModuleLoader__.load({
 					}
 					const px = best.left + best.width / 2;
 					const py = best.top + best.height;
-					const y1 = py + 14;
 					const top = card.top;
-					// 只跨一层：bow 下限 24（48 净隙 → (48-14)*0.5=17 < 24，取 24）；
-					// 控制点 c1y=父底+38 < 子顶=父底+48 ✓、c2y=子顶-24=父底+24 >
-					// 父底 ✓，曲线 y∈[父底+14, 子顶] 全在层间隙——48 档不穿卡
-					//（卡死条件 bow≥34，24 距阈值还有 10px 余量）。
-					const bow = Math.max(24, (top - py - 14) * 0.5);
+					// gap 自适应（rowGap 30 档）：gap=top-py=30 → stub=7.5、
+					// bow=11.25、c1y=父底+18.75<子顶 ✓；固定 14/24 必穿卡。
+					const gap = top - py;
+					const stub = Math.min(14, Math.max(4, gap * 0.25));
+					const y1 = py + stub;
+					let bow = Math.max(4, (gap - stub) * 0.5);
+					if (stub + bow >= gap) bow = Math.max(4, gap - stub - 1);
 					const d = 'M ' + px + ' ' + py + ' L ' + px + ' ' + y1
 						+ ' C ' + px + ' ' + (y1 + bow) + ', ' + cx + ' ' + (top - bow) + ', ' + cx + ' ' + top;
 					paths.push({ d, color: typeof card.color === 'string' ? card.color : '' });
@@ -5797,8 +5802,9 @@ window.__ModuleLoader__.load({
 						zIndex: 1,
 						display: 'flex',
 						flexDirection: 'column',
-						// 层间 96px 给弧线留走线空间（任务书 90-110）；列距由行容器 12 承担。
-						rowGap: 48,
+						// 层间 30px 与首辅 marginBottom 30 对齐（用户：跟首辅和第一行
+						// 的距离一样）；列距由行容器 12 承担。弧线 stub/bow 随净隙自适应。
+						rowGap: 30,
 						columnGap: 12,
 						width: '100%'
 					}
