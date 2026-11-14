@@ -3512,6 +3512,7 @@ window.__ModuleLoader__.load({
 			return Math.floor(hours / 24) + 'd' + String(hours % 24).padStart(2, '0') + 'h';
 		}
 
+		// Token totals lack provider/billing-period/model-history evidence: no currency estimate.
 		/** Sum the four disjoint provider-usage buckets; undefined when none exists. */
 		function tokenTotalOf(usage) {
 			if (usage === undefined || usage === null || typeof usage !== 'object') return undefined;
@@ -3784,7 +3785,8 @@ window.__ModuleLoader__.load({
 					}, tt('current')) : null
 				]),
 				// Agent status and task status are independent; a stale task never implies a running agent.
-				h('span', { key: 'state', 'data-cabinet-member-status': status, style: { fontSize: 11, color: INK2 } }, typeof statusLabel === 'function' ? statusLabel(status) : status),
+				h('span', { key: 'state', 'data-cabinet-member-status': status, style: { fontSize: 11, color: INK2 } },
+					typeof statusLabel === 'function' ? statusLabel(status) : status),
 				h('div', {
 					key: 'taskdesc',
 					'data-cabinet-task-desc': '1',
@@ -3802,7 +3804,8 @@ window.__ModuleLoader__.load({
 							animation: taskLive ? 'cabinetPulse 1.7s ease-out infinite' : undefined
 						}
 					}, '\u25cf'), activeTask.subject]
-					: '无进行中任务'),
+					// Absence of a task says nothing about the process state.
+					: tt('member.noTask')),
 				// 故障必须可见：member.error 整行红字（模型行已按截图移除）。
 				member.error ? h('div', {
 					key: 'err',
@@ -3860,7 +3863,6 @@ window.__ModuleLoader__.load({
 									: (formatTokenCount(usage.context && usage.context.projectedTokens) ?? tt('usage.none')))
 						]) : null
 				]) : null,
-				activity && activity.known === false ? h('span', { key: 'activity-unknown', 'data-cabinet-activity-state': 'unknown', title: '名册未订阅消息历史，活动记录数未知', style: { fontSize: 11, color: INK3 } }, '活动 —') : null,
 				h(MemberDispatch, { key: 'dispatch:' + member.id, memberId: member.id, running, service: dispatchService, t: tt, disabled: member.phase === 'failed' || member.phase === 'provisioning' }),
 				// Collapsed task details remain independent from dispatch.
 				children
@@ -4094,18 +4096,75 @@ window.__ModuleLoader__.load({
 				}
 			};
 			fan({ x: leadLocal.left + leadLocal.width / 2, y: leadLocal.top + leadLocal.height }, layers[0].cards);
-			// Later visual rows remain siblings. Route from the lead through an outside
-			// gutter, never from a geometrically convenient (but unrelated) member.
+			// Later visual rows remain siblings (never a member-to-member parent).
+			// Prefer a compact shared bus where the row gap is clear. Staggered rows
+			// may require an outside channel; uneven heights require per-target routing.
 			const ax = leadLocal.left + leadLocal.width / 2;
 			const ay = leadLocal.top + leadLocal.height;
-			const gutter = Math.min(typeof channelX === 'number' ? channelX : -8, ...valid.map(node => node.left - 8));
-			for (const layer of layers.slice(1)) for (const target of layer.cards) {
-				const cx = target.left + target.width / 2;
-				const y = target.top - 16;
-				paths.push({ d: 'M ' + ax + ' ' + ay + ' L ' + ax + ' ' + (ay + 14)
-					+ ' L ' + gutter + ' ' + (ay + 14) + ' L ' + gutter + ' ' + y
-					+ ' C ' + gutter + ' ' + y + ', ' + cx + ' ' + y + ', ' + cx + ' ' + target.top,
-					color: typeof target.color === 'string' ? target.color : '' });
+			const tail = layers.slice(1);
+			if (tail.length > 0) {
+				const busY = (layer) => layer.top - 16;
+				const bottomY = busY(tail[tail.length - 1]);
+				// Check every row, including the first fan row. A staggered layout may
+				// have no common column gap: use a safe outside channel, never ax.
+				const allCards = valid;
+				const clear = x => allCards.every(card => x < card.left - 1 || x > card.left + card.width + 1);
+				const minLeft = Math.min(...allCards.map(card => card.left));
+				const maxRight = Math.max(...allCards.map(card => card.left + card.width));
+				const gaps = allCards.flatMap(card => [card.left - 8, card.left + card.width + 8])
+					.filter(x => x > minLeft && x < maxRight && clear(x)).sort((a, b) => Math.abs(a - ax) - Math.abs(b - ax) || a - b);
+				// Prefer an outer margin inside the SVG viewport. Its overflow is visible
+				// for tight layouts; ancestor clipping may hide a safe edge, never reroute through a card.
+				const outsideX = minLeft >= 16 ? minLeft - 16 : maxRight + 16 <= base.width ? maxRight + 16 : minLeft - 16;
+				const trunkX = gaps.length ? gaps[0] : outsideX;
+				// Neutral trunk: drop8px under the Lead, step sideways into the gap in
+				// that blank band, then straight down to the lowest bus line.
+				paths.push({ d: 'M ' + ax + ' ' + ay + ' L ' + ax + ' ' + (ay + 8) + ' L ' + trunkX + ' ' + (ay + 8) + ' L ' + trunkX + ' ' + bottomY, color: LINE });
+				const intersects = (a,b) => valid.some(r => a.x === b.x
+					? a.x > r.left && a.x < r.left+r.width && Math.max(a.y,b.y)>r.top && Math.min(a.y,b.y)<r.top+r.height
+					: a.y > r.top && a.y < r.top+r.height && Math.max(a.x,b.x)>r.left && Math.min(a.x,b.x)<r.left+r.width);
+				const routeAroundCards = target => {
+					const start={x:ax,y:ay+8}, goal={x:target.left+target.width/2,y:target.top-8};
+					const xs=[...new Set([start.x,goal.x,...valid.flatMap(r=>[r.left-8,r.left+r.width+8])])].sort((a,b)=>a-b);
+					const ys=[...new Set([start.y,goal.y,...valid.flatMap(r=>[r.top-8,r.top+r.height+8])])].sort((a,b)=>a-b);
+					const key=(x,y)=>x+':'+y, first=key(start.x,start.y), last=key(goal.x,goal.y);
+					const parents=new Map([[first,null]]), points=new Map([[first,start]]), queue=[start];
+					for(let i=0;i<queue.length&&!parents.has(last);i++){
+						const from=queue[i], xi=xs.indexOf(from.x), yi=ys.indexOf(from.y);
+						for(const [x,y] of [[xs[xi-1],from.y],[xs[xi+1],from.y],[from.x,ys[yi-1]],[from.x,ys[yi+1]]]){
+							if(x===undefined||y===undefined)continue;const id=key(x,y),to={x,y};
+							if(parents.has(id)||intersects(from,to))continue;
+							parents.set(id,key(from.x,from.y));points.set(id,to);queue.push(to);
+						}
+					}
+					if(!parents.has(last)||intersects({x:ax,y:ay},start)||intersects(goal,{x:goal.x,y:target.top}))return;
+					const route=[];for(let id=last;id!==null;id=parents.get(id))route.unshift(points.get(id));
+					paths.push({d:'M '+ax+' '+ay+route.map(p=>' L '+p.x+' '+p.y).join('')+' L '+goal.x+' '+target.top,color:typeof target.color==='string'?target.color:''});
+				};
+				for (const layer of tail) {
+					const y = busY(layer);
+					const centres = layer.cards.map((card) => card.left + card.width / 2);
+					const minX = Math.min(...centres);
+					const maxX = Math.max(...centres);
+					if(intersects({x:Math.min(trunkX,minX),y},{x:Math.max(trunkX,maxX),y}) || layer.cards.some(card=>intersects({x:card.left+card.width/2,y},{x:card.left+card.width/2,y:card.top}))){
+						for(const target of layer.cards)routeAroundCards(target);
+						continue;
+					}
+					// One horizontal segment per layer, from the trunk to both ends.
+					paths.push({
+						d: 'M ' + trunkX + ' ' + y + ' L ' + minX + ' ' + y + (maxX !== minX ? ' L ' + maxX + ' ' + y : ''),
+						color: LINE
+					});
+					// One branch per card, family colour, from the bus down to the top centre.
+					for (const target of layer.cards) {
+						const cx = target.left + target.width / 2;
+						const top = target.top;
+						paths.push({
+							d: 'M ' + cx + ' ' + y + ' C ' + cx + ' ' + (y + 6) + ', ' + cx + ' ' + (top - 6) + ', ' + cx + ' ' + top,
+							color: typeof target.color === 'string' ? target.color : ''
+						});
+					}
+				}
 			}
 			return paths;
 		}
@@ -5846,8 +5905,8 @@ window.__ModuleLoader__.load({
 			// ---- 品字形 org chart: lead on top, ministers in an auto-fit grid below,
 			// wired by a measured SVG overlay — no CSS guessing, no left file-tree
 			// rail. Rows wrap freely (品 = 1 up / 2 down, more nodes spill to further
-			// rows); connectors re-route through a column gutter or the left margin
-			// so no line ever crosses a card.
+			// rows); connectors fan out from a vertical trunk with one horizontal
+			// bus segment per row — no line reaches past the outermost cards.
 			// 家族色：黄金角散列（与时间线同式）；主控卡固定金色系（环/边框）。
 			const familyColorOf = (index) => 'hsl(' + (Math.round(index * 137.508) % 360) + ' 58% 52%)';
 			// 底行活动数据：该成员在群聊折叠行里的条数与最后一条时间（真实行，
@@ -7309,6 +7368,7 @@ window.__ModuleLoader__.load({
 			'dispatch.unavailable': "发送通道不可用",
 			'status.running': '干活中',
 			'status.inactive': '空闲',
+			'member.noTask': '无进行中任务',
 			'status.provisioning': '启动中',
 			'status.failed': '失败',
 			'task.pending': '待办',
@@ -7475,6 +7535,7 @@ window.__ModuleLoader__.load({
 			'dispatch.unavailable': "Send channel unavailable",
 			'status.running': 'working',
 			'status.inactive': 'idle',
+			'member.noTask': 'No active task',
 			'status.provisioning': 'starting',
 			'status.failed': 'failed',
 			'task.pending': 'pending',
