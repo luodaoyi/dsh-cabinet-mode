@@ -1609,7 +1609,7 @@ assert.equal(client.usageFor({tokenUsage:{outputTokens:-1},contextPressure:{cont
   assert.equal(rows2.length, 1, 'two ministers share one row, got ' + rows2.length);
   assert.equal(cardsIn(rows2[0]).length, 2, 'the single row holds both cards');
   const gridBox = elements(render(layerTeam(9), client.zh)).find((node) => node.props?.key === 'grid');
-  assert.ok(gridBox && gridBox.props.style.rowGap >= 150, 'layers keep a 150px+ vertical gap so arcs have a lane between rows, got ' + JSON.stringify(gridBox && gridBox.props.style.rowGap));
+  assert.equal(gridBox && gridBox.props.style.rowGap, 96, 'row gap is back to the compact 96px, got ' + JSON.stringify(gridBox && gridBox.props.style.rowGap));
   // 弧线连线几何实测（buildConnectorPaths 真跑合成矩形）：lead 扇形同点出发、
   // 每卡一条贝塞尔止于顶中点、每层居中卡扇形连下一层、线色随目标卡。
   const connBase = { left: 0, top: 0, width: 600, height: 900 };
@@ -1624,15 +1624,13 @@ assert.equal(client.usageFor({tokenUsage:{outputTokens:-1},contextPressure:{cont
   assert.ok(Array.isArray(connPaths) && connPaths.length > 0, 'connector arcs build for a 3x3 layered tree');
   const connD = connPaths.map((path) => (typeof path === 'string' ? path : path.d));
   const leadFan = connD.filter((d) => d.indexOf('M 300 60 L 300 74 C ') === 0);
-  assert.equal(leadFan.length, connNodes.length, 'every card of every layer arcs from the lead bottom-centre after the shared 14px stub, got ' + leadFan.length);
+  assert.equal(leadFan.length, 3, 'the lead still fans out to the first row only, got ' + leadFan.length);
   let arrived = 0;
   for (const node of connNodes) {
     const cx = node.left + node.width / 2;
     if (connD.some((d) => d.includes(' C ') && d.endsWith(' ' + cx + ' ' + node.top))) arrived += 1;
   }
   assert.equal(arrived, connNodes.length, 'every card of every layer receives an arc ending at its top centre, got ' + arrived);
-  const hubFan = connD.filter((d) => d.indexOf('M 300 320 L 300 334 C ') === 0);
-  assert.equal(hubFan.length, 0, 'no member is made the parent of the next visual row, got ' + hubFan.length);
   // 全层规格：路径数 = 所有层卡数，每条含 C、无长直段。
   assert.equal(connPaths.length, connNodes.length, 'exactly one arc per card across all layers, got ' + connPaths.length);
   assert.ok(connD.every((d) => d.includes(' C ')), 'every path is a bezier (no bare polyline)');
@@ -1662,36 +1660,77 @@ assert.equal(client.usageFor({tokenUsage:{outputTokens:-1},contextPressure:{cont
     assert.ok(m, 'arc is M ax ay L ax y1 C c1x c1y, cx c2y, cx top (S shape), got: ' + d);
     const [, axS, , c1x, c1y, c2x, c2y, cxS, topS] = m;
     assert.equal(c2x, cxS, 'second control point sits above the target centre, got: ' + d);
-    if (topS === '200') assert.equal(c1x, axS, 'the first row keeps c1x=ax (approved drawing), got: ' + d);
-    else assert.equal(c1x, cxS, 'later rows shift the start control to the target column so the move finishes above row one, got: ' + d);
-    assert.ok(Number(c1y) < 200, 'the start control stays above the first card row (no mid-row lateral move), got: ' + d);
-    sShape.push({ ax: Number(axS), cx: Number(cxS), c1y: Number(c1y), c2y: Number(c2y) });
+    if (topS === '200') {
+      assert.equal(c1x, axS, 'lead → first row keeps c1x=ax (approved drawing), got: ' + d);
+      sShape.push({ ax: Number(axS), cx: Number(cxS), c1y: Number(c1y), c2y: Number(c2y) });
+    } else {
+      // 相邻层弧：c1x 必须是父卡中心 x（配对断言另行验证父卡与相邻性）
+      assert.ok(Number(c1x) === 120 || Number(c1x) === 300 || Number(c1x) === 480,
+        'parent-side control sits on a parent card centre, got: ' + d);
+    }
   }
   for (const arc of sShape) {
     if (arc.ax !== arc.cx) assert.ok(arc.c1y !== undefined && arc.c2y !== undefined && arc.c1y !== arc.c2y, 'the two control points differ in y (S, not a point), got: ' + JSON.stringify(arc));
   }
-  // 几何断言（用户：弧线中段不与卡相交——穿卡结构性不可避免（ax 在中列卡投影
-  // 内），由 SVG z-index 遮挡；可验证的等效判据是「不从 20px 列缝露出碎段」：
-  // 曲线采样点若 y 落在任一卡带内，x 不得落在列缝 [200,220]∪[380,400]。
-  const GAPX = [[200, 220], [380, 400]];
-  const fixtureCards = connNodes.map((node) => ({ l: node.left, r: node.left + node.width, t: node.top, b: node.top + node.height }));
+  // 配对断言（相邻层视觉树）：每条 d 的起点 y == 某卡底部、终点 y == 某卡顶部，
+  // 且父卡与子卡在 layers 里相邻（父层 = 子层 - 1）；首辅→第一层起点为首辅底。
+  // 「只跨一层」：终点 top - 起点 py == 相邻层 top 差（fixture 恒 160）。
+  const cardAt = (x, y) => connNodes.find((node) => Math.abs((node.left + node.width / 2) - x) < 0.01 && Math.abs((node.top + node.height) - y) < 0.01);
+  const topAt = (x, y) => connNodes.find((node) => Math.abs((node.left + node.width / 2) - x) < 0.01 && Math.abs(node.top - y) < 0.01);
+  let parentPaired = 0;
   for (const d of connD) {
     const m = d.match(/^M (\d+) (\d+) L \d+ \d+ C (\d+) ([\d.]+), (\d+) ([\d.]+), (\d+) (\d+)$/);
-    assert.ok(m, 'arc parses for geometry check, got: ' + d);
-    // 曲线四点：P0=(ax, ay+14) L 段终点、P1=(c1x,c1y)、P2=(c2x,c2y)、P3=(cx,top)
-    const ax0 = Number(m[1]), ay0 = Number(m[2]);
-    const P0x = ax0, P0y = ay0 + 14;
-    const P1x = Number(m[3]), P1y = Number(m[4]);
+    assert.ok(m, 'arc parses for pairing, got: ' + d);
+    const px = Number(m[1]), py = Number(m[2]);
+    const c1x = Number(m[3]), c1y = Number(m[4]);
+    const c2x = Number(m[5]), c2y = Number(m[6]);
+    const cx = Number(m[7]), top = Number(m[8]);
+    const child = topAt(cx, top);
+    assert.ok(child, 'arc ends on a card top centre, got: ' + d);
+    if (py === 60) {
+      // 首辅 → 第一层
+      assert.equal(top, 200, 'lead arc targets the first row, got: ' + d);
+      assert.equal(c1x, 300, 'lead arc c1x is the lead centre, got: ' + d);
+    } else {
+      const parent = cardAt(px, py);
+      assert.ok(parent, 'parent-side arc starts at a parent card bottom centre, got: ' + d);
+      const parentLayer = Math.round((parent.top - 200) / 160);
+      const childLayer = Math.round((child.top - 200) / 160);
+      assert.equal(childLayer, parentLayer + 1, 'parent and child sit on adjacent layers, got: ' + d);
+      assert.equal(child.top - parent.top, 160, 'parent and child tops differ by exactly one layer step, got: ' + d);
+      // 父卡 = 上一层中 x 距离最近者
+      const layerAbove = connNodes.filter((node) => Math.abs(node.top - parent.top) < 0.01);
+      let nearest = layerAbove[0];
+      for (const candidate of layerAbove) {
+        if (Math.abs((candidate.left + candidate.width / 2) - cx) < Math.abs((nearest.left + nearest.width / 2) - cx)) nearest = candidate;
+      }
+      assert.equal(parent.left + parent.width / 2, nearest.left + nearest.width / 2, 'parent is the horizontally nearest card above, got: ' + d);
+      // 控制点全部落在父底与子顶之间的层间隙里
+      assert.ok(c1x === px && c2x === cx, 'parent-side c1x==parent centre, child-side c2x==child centre, got: ' + d);
+      assert.ok(c1y > py && c1y < top && c2y > py && c2y < top, 'both control points stay inside the inter-layer gap, got: ' + d);
+      parentPaired += 1;
+    }
+  }
+  assert.equal(parentPaired, 6, 'every non-first-row card hangs off its nearest parent, got ' + parentPaired);
+  // 真不穿卡：每条弧采样 500 点，除它的起止两卡外不得落进任何卡矩形。
+  for (const d of connD) {
+    const m = d.match(/^M (\d+) (\d+) L \d+ \d+ C (\d+) ([\d.]+), (\d+) ([\d.]+), (\d+) (\d+)$/);
+    const px = Number(m[1]), py = Number(m[2]);
+    const P0y = py + 14, P1x = Number(m[3]), P1y = Number(m[4]);
     const P2x = Number(m[5]), P2y = Number(m[6]);
     const P3x = Number(m[7]), P3y = Number(m[8]);
+    const endpoints = new Set();
+    if (py !== 60) { const pc = cardAt(px, py); if (pc) endpoints.add(pc.left + ',' + pc.top); }
+    const cc = topAt(P3x, P3y); if (cc) endpoints.add(cc.left + ',' + cc.top);
     const bez = (p0, p1, p2, p3, t) => { const u = 1 - t; return u * u * u * p0 + 3 * u * u * t * p1 + 3 * u * t * t * p2 + t * t * t * p3; };
     for (let i = 0; i <= 500; i += 1) {
       const t = i / 500;
-      const x = bez(P0x, P1x, P2x, P3x, t);
+      const x = bez(px, P1x, P2x, P3x, t);
       const y = bez(P0y, P1y, P2y, P3y, t);
-      for (const card of fixtureCards) {
-        if (y > card.t && y < card.b && GAPX.some(([a, b]) => x > a && x < b)) {
-          assert.fail('arc must not peek through a column gap (x=' + x.toFixed(1) + ',y=' + y.toFixed(1) + '), got: ' + d);
+      for (const node of connNodes) {
+        if (endpoints.has(node.left + ',' + node.top)) continue;
+        if (x > node.left && x < node.left + node.width && y > node.top && y < node.top + node.height) {
+          assert.fail('arc must not cross a third card (x=' + x.toFixed(1) + ',y=' + y.toFixed(1) + '), got: ' + d);
         }
       }
     }

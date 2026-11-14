@@ -4111,13 +4111,9 @@ window.__ModuleLoader__.load({
 				for (const target of targets) {
 					const cx = target.left + target.width / 2;
 					const top = target.top;
-					// bow 比例 0.30（原 0.6 在长距离下兜回贴卡边；0.30–0.38 区间取下限，
-					// 弧最舒展）。第一层保持原画法（c1x=ax，用户认可）；后续层 c1x=cx：
-					// 目标列横移在第一层卡带【上方】完成（c1y 封顶 firstTop-6），卡带内
-					// 弧恒走目标列——线在卡后（SVG z-index 低于卡片）被整卡遮住，不从
-					// 20px 列缝里露出碎段。验算（geo4 采样 500 点）：rowGap 150/160/170
-					// 与 fixture 净隙 40、bow 0.30/0.34/0.38 全组合「不露缝」全清；
-					// 穿卡本身结构性不可避免（ax 在中列卡投影内），由 z-index 遮挡。
+					// 首辅→第一层（画法不变，用户认可）：bow 0.30；c1x=ax；
+					// c1y 封顶 firstTop-6，横移在第一层卡带上方完成，不露列缝
+					//（验算 /tmp/geo4.mjs 采样 500 点全清）。
 					const bow = Math.max(24, (top - y1) * 0.30);
 					const c1x = isFirst ? from.x : cx;
 					const c1y = Math.min(y1 + bow, firstTop - 6);
@@ -4126,12 +4122,34 @@ window.__ModuleLoader__.load({
 					paths.push({ d, color: typeof target.color === 'string' ? target.color : '' });
 				}
 			};
-			// 恢复全层连线（用户：后面几行的连线直接没了）——每层每卡一条 S 形弧，
-			// 全部从首辅底部中点出发；不引 gutter、不引直角主干。
+			// 相邻层视觉树（用户：纵向间距太大不和谐 + 长弧露碎段一起解）：
+			// 第一层仍从首辅底部中点 fan（画法不变）；第 i+1 层每张卡从上一层
+			// 中 x 距离最近的那张卡（父卡）底部中点连到自己顶部中点——只跨一层
+			// 高度（rowGap 96 内），弧小而紧，结构上不可能穿到别的卡。
 			const ax = leadLocal.left + leadLocal.width / 2;
 			const ay = leadLocal.top + leadLocal.height;
-			for (let index = 0; index < layers.length; index += 1) {
-				fan({ x: ax, y: ay }, layers[index].cards, index === 0, layers[0].top);
+			fan({ x: ax, y: ay }, layers[0].cards, true, layers[0].top);
+			for (let index = 1; index < layers.length; index += 1) {
+				const parents = layers[index - 1].cards;
+				for (const card of layers[index].cards) {
+					const cx = card.left + card.width / 2;
+					let best = parents[0];
+					for (const candidate of parents) {
+						const bestDist = Math.abs((best.left + best.width / 2) - cx);
+						const candidateDist = Math.abs((candidate.left + candidate.width / 2) - cx);
+						if (candidateDist < bestDist) best = candidate;
+					}
+					const px = best.left + best.width / 2;
+					const py = best.top + best.height;
+					const y1 = py + 14;
+					const top = card.top;
+					// 只跨一层：bow 很小（96 净隙 → (96-14)*0.5=41），控制点与曲线
+					// 全落在父底与子顶之间的层间隙里，不碰任何卡。
+					const bow = Math.max(16, (top - py - 14) * 0.5);
+					const d = 'M ' + px + ' ' + py + ' L ' + px + ' ' + y1
+						+ ' C ' + px + ' ' + (y1 + bow) + ', ' + cx + ' ' + (top - bow) + ', ' + cx + ' ' + top;
+					paths.push({ d, color: typeof card.color === 'string' ? card.color : '' });
+				}
 			}
 			return paths;
 		}
@@ -5778,7 +5796,7 @@ window.__ModuleLoader__.load({
 						display: 'flex',
 						flexDirection: 'column',
 						// 层间 96px 给弧线留走线空间（任务书 90-110）；列距由行容器 12 承担。
-						rowGap: 160,
+						rowGap: 96,
 						columnGap: 12,
 						width: '100%'
 					}
