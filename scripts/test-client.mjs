@@ -1609,7 +1609,7 @@ assert.equal(client.usageFor({tokenUsage:{outputTokens:-1},contextPressure:{cont
   assert.equal(rows2.length, 1, 'two ministers share one row, got ' + rows2.length);
   assert.equal(cardsIn(rows2[0]).length, 2, 'the single row holds both cards');
   const gridBox = elements(render(layerTeam(9), client.zh)).find((node) => node.props?.key === 'grid');
-  assert.equal(gridBox && gridBox.props.style.rowGap, 56, 'row gap is the compact 56px, got ' + JSON.stringify(gridBox && gridBox.props.style.rowGap));
+  assert.equal(gridBox && gridBox.props.style.rowGap, 48, 'row gap is the compact 48px, got ' + JSON.stringify(gridBox && gridBox.props.style.rowGap));
   // 弧线连线几何实测（buildConnectorPaths 真跑合成矩形）：lead 扇形同点出发、
   // 每卡一条贝塞尔止于顶中点、每层居中卡扇形连下一层、线色随目标卡。
   const connBase = { left: 0, top: 0, width: 600, height: 900 };

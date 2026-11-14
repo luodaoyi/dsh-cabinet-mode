@@ -4143,10 +4143,10 @@ window.__ModuleLoader__.load({
 					const py = best.top + best.height;
 					const y1 = py + 14;
 					const top = card.top;
-					// 只跨一层：bow 下限 24（56 净隙 → (56-14)*0.5=21 < 24，取 24
-					// 保弧有可见弯曲，不靠拉大层距）；控制点 c1y=父底+38、
-					// c2y=子顶-24 都在 (父底, 子顶) 内，曲线 y∈[父底+14, 子顶]
-					// 全在层间隙——56/48 档均不穿卡（48 档 c1y=父底+38<父底+48 ✓）。
+					// 只跨一层：bow 下限 24（48 净隙 → (48-14)*0.5=17 < 24，取 24）；
+					// 控制点 c1y=父底+38 < 子顶=父底+48 ✓、c2y=子顶-24=父底+24 >
+					// 父底 ✓，曲线 y∈[父底+14, 子顶] 全在层间隙——48 档不穿卡
+					//（卡死条件 bow≥34，24 距阈值还有 10px 余量）。
 					const bow = Math.max(24, (top - py - 14) * 0.5);
 					const d = 'M ' + px + ' ' + py + ' L ' + px + ' ' + y1
 						+ ' C ' + px + ' ' + (y1 + bow) + ', ' + cx + ' ' + (top - bow) + ', ' + cx + ' ' + top;
@@ -5798,7 +5798,7 @@ window.__ModuleLoader__.load({
 						display: 'flex',
 						flexDirection: 'column',
 						// 层间 96px 给弧线留走线空间（任务书 90-110）；列距由行容器 12 承担。
-						rowGap: 56,
+						rowGap: 48,
 						columnGap: 12,
 						width: '100%'
 					}
