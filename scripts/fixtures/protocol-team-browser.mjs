@@ -182,9 +182,15 @@ export async function teamBrowser({auth,env,repo,members,onCreated}){
    stage='actual roster SessionFace '+(spec.id===lead.id?'Lead':'member')+(spec.lost?' accepted ACK lost':' normal acknowledgement');
    const control=rail.locator(`[data-cabinet-dispatch=${JSON.stringify(spec.id)}]`);
    // 派活容器默认 opacity:0/pointer-events:none，仅 .cabinet-card:hover 可点
-   //（bc17d87 悬停显示）；Playwright click 的 actionability 检查要求元素
-   // receives-events，故所有 dispatch-* 的 click 前先 hover 卡片模拟真人。
-   const hoverClick=async(loc)=>{await control.hover();await loc.click();};
+   //（bc17d87 悬停显示）；Playwright click/hover 的 actionability 都要求元素
+   // receives-events——容器自己 pointer-events:none，hover 它也过不了检查，
+   // 所以必须 hover【卡片祖先】：卡片本体可点，:hover 命中后容器才变
+   // pointer-events:auto，此时鼠标已在卡片内，再点目标即通过。
+   const hoverClick=async(loc)=>{
+     const card=control.locator('xpath=ancestor-or-self::*[contains(concat(" ",normalize-space(@class)," ")," cabinet-card ")][1]');
+     await card.hover();
+     await loc.click();
+   };
    const toggle=control.locator('[data-cabinet-dispatch-open]');
    if(await toggle.getAttribute('aria-expanded')==='false')await hoverClick(toggle);
    await control.locator('[data-cabinet-dispatch-phase="ready"], [data-cabinet-dispatch-phase="accepted"]').waitFor({state:'attached'});
