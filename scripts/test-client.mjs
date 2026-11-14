@@ -93,7 +93,7 @@ const PAGE_NOW = Date.now();
 // ageOf 保序：原值越大 ⇒ 时间越新，且所有映射结果都落在最近 ~12 天内
 // （小于 30 天窗口，不会触发新鲜度过滤），既有排序断言的语义不变。
 const ageOf = (value) => PAGE_NOW - (1000000 - value);
-const exportList = 'return { inject, apply, avatarFor, displayName, chatBubbleName, chatBubbleNames, bureauOf, CabinetPanel, MemberCard, MemberDispatch, TaskLine, TaskEdgeLayer, buildTaskEdges, buildConnectorPaths, taskEdgesEqual, zh, en, BUREAUX, AVATARS, setMemberConfig, memberLabel, configuredAvatar, configuredPrompt, factoryPromptFor, DEFAULT_MEMBER_PROMPTS, DEFAULT_LEAD_PROMPT, CabinetMemberSettings, MemoryPluginCard, memoryPluginInstalledOf, SETTINGS_TABS, formatTokenCount, formatElapsed, tokenTotalOf, usageFor, planProjectionRequests, teamUsageOf, groupChatFold, markdownBlocksOf, markdownBlocksCached, inlineMarkdownTokens, markdownLinkHref, modelOptionsOf, modelCatalogNotice, modelSelectionOf, cabinetSessionChoices, cabinetSessionFilters, cabinetSessionGroups, defaultCabinetSession, CabinetMarkdown, CabinetPage, CabinetPanelIcon, GroupChatRow, STYLE_CSS, cabinetGroupMemberStates, mergeGroupChat, cabinetChatViewRows, chatStampNeeded, nearChatBottom, scrollChatToBottom, scrollFollowingTail, cabinetScopeRows, openCabinetSession };';
+const exportList = 'return { inject, apply, avatarFor, displayName, chatBubbleName, chatBubbleNames, bureauOf, CabinetPanel, MemberCard, MemberDispatch, TaskLine, buildConnectorPaths, zh, en, BUREAUX, AVATARS, setMemberConfig, memberLabel, configuredAvatar, configuredPrompt, factoryPromptFor, DEFAULT_MEMBER_PROMPTS, DEFAULT_LEAD_PROMPT, CabinetMemberSettings, MemoryPluginCard, memoryPluginInstalledOf, SETTINGS_TABS, formatTokenCount, formatElapsed, tokenTotalOf, usageFor, costOf, rateForModel, planProjectionRequests, teamUsageOf, groupChatFold, markdownBlocksOf, markdownBlocksCached, inlineMarkdownTokens, markdownLinkHref, modelOptionsOf, modelCatalogNotice, modelSelectionOf, cabinetSessionChoices, cabinetSessionFilters, cabinetSessionGroups, defaultCabinetSession, CabinetMarkdown, CabinetPage, CabinetPanelIcon, GroupChatRow, STYLE_CSS, cabinetGroupMemberStates, mergeGroupChat, cabinetChatViewRows, chatStampNeeded, nearChatBottom, scrollChatToBottom, scrollFollowingTail, cabinetScopeRows, openCabinetSession };';
 runInNewContext(source.replace(exportPoint, exportList), {
   setTimeout: (fn, ms) => setTimeout(fn, ms === 120000 ? 20 : ms), clearTimeout,
   Date: RealmDate,
@@ -307,67 +307,6 @@ const edgeTasks = [
 ];
 const edgeBase = { left: 0, top: 0, width: 800, height: 400 };
 const edgeRectOf = (id) => edgeRects.get(id) || null;
-const built = client.buildTaskEdges(edgeBase, edgeTasks, edgeRectOf, (id) => id === 't-build');
-assert.equal(built.length, 5, 'one edge per resolvable blocker; t-ghost is missing and draws nothing');
-assert.deepEqual(Array.from(built, (edge) => edge.key).sort(), [
-  't-audit->t-build', 't-build->t-research', 't-extra->t-audit', 't-report->t-audit', 't-report->t-research',
-], 'edges come from the vm realm; compare as host arrays');
-const stateByKey = Object.fromEntries(built.map((edge) => [edge.key, edge.state]));
-assert.equal(stateByKey['t-build->t-research'], 'done', 'completed blocker → done');
-assert.equal(stateByKey['t-audit->t-build'], 'active', 'in_progress blocker → active');
-assert.equal(stateByKey['t-extra->t-audit'], 'pending', 'pending blocker → pending');
-const liveByKey = Object.fromEntries(built.map((edge) => [edge.key, edge.live]));
-assert.equal(liveByKey['t-audit->t-build'], true, "blocker's owner running lights the flow edge");
-assert.equal(liveByKey['t-build->t-research'], false, 'done edges never animate');
-for (const edge of built) {
-  assert.match(edge.d, /^M -?[\d.]+ -?[\d.]+ C -?[\d.]+ -?[\d.]+ -?[\d.]+ -?[\d.]+ -?[\d.]+ -?[\d.]+$/, edge.key);
-  assert.equal(typeof edge.ex, 'number', edge.key);
-  assert.equal(typeof edge.ey, 'number', edge.key);
-}
-// hidden panel (zero-size base) keeps the last drawing, like the org connectors
-assert.equal(client.buildTaskEdges({ left: 0, top: 0, width: 0, height: 0 }, edgeTasks, edgeRectOf, () => false), null);
-// a task removed from the board leaves no dangling edge to or from it
-const withoutAudit = edgeTasks.filter((task) => task.id !== 't-audit');
-const orphaned = client.buildTaskEdges(edgeBase, withoutAudit, edgeRectOf, () => false);
-assert.equal(orphaned.length, 2, 'blocker rows that no longer exist are skipped, not crashed on');
-assert.ok(orphaned.every((edge) => !edge.key.includes('t-audit->') && edge.key !== 't-extra->t-audit' && edge.key !== 't-report->t-audit'));
-// duplicated blocker ids inside one task collapse into a single edge
-const dup = client.buildTaskEdges(edgeBase,
-  [{ id: 'a', subject: 'a', ownerName: 'hanlin', status: 'pending', blockedBy: ['b', 'b'] },
-   { id: 'b', subject: 'b', ownerName: 'works', status: 'completed' }],
-  (id) => edgeRects.get(id === 'a' ? 't-extra' : 't-build') || null, () => false);
-assert.equal(dup.length, 1, 'duplicate blockedBy entries draw once');
-// geometry freshness: <0.5px is noise, a real move or a state flip redraws
-const rebuilt = client.buildTaskEdges(edgeBase, edgeTasks, edgeRectOf, (id) => id === 't-build');
-assert.ok(client.taskEdgesEqual(built, rebuilt), 'identical rects need no redraw');
-const nudgedRects = new Map(edgeRects);
-nudgedRects.set('t-build', edgeRect(300.3, 60.2));
-const nudged = client.buildTaskEdges(edgeBase, edgeTasks, (id) => nudgedRects.get(id) || null, (id) => id === 't-build');
-assert.ok(client.taskEdgesEqual(built, nudged), 'a <0.5px rect change must not redraw');
-const shiftedRects = new Map(edgeRects);
-shiftedRects.set('t-build', edgeRect(340, 60));
-const shifted = client.buildTaskEdges(edgeBase, edgeTasks, (id) => shiftedRects.get(id) || null, (id) => id === 't-build');
-assert.ok(!client.taskEdgesEqual(built, shifted), 'a real move must trigger a redraw');
-const progressed = edgeTasks.map((task) => (task.id === 't-audit' ? { ...task, status: 'in_progress' } : task));
-const progressedEdges = client.buildTaskEdges(edgeBase, progressed, edgeRectOf, () => false);
-assert.ok(!client.taskEdgesEqual(built, progressedEdges), 'a blocker status change must switch the edge state');
-// rendered overlay: one path + one dot per edge, data attribute and state class
-const layerEls = elements(client.TaskEdgeLayer({ edges: built }));
-const edgePaths = layerEls.filter((node) => node.type === 'path');
-assert.equal(edgePaths.length, 5, 'one path per dependency edge');
-for (const path of edgePaths) {
-  assert.match(path.props['data-cabinet-edge'], /^[^\s]+->[^\s]+$/, 'data-cabinet-edge is "<blockedId>-><blockerId>"');
-  assert.ok(/^cabinet-edge cabinet-edge-(pending|active|done)\b/.test(path.props.className), path.props.className);
-}
-const classByKey = Object.fromEntries(edgePaths.map((path) => [path.props['data-cabinet-edge'], path.props.className]));
-assert.ok(classByKey['t-build->t-research'].includes('cabinet-edge-done'), classByKey['t-build->t-research']);
-assert.ok(classByKey['t-audit->t-build'].includes('cabinet-edge-active'), classByKey['t-audit->t-build']);
-assert.ok(classByKey['t-audit->t-build'].includes('cabinet-edge-live'), 'running-owner flow edge is distinguishable');
-assert.ok(classByKey['t-extra->t-audit'].includes('cabinet-edge-pending'), classByKey['t-extra->t-audit']);
-const edgeDots = layerEls.filter((node) => node.type === 'circle');
-assert.equal(edgeDots.length, 5, 'every edge ends in a dot on the blocked side');
-assert.ok(edgeDots.every((dot) => dot.props['data-cabinet-edge-dot'].includes('->')));
-assert.equal(client.TaskEdgeLayer({ edges: [] }), null, 'no edges → no overlay layer');
 // panel render: cross-member tasks all expose measurement anchors, no premature edges
 const depTeam = {
   members: [
@@ -389,8 +328,15 @@ const directAnchored = edgeTasks.flatMap((task) => elements(client.TaskLine({ ta
   .filter((node) => node.props && 'data-cabinet-task' in node.props);
 assert.equal(directAnchored.length, edgeTasks.length, 'every TaskLine row carries a data-cabinet-task anchor (component contract)');
 assert.deepEqual(directAnchored.map((node) => node.props['data-cabinet-task']).sort(), edgeTasks.map((task) => task.id).sort());
+// 任务依赖边整体下线（用户：名册里的乱线不要了）：渲染树不得出现边/端点圆点。
 assert.ok(!depEls.some((node) => node.props && 'data-cabinet-edge' in node.props),
-  'edges are drawn only after measurement, never from stale render state');
+  'no data-cabinet-edge path may render (dependency edges are removed)');
+assert.ok(!depEls.some((node) => node.props && 'data-cabinet-edge-dot' in node.props),
+  'no data-cabinet-edge-dot circle may render (dependency edges are removed)');
+// 渲染树 SVG path：静态 render 未跑 measureLinks，linkPaths 初始为空——
+// 此处只锁「一条边线都不渲染」；成员连线数（第一层卡数）由 connPaths=3 单测锁定。
+const rosterPaths = depEls.filter((node) => node.type === 'path');
+assert.equal(rosterPaths.length, 0, 'no edge path may render before measurement, got ' + rosterPaths.length);
 // TaskLine forwards the anchor id through Row onto the row element
 const depLine = client.TaskLine({
   task: edgeTasks[1],
@@ -409,31 +355,6 @@ assert.ok(reducedMedia.includes('.cabinet-edge-active') && reducedMedia.includes
 assert.ok(source.includes('.cabinet-edge-done{stroke:light-dark(#15803d,#4ade80)}'), 'done edge has theme-specific green contrast');
 assert.ok(source.includes('.cabinet-edge-pending{stroke:light-dark(#6b7280,#9ca3af)'), 'pending edge is static grey');
 assert.ok(source.includes('cabinetEdgeFlow'), 'active edge gets the dash-offset flow');
-// --- direction: the path LEAVES the blocker's row and LANDS on the blocked
-// task's row, dot included; the key still reads <blocked>-><blocker> because
-// only the geometry flipped (首辅 → 阁臣) ---
-const rectBoundary = (point, id) => {
-  const rect = edgeRects.get(id);
-  if (!rect) return false;
-  const [x, y] = point;
-  return ((x === rect.left || x === rect.right) && y >= rect.top && y <= rect.bottom)
-    || ((y === rect.top || y === rect.bottom) && x >= rect.left && x <= rect.right);
-};
-const dPoints = (d) => d.split(/[MC]/).slice(1).map((part) => part.trim().split(/\s+/).map(Number));
-const near = (a, b) => Math.abs(a - b) < 0.05;
-for (const edge of built) {
-  const [blockedId, blockerId] = edge.key.split('->');
-  const [start, curve] = dPoints(edge.d);
-  const end = curve.slice(-2);
-  assert.ok(near(start[0], edge.s[0]) && near(start[1], edge.s[1]), `${edge.key}: M must sit on the start anchor`);
-  assert.ok(near(end[0], edge.e[0]) && near(end[1], edge.e[1]), `${edge.key}: path end must sit on the end anchor`);
-  assert.equal(edge.ex, edge.e[0], `${edge.key}: dot x is the path end`);
-  assert.equal(edge.ey, edge.e[1], `${edge.key}: dot y is the path end`);
-  assert.ok(rectBoundary(start, blockerId), `${edge.key}: start anchor lies on the BLOCKER row ${blockerId}`);
-  assert.ok(rectBoundary(end, blockedId), `${edge.key}: end anchor lies on the BLOCKED row ${blockedId}`);
-  assert.ok(!rectBoundary(start, blockedId), `${edge.key}: start is not on the blocked row — direction is blocker → blocked`);
-  assert.ok(!rectBoundary(end, blockerId), `${edge.key}: end is not on the blocker row`);
-}
 // --- click-to-open: only a resolvable, non-inert target binds a handler ---
 const openLog = [];
 const recordOpen = (target) => { openLog.push(target); return true; };
@@ -775,7 +696,14 @@ assert.ok(typeof blockNode.props.style.border === 'string' && blockNode.props.st
 const dotNode = dressed.find((node) => node.props?.['data-cabinet-status'] !== undefined);
 assert.ok(dotNode, 'the head row carries the status dot');
 const descNode = dressed.find((node) => node.props?.['data-cabinet-task-desc'] !== undefined);
-assert.ok(descNode && descNode.children.join('') === '无进行中任务', 'a card without an in_progress task labels task absence independently from process state, got: ' + JSON.stringify(descNode && descNode.children));
+assert.ok(descNode && descNode.children.join('') === '空闲', 'a card without an in_progress task shows the merged idle line, got: ' + JSON.stringify(descNode && descNode.children));
+const idleFlat = JSON.stringify(dressed);
+// 顶层恰好一个渲染中的任务行节点（收集器的嵌套快照不计入），其文本即唯一空闲文案。
+const topDesc = dressed.filter((node) => node.props?.['data-cabinet-task-desc'] !== undefined);
+assert.equal(topDesc.length, 1, 'exactly one rendered task-desc node at the card top level, got ' + topDesc.length);
+assert.equal(topDesc[0].children.join(''), '空闲', 'the single task row owns the only idle text');
+assert.ok(!idleFlat.includes('无进行中任务'), 'the redundant task-absence line is gone');
+assert.ok(!dressed.some((node) => node.props?.['data-cabinet-activity-state'] !== undefined), 'no activity placeholder renders without data');
 const meterStyled = dressed.find((node) => node.props?.['data-cabinet-meter'] !== undefined);
 assert.equal(meterStyled.props.style.width, '42%', 'the segmented bar is left-aligned at ~42% card width');
 const footNode = dressed.find((node) => node.props?.key === 'foot');
@@ -853,9 +781,19 @@ const taskOnlyTree = elements(client.MemberCard({
 const taskOnlyDot = taskOnlyTree.find((node) => node.props?.['data-cabinet-status'] !== undefined);
 assert.equal(taskOnlyDot.props['data-cabinet-status'], 'inactive', 'an in_progress task cannot override the idle process status, got: ' + taskOnlyDot.props['data-cabinet-status']);
 assert.equal(taskOnlyDot.props.style.animation, undefined, 'the process dot does not animate merely because a task remains in_progress');
-assert.equal(taskOnlyTree[0].props['data-cabinet-sweep'], undefined, 'an idle process never wears the running card marker');
-assert.equal(taskOnlyTree[0].props.style.overflow, undefined, 'a task alone does not open the sweep window');
-assert.equal(taskOnlyTree[0].props.style['--cab-live-hue'], undefined, 'a task alone does not start the card animation');
+assert.equal(taskOnlyTree[0].props['data-cabinet-sweep'], '1', 'an in_progress task keeps the card marker (the task is moving)');
+assert.equal(taskOnlyTree[0].props.style.overflow, 'hidden', 'a live task opens the sweep window');
+assert.equal(taskOnlyTree[0].props.style['--cab-live-hue'], 'hsl(138 58% 52%)', 'the task-only sweep rides the family hue');
+// Only in_progress moves: a pending task on an idle process must not start the sweep.
+const idlePendingTree = elements(client.MemberCard({
+  member: { id: 'm-pend', name: 'pend', phase: 'active' },
+  running: false,
+  statusLabel: (status) => status,
+  t: zhT,
+  familyColor: 'hsl(138 58% 52%)',
+  activeTask: { id: 'pp', subject: '待办', status: 'pending' },
+}));
+assert.equal(idlePendingTree[0].props['data-cabinet-sweep'], undefined, 'a pending task does not start the sweep (only in_progress moves)');
 const taskOnlyDesc = taskOnlyTree.find((node) => node.props?.['data-cabinet-task-desc'] !== undefined);
 const findMark = (node) => {
   if (Array.isArray(node)) { for (const child of node) { const hit = findMark(child); if (hit) return hit; } return null; }
@@ -871,10 +809,59 @@ assert.ok(String(taskMark.props.style.animation).includes('cabinetPulse'), 'the 
 // keyframes 必须真的在 STYLE_CSS 里——只有 animation 没有 @keyframes 会被浏览器静默忽略。
 const pulseCss = Array.isArray(client.STYLE_CSS) ? client.STYLE_CSS.join('\n') : String(client.STYLE_CSS || '');
 assert.ok(pulseCss.includes('@keyframes cabinetPulse'), 'cabinetPulse keyframes are injected via STYLE_CSS (no silent-ignore)');
+
+// 悬停才显示（用户方案A）：派活入口 + 全部任务折叠四态 CSS——默认浮层隐藏不占位、
+// hover 淡入、键盘 focus 与展开态常显、无 hover 设备常显。
+assert.ok(pulseCss.includes('.cabinet-card:hover [data-cabinet-dispatch]'), 'hover fades the dispatch entry in');
+assert.ok(pulseCss.includes(':focus-within'), 'keyboard focus keeps both entries visible');
+assert.ok(pulseCss.includes('[data-cabinet-dispatch]:has([data-cabinet-dispatch-input])') && pulseCss.includes('[data-cabinet-member-tasks][open]'), 'an open dispatch editor or an open details stays visible');
+assert.ok(pulseCss.includes('@media (hover:none)'), 'touch/no-hover devices see both entries by default');
+const defaultHidden = (pulseCss.match(/\.cabinet-card \[data-cabinet-dispatch\],\.cabinet-card \[data-cabinet-member-tasks\]\{[^{}]*\}/) || [''])[0];
+assert.ok(defaultHidden.includes('opacity:0') && defaultHidden.includes('pointer-events:none'), 'the default state fades both entries out without detaching them, got: ' + defaultHidden);
+assert.ok(defaultHidden.includes('position:absolute'), 'the default state parks both entries as overlays so no vertical row is left blank, got: ' + defaultHidden);
+assert.ok(pulseCss.includes('.cabinet-card [data-cabinet-member-tasks][open]{position:static}'), 'an open details returns to flow so its task list is never clipped by the sweep card');
+// 功能负断言：默认隐藏只是可见性层——派活钩子仍在源码里，点击流程由
+// test-dispatch-browser 真 React 全流程锁定（本静态层只锁节点不消失）。
+assert.ok(source.includes("'data-cabinet-dispatch-open'") && source.includes("'data-cabinet-dispatch-panel'"), 'dispatch hooks stay in the source (CSS hides, never unmounts)');
+assert.ok(pulseCss.includes('[data-cabinet-dispatch]:has([data-cabinet-dispatch-input])'), 'the open editor row (dispatch-panel) is what keeps the entry up');
 assert.ok(pulseCss.includes('@keyframes cabinetSpin'), 'cabinetSpin remains for the avatar ring');
 assert.ok(pulseCss.includes('[data-cabinet-sweep]::before') && pulseCss.includes('offset-path:rect(0 100% 100% 0 round 12px)'), 'the border dot follows the rounded card perimeter');
 assert.ok(pulseCss.includes('cabinetDotRun 2s linear infinite') && pulseCss.includes('@keyframes cabinetDotRun{to{offset-distance:100%}}'), 'the dot runs via offset distance');
 assert.ok(pulseCss.includes('prefers-reduced-motion'), 'the sweep stops under prefers-reduced-motion');
+const sweepBody = (pulseCss.match(/\[data-cabinet-sweep\]::before\{[^{}]*\}/) || [''])[0];
+assert.ok(sweepBody && !sweepBody.includes('conic-gradient'), 'the sweep rule body carries no conic scanner (Motion Path dot only)');
+
+// --- 费用估算（移植 f4ca9dc）：单价表、四桶、卡片 ¥ 与估算/无价文案 ---
+const RATE_1M = { uncachedInputTokens: 1000000, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 };
+assert.equal(client.costOf({ buckets: RATE_1M }, 'auto/deepseek-v4.1-flash'), 2, 'V4.1-Flash uncached input prices at 2 CNY/M, got: ' + client.costOf({ buckets: RATE_1M }, 'auto/deepseek-v4.1-flash'));
+assert.equal(client.costOf({ buckets: { uncachedInputTokens: 1000000 } }, 'xiaomi/mimo-v2.6-flash'), 1, 'MiMo flash uncached input prices at 1 CNY/M');
+assert.equal(client.costOf({ buckets: RATE_1M }, 'openai-codex/gpt-5.x'), undefined, 'an unlisted model is never given a guessed price');
+assert.equal(client.rateForModel('deepseek-chat').cacheMiss, 2, 'the legacy chat name keeps its public 2025 price');
+const bucketProbe = client.usageFor({ tokenUsage: { totals: RATE_1M } }, 112000);
+assert.equal(bucketProbe.buckets.uncachedInputTokens, 1000000, 'usageFor carries the four buckets through for costOf');
+const costCard = elements(client.MemberCard({
+  member: { id: 'm-cost', name: 'cost', phase: 'active' },
+  running: false,
+  statusLabel: (status) => status,
+  t: zhT,
+  model: 'deepseek-v4.1-flash',
+  usage: { tokens: 1000, elapsedMs: 1000, buckets: RATE_1M },
+  activity: { count: 1, time: 1700000000000 },
+}));
+const costNode = costCard.find((node) => node.props?.key === 'cost');
+assert.ok(costNode && String(costNode.children.join('')).includes('\u00a52.00'), 'the card shows the estimated CNY amount, got: ' + JSON.stringify(costNode && costNode.children));
+assert.ok(String(costNode.props.title).includes('\u4f30\u7b97'), 'the estimate title disclaims an official bill, got: ' + costNode.props.title);
+const noRateCard = elements(client.MemberCard({
+  member: { id: 'm-norate', name: 'nr', phase: 'active' },
+  running: false,
+  statusLabel: (status) => status,
+  t: zhT,
+  model: 'openai-codex/gpt-5.x',
+  usage: { tokens: 1000, elapsedMs: 1000, buckets: RATE_1M },
+  activity: { count: 1, time: 1700000000000 },
+}));
+const noRateNode = noRateCard.find((node) => node.props?.key === 'cost');
+assert.ok(noRateNode && String(noRateNode.children.join('')) === '\u2014' && !JSON.stringify(noRateNode.children).includes('\u00a5'), 'an unlisted model shows an em dash and no currency, got: ' + JSON.stringify(noRateNode && noRateNode.children));
 assert.ok(pulseCss.includes('will-change:offset-distance'), 'the dot hints only its animated offset distance');
 assert.ok(pulseCss.includes('pointer-events:none'), 'the sweep layer never blocks card clicks');
 // 成本：宿主无 ¥ 数据源（tokenUsage 投影只有 4 个分项 token，无金额字段）——卡上不出现货币符号、不编数。
@@ -1076,27 +1063,6 @@ persistentRefs = null;
 // Stateful lifecycle, initial/settled loads and timer cleanup are exercised
 // with real React DOM by scripts/test-panel-browser.mjs, not this hook double.
 console.log('PASS: member usage formatting, missing data, throttle helpers, active.through parity, blocker chips that do not navigate, team total including the lead, and the projection facts — a ready load short-circuits (the retry call reads nothing) while a Host push frame updates the card without another read; lifecycle is tested separately with real React DOM');
-console.log('PASS: task dependency edges — data attributes, three states, missing-blocker tolerance, reduced-motion CSS, geometry refresh gate');
-
-// IDs are opaque; delimiter-bearing pairs must not collide or inject markup.
-const special = client.buildTaskEdges(edgeBase, [
-  {id:'a->b',blockedBy:['c','c']}, {id:'a',blockedBy:['b->c']},
-  {id:'c'}, {id:'b->c'}, null, {id:'deleted',status:'deleted',blockedBy:['c']},
-  {id:'self',blockedBy:['self']}
-], () => edgeRect(20,20));
-assert.equal(special.length,2);
-assert.equal(new Set(special.map(e=>e.key)).size,2);
-assert.equal(client.buildTaskEdges(edgeBase,[{id:'\ud800',blockedBy:['c']},{id:'c'}],()=>edgeRect(20,20)).length,1);
-const masked = elements(client.TaskEdgeLayer({edges:built,cards:[{left:300,top:200,width:140,height:26}]}));
-assert.ok(masked.filter(e=>e.type==='path').every(e=>e.props.mask==='url(#test-mask)'));
-assert.ok(masked.some(e=>e.type==='rect' && e.props.fill==='black' && e.props.x===300));
-console.log('PASS: opaque IDs, malformed/deleted/self dependency filtering and card-content masks');
-
-const adjacent=client.buildTaskEdges(edgeBase,[{id:'top'},{id:'bottom',blockedBy:['top']}],id=>edgeRect(20,id==='top'?100:126));
-assert.equal(adjacent.length,1);assert.notEqual(adjacent[0].s[1],adjacent[0].e[1]);
-assert.ok(adjacent[0].c1[0]>adjacent[0].s[0]);
-console.log('PASS: adjacent same-column rows retain a nonzero gutter curve');
-console.log('PASS: edge direction blocker → blocked (start on blocker row, dot on blocked row) and click-to-open binding rules (lead/unassigned/inert never bind)');
 
 // --- settings page: four tabs + the memory-plugin card ----------------------
 // The shared React double above keeps useState inert; this second instance gives
@@ -1601,7 +1567,8 @@ assert.equal(client.usageFor({tokenUsage:{outputTokens:-1},contextPressure:{cont
     members: [{ id: 'm-idle', name: 'idler', role: 'mate', phase: 'active' }],
     tasks: [{ id: 't-done', subject: '做完了的旧活', status: 'completed', ownerName: 'idler' }],
   }, client.zh)));
-  assert.ok(idleTree.includes('无进行中任务'), 'a member with only completed tasks explicitly has no current task');
+  assert.ok(idleTree.includes('空闲'), 'a member with only completed tasks shows the merged idle line');
+  assert.ok(!idleTree.includes('无进行中任务'), 'the redundant task-absence line is gone for completed-only members');
   assert.ok(idleTree.includes('做完了的旧活'), 'completed tasks remain available in collapsed details');
   const english = client.TaskLine({
     task: { id: 'en-1', subject: 'sheet', status: 'pending' },
@@ -1642,7 +1609,7 @@ assert.equal(client.usageFor({tokenUsage:{outputTokens:-1},contextPressure:{cont
   assert.equal(rows2.length, 1, 'two ministers share one row, got ' + rows2.length);
   assert.equal(cardsIn(rows2[0]).length, 2, 'the single row holds both cards');
   const gridBox = elements(render(layerTeam(9), client.zh)).find((node) => node.props?.key === 'grid');
-  assert.ok(gridBox && gridBox.props.style.rowGap >= 90, 'layers keep a 90px+ vertical gap for the arcs, got ' + JSON.stringify(gridBox && gridBox.props.style.rowGap));
+  assert.equal(gridBox && gridBox.props.style.rowGap, 30, 'row gap matches the lead card 30px margin, got ' + JSON.stringify(gridBox && gridBox.props.style.rowGap));
   // 弧线连线几何实测（buildConnectorPaths 真跑合成矩形）：lead 扇形同点出发、
   // 每卡一条贝塞尔止于顶中点、每层居中卡扇形连下一层、线色随目标卡。
   const connBase = { left: 0, top: 0, width: 600, height: 900 };
@@ -1656,20 +1623,153 @@ assert.equal(client.usageFor({tokenUsage:{outputTokens:-1},contextPressure:{cont
   const connPaths = client.buildConnectorPaths(connBase, connLead, connNodes, -8);
   assert.ok(Array.isArray(connPaths) && connPaths.length > 0, 'connector arcs build for a 3x3 layered tree');
   const connD = connPaths.map((path) => (typeof path === 'string' ? path : path.d));
-  const leadFan = connD.filter((d) => d.indexOf('M 300 60 L 300 74 C ') === 0);
-  assert.equal(leadFan.length, 3, 'lead fans out to layer 1 from one point after a vertical stub, got ' + leadFan.length);
+  const leadFan = connD.filter((d) => /^M 300 60 L 300 [\d.]+ C /.test(d));
+  assert.equal(leadFan.length, 3, 'the lead still fans out to the first row only, got ' + leadFan.length);
   let arrived = 0;
   for (const node of connNodes) {
     const cx = node.left + node.width / 2;
     if (connD.some((d) => d.includes(' C ') && d.endsWith(' ' + cx + ' ' + node.top))) arrived += 1;
   }
-  assert.equal(arrived, 9, 'every layered card receives an arc ending at its top centre, got ' + arrived);
-  const hubFan = connD.filter((d) => d.indexOf('M 300 320 L 300 334 C ') === 0);
-  assert.equal(hubFan.length, 0, 'no member is made the parent of the next visual row, got ' + hubFan.length);
-  assert.equal(connPaths.length, 9);
-  assert.ok(connD.every(d => d.startsWith('M 300 60 ')), 'every visual row remains a sibling sourced from Lead');
+  assert.equal(arrived, connNodes.length, 'every card of every layer receives an arc ending at its top centre, got ' + arrived);
+  // 全层规格：路径数 = 所有层卡数，每条含 C、无长直段。
+  assert.equal(connPaths.length, connNodes.length, 'exactly one arc per card across all layers, got ' + connPaths.length);
+  assert.ok(connD.every((d) => d.includes(' C ')), 'every path is a bezier (no bare polyline)');
+  const coordReConn = /[-+]?\d*\.?\d+/g;
+  // 负断言：任何 L 段不得是水平长直线（|Δy|≈0 且 |Δx|>40）或垂直长主干
+  //（|Δx|≈0 且 |Δy|>80）；起点 14px 竖直小段（|Δy|=14≤20）是唯一允许的短竖段。
+  for (const d of connD) {
+    const tokens = d.match(/[MLC][^MLC]*/g) || [];
+    let px = 0, py = 0;
+    for (const token of tokens) {
+      const nums = (token.slice(1).match(/-?\d+(?:\.\d+)?/g) || []).map(Number);
+      if (token[0] === 'M') { px = nums[0]; py = nums[1]; }
+      else if (token[0] === 'L') {
+        const x = nums[0], y = nums[1];
+        assert.ok(!(Math.abs(y - py) < 0.01 && Math.abs(x - px) > 40), 'no long horizontal L segment (Δx=' + (x - px) + '), got: ' + d);
+        assert.ok(!(Math.abs(x - px) < 0.01 && Math.abs(y - py) > 80), 'no long vertical L segment (Δy=' + (y - py) + '), got: ' + d);
+        px = x; py = y;
+      } else { px = nums[4]; py = nums[5]; }
+    }
+  }
+  // S 形判据（用户规格）：每条弧第一控制点 x==ax（起点竖直切向）、第二控制点
+  // x==目标 cx（终点竖直切向）；同层 bow 一致 → c1y 同、c2y 同；c1x!==c2x
+  // 除非 ax===cx（居中卡例外）——不得退化成中点抛物线。
+  const sShape = [];
+  for (const d of connD) {
+    const m = d.match(/^M (\d+) (\d+) L \1 \d+ C (\d+) ([\d.]+), (\d+) ([\d.]+), (\d+) (\d+)$/);
+    assert.ok(m, 'arc is M ax ay L ax y1 C c1x c1y, cx c2y, cx top (S shape), got: ' + d);
+    const [, axS, , c1x, c1y, c2x, c2y, cxS, topS] = m;
+    assert.equal(c2x, cxS, 'second control point sits above the target centre, got: ' + d);
+    if (topS === '200') {
+      assert.equal(c1x, axS, 'lead → first row keeps c1x=ax (approved drawing), got: ' + d);
+      sShape.push({ ax: Number(axS), cx: Number(cxS), c1x: Number(c1x), c1y: Number(c1y), c2y: Number(c2y) });
+    } else {
+      // 相邻层弧：c1x 必须是父卡中心 x（配对断言另行验证父卡与相邻性）
+      assert.ok(Number(c1x) === 120 || Number(c1x) === 300 || Number(c1x) === 480,
+        'parent-side control sits on a parent card centre, got: ' + d);
+    }
+  }
+  for (const arc of sShape) {
+    // gap 自适应后 bow=(gap-stub)*0.5 使跨列首辅弧 c1y==c2y（y 方向对称，
+    // 公式预期）；「S 而非退化点」由控制点不重合保证：c1x=ax≠cx=c2x。
+    if (arc.ax !== arc.cx) assert.ok(arc.c1x !== arc.cx || arc.c1y !== arc.c2y, 'the two control points are distinct (S, not a point), got: ' + JSON.stringify(arc));
+  }
+  // 配对断言（相邻层视觉树）：每条 d 的起点 y == 某卡底部、终点 y == 某卡顶部，
+  // 且父卡与子卡在 layers 里相邻（父层 = 子层 - 1）；首辅→第一层起点为首辅底。
+  // 「只跨一层」：终点 top - 起点 py == 相邻层 top 差（fixture 恒 160）。
+  const cardAt = (x, y) => connNodes.find((node) => Math.abs((node.left + node.width / 2) - x) < 0.01 && Math.abs((node.top + node.height) - y) < 0.01);
+  const topAt = (x, y) => connNodes.find((node) => Math.abs((node.left + node.width / 2) - x) < 0.01 && Math.abs(node.top - y) < 0.01);
+  let parentPaired = 0;
+  for (const d of connD) {
+    const m = d.match(/^M (\d+) (\d+) L \1 (\d+) C (\d+) ([\d.]+), (\d+) ([\d.]+), (\d+) (\d+)$/);
+    assert.ok(m, 'arc parses for pairing, got: ' + d);
+    const px = Number(m[1]), py = Number(m[2]);
+    const stub = Number(m[3]) - py;
+    const c1x = Number(m[4]), c1y = Number(m[5]);
+    const c2x = Number(m[6]), c2y = Number(m[7]);
+    const cx = Number(m[8]), top = Number(m[9]);
+    const child = topAt(cx, top);
+    assert.ok(child, 'arc ends on a card top centre, got: ' + d);
+    // gap 自适应公式校验（不写死 stub/bow 数值）：
+    // gap=top-py，stub=min(14,max(4,gap*0.25))，bow=max(4,(gap-stub)*0.5)，
+    // 若 stub+bow>=gap 则压到 gap-stub-1；c1y=min(stub 段顶+bow, 首层顶-6)。
+    const gap = top - py;
+    const expectedStub = Math.min(14, Math.max(4, gap * 0.25));
+    let expectedBow = Math.max(4, (gap - expectedStub) * 0.5);
+    if (expectedStub + expectedBow >= gap) expectedBow = Math.max(4, gap - expectedStub - 1);
+    assert.ok(Math.abs(stub - expectedStub) < 0.01, 'stub follows min(14,max(4,gap*0.25)) (gap=' + gap + '), got: ' + d);
+    const expectedC1y = py + stub + expectedBow <= top ? py + stub + expectedBow : 200 - 6;
+    assert.ok(Math.abs(c1y - expectedC1y) < 0.01, 'bow follows max(4,(gap-stub)*0.5) with the lead-row cap (gap=' + gap + '), got: ' + d);
+    assert.ok(stub + (c1y - py - stub) < gap, 'stub+bow stays strictly inside the gap (no card piercing), got: ' + d);
+    if (py === 60) {
+      // 首辅 → 第一层
+      assert.equal(top, 200, 'lead arc targets the first row, got: ' + d);
+      assert.equal(c1x, 300, 'lead arc c1x is the lead centre, got: ' + d);
+    } else {
+      const parent = cardAt(px, py);
+      assert.ok(parent, 'parent-side arc starts at a parent card bottom centre, got: ' + d);
+      const parentLayer = Math.round((parent.top - 200) / 160);
+      const childLayer = Math.round((child.top - 200) / 160);
+      assert.equal(childLayer, parentLayer + 1, 'parent and child sit on adjacent layers, got: ' + d);
+      assert.equal(child.top - parent.top, 160, 'parent and child tops differ by exactly one layer step, got: ' + d);
+      // 父卡 = 上一层中 x 距离最近者
+      const layerAbove = connNodes.filter((node) => Math.abs(node.top - parent.top) < 0.01);
+      let nearest = layerAbove[0];
+      for (const candidate of layerAbove) {
+        if (Math.abs((candidate.left + candidate.width / 2) - cx) < Math.abs((nearest.left + nearest.width / 2) - cx)) nearest = candidate;
+      }
+      assert.equal(parent.left + parent.width / 2, nearest.left + nearest.width / 2, 'parent is the horizontally nearest card above, got: ' + d);
+      // 控制点全部落在父底与子顶之间的层间隙里
+      assert.ok(c1x === px && c2x === cx, 'parent-side c1x==parent centre, child-side c2x==child centre, got: ' + d);
+      assert.ok(c1y > py && c1y < top && c2y > py && c2y < top, 'both control points stay inside the inter-layer gap, got: ' + d);
+      parentPaired += 1;
+    }
+  }
+  assert.equal(parentPaired, 6, 'every non-first-row card hangs off its nearest parent, got ' + parentPaired);
+  // 真不穿卡：每条弧采样 500 点，除它的起止两卡外不得落进任何卡矩形。
+  for (const d of connD) {
+    const m = d.match(/^M (\d+) (\d+) L \1 (\d+) C (\d+) ([\d.]+), (\d+) ([\d.]+), (\d+) (\d+)$/);
+    const px = Number(m[1]), py = Number(m[2]);
+    const P0y = Number(m[3]), P1x = Number(m[4]), P1y = Number(m[5]);
+    const P2x = Number(m[6]), P2y = Number(m[7]);
+    const P3x = Number(m[8]), P3y = Number(m[9]);
+    const endpoints = new Set();
+    if (py !== 60) { const pc = cardAt(px, py); if (pc) endpoints.add(pc.left + ',' + pc.top); }
+    const cc = topAt(P3x, P3y); if (cc) endpoints.add(cc.left + ',' + cc.top);
+    const bez = (p0, p1, p2, p3, t) => { const u = 1 - t; return u * u * u * p0 + 3 * u * u * t * p1 + 3 * u * t * t * p2 + t * t * t * p3; };
+    for (let i = 0; i <= 500; i += 1) {
+      const t = i / 500;
+      const x = bez(px, P1x, P2x, P3x, t);
+      const y = bez(P0y, P1y, P2y, P3y, t);
+      for (const node of connNodes) {
+        if (endpoints.has(node.left + ',' + node.top)) continue;
+        if (x > node.left && x < node.left + node.width && y > node.top && y < node.top + node.height) {
+          assert.fail('arc must not cross a third card (x=' + x.toFixed(1) + ',y=' + y.toFixed(1) + '), got: ' + d);
+        }
+      }
+    }
+  }
+  // 第一层（top=200）三条弧：c1y 相同、c2y 相同（bow 一致），c2x 随目标互异（扇形分散）。
+  const firstRow = [120, 300, 480].map((cx) => {
+    const d = connD.find((line) => line.endsWith(' ' + cx + ' 200'));
+    assert.ok(d, 'a first-row arc ends at (' + cx + ',200), got: ' + JSON.stringify(connD));
+    const m = d.match(/C \d+ ([\d.]+), (\d+) ([\d.]+), (\d+) 200$/);
+    assert.ok(m, 'first-row arc parses as C _, c2x _, cx 200, got: ' + d);
+    return { c1y: Number(m[1]), c2x: Number(m[2]), c2y: Number(m[3]) };
+  });
+  assert.equal(new Set(firstRow.map((a) => a.c1y)).size, 1, 'first-row arcs share the start-side control y, got: ' + JSON.stringify(firstRow));
+  assert.equal(new Set(firstRow.map((a) => a.c2y)).size, 1, 'first-row arcs share the target-side control y, got: ' + JSON.stringify(firstRow));
+  assert.equal(new Set(firstRow.map((a) => a.c2x)).size, 3, 'first-row arcs fan out with distinct target-side control x, got: ' + JSON.stringify(firstRow));
+  // 旧 gutter 横穿的负断言：任何 x 都不得伸到最左卡左缘之外。
+  const minConnLeft = Math.min(...connNodes.map((node) => node.left));
+  for (const d of connD) {
+    const nums = d.match(coordReConn).map(Number);
+    for (let i = 0; i < nums.length; i += 2) {
+      assert.ok(nums[i] >= minConnLeft - 0.5, 'no segment reaches left of the outermost card (' + minConnLeft + '), got ' + nums[i] + ' in ' + d);
+    }
+  }
   const colored = connPaths.filter((path) => typeof path === 'object' && typeof path.color === 'string' && path.color.indexOf('hsl(') === 0);
-  assert.ok(colored.length >= 9, 'arcs carry the target cards family colors, got ' + colored.length);
+  assert.equal(colored.length, connNodes.length, 'every arc carries its target card family color, got ' + colored.length);
 
   // 非零 base 回归用例：矩形是视口坐标，path 必须落在容器内坐标 [0,base.w]×[0,base.h]。
   const offBase = { left: 300, top: 200, width: 800, height: 600 };
@@ -1681,12 +1781,26 @@ assert.equal(client.usageFor({tokenUsage:{outputTokens:-1},contextPressure:{cont
     }
   }
   const offPaths = client.buildConnectorPaths(offBase, offLead, offNodes, -8);
-  assert.ok(Array.isArray(offPaths) && offPaths.length === 6, 'six arcs build against a non-zero base, got ' + JSON.stringify(offPaths && offPaths.length));
+  assert.ok(Array.isArray(offPaths) && offPaths.length === 6, 'one arc per card across all layers builds against a non-zero base, got ' + JSON.stringify(offPaths && offPaths.length));
+  for (const path of offPaths) {
+    const tokens = path.d.match(/[MLC][^MLC]*/g) || [];
+    let px = 0, py = 0;
+    for (const token of tokens) {
+      const nums = (token.slice(1).match(/-?\d+(?:\.\d+)?/g) || []).map(Number);
+      if (token[0] === 'M') { px = nums[0]; py = nums[1]; }
+      else if (token[0] === 'L') {
+        const x = nums[0], y = nums[1];
+        assert.ok(!(Math.abs(y - py) < 0.01 && Math.abs(x - px) > 40), 'no long horizontal L (Δx=' + (x - px) + '), got: ' + path.d);
+        assert.ok(!(Math.abs(x - px) < 0.01 && Math.abs(y - py) > 80), 'no long vertical L (Δy=' + (y - py) + '), got: ' + path.d);
+        px = x; py = y;
+      } else { px = nums[4]; py = nums[5]; }
+    }
+  }
   const coordRe = /[-+]?\d*\.?\d+/g;
   for (const path of offPaths) {
     const nums = path.d.match(coordRe).map(Number);
-    for (const value of nums) {
-      assert.ok(value >= -8 && value <= offBase.width + 0.5, 'x within [0, base.width], got ' + value + ' in ' + path.d);
+    for (let i = 0; i < nums.length; i += 2) {
+      assert.ok(nums[i] >= 300 - 170 - 0.5 && nums[i] <= offBase.width + 0.5, 'x never reaches the old gutter (lead fan opens to 130 at the widest), got ' + nums[i] + ' in ' + path.d);
     }
     for (let i = 1; i < nums.length; i += 2) {
       assert.ok(nums[i] >= -0.5 && nums[i] <= offBase.height + 0.5, 'y within [0, base.height], got ' + nums[i] + ' in ' + path.d);
