@@ -1,7 +1,8 @@
 import fs from 'node:fs';
 import vm from 'node:vm';
 import assert from 'node:assert/strict';
-const dir=process.argv[2]||new URL('..',import.meta.url).pathname;
+import { fileURLToPath } from 'node:url';
+const dir=process.argv[2]||fileURLToPath(new URL('..',import.meta.url));
 const src=fs.readFileSync(dir+'/client.js','utf8');
 let api;
 vm.runInNewContext(src.replace('return { inject, apply };','return { groupChatFold, cabinetSessionGroups, groupFoldToken };'),{window:{__ModuleLoader__:{load:({factory})=>api=factory(()=>({createElement(){}}))}}});

@@ -1815,6 +1815,12 @@ assert.equal(client.usageFor({tokenUsage:{outputTokens:-1},contextPressure:{cont
     offNodes.map((node) => ({ ...node, left: node.left + dx, top: node.top + dy })),
     -8);
   assert.deepEqual(movedPaths.map((path) => path.d), offPaths.map((path) => path.d), 'translating base+rects leaves every arc byte-identical');
+  // Staggered 3+2: tail-only gap x=172 intersects the FIRST-row middle card.
+  const stagger=[0,120,240].map(left=>({left,top:150,width:100,height:80})).concat([60,180].map(left=>({left,top:330,width:100,height:80})));
+  const staggerPaths=client.buildConnectorPaths({left:0,top:0,width:400,height:500},{left:130,top:0,width:100,height:80},stagger,-8);
+  const uneven=stagger.map((card,i)=>i===1?{...card,height:240}:card);
+  const unevenPaths=client.buildConnectorPaths({left:0,top:0,width:400,height:500},{left:130,top:0,width:100,height:80},uneven,-8);
+
   // 收尾：清 CabinetPanel 入队的 effect，防泄漏给后续块（3b47d6a2 教训）。
   recordedEffects.length = 0;
 }

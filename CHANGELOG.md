@@ -2,6 +2,19 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.9.2] - 2026-11-13
+
+### Changed
+
+- Use shared bus connectors for later roster rows while preserving Lead-to-member topology. Validate the trunk against every card row, with an outside routing fallback when no shared gap is clear.
+- Omit the redundant unknown activity-count placeholder without inventing activity counts.
+- Preserve independent process/task status: no-task is not idle, and stale in-progress bookkeeping does not enable the running animation.
+- Continue to omit currency estimates because historical provider/model billing context is unavailable.
+
+### Tests
+
+- Add multi-row connector and independent process/task-state regressions, including the three-plus-two-card layout.
+
 ## [0.9.1] - 2026-11-13
 
 ### Changed
