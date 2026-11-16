@@ -180,7 +180,7 @@ if(process.argv.includes('--headless')){
     await page.evaluate(()=>{
       const box=document.createElement('div');box.style.cssText='position:relative;width:400px;height:500px';document.body.append(box);
       const rect=(left,top,height=80)=>{const el=document.createElement('div');el.style.cssText='position:absolute;left:'+left+'px;top:'+top+'px;width:100px;height:'+height+'px';box.append(el);return el.getBoundingClientRect()};
-      try{for(const tall of [false,true]){box.replaceChildren();const lead=rect(130,0),cards=[0,120,240].map(x=>rect(x,150,tall&&x===120?240:80)).concat([60,180].map(x=>rect(x,330))),base=box.getBoundingClientRect();
+      try{for(const tall of [false,true]){box.replaceChildren();const lead=rect(130,0),firstBottom=150+(tall?240:80),cards=[0,120,240].map(x=>rect(x,150,tall&&x===120?240:80)).concat([60,180].map(x=>rect(x,firstBottom+30))),base=box.getBoundingClientRect();
       const paths=cabinet.buildConnectorPaths(base,lead,cards,-8);const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');box.append(svg);
       for(const path of paths){const el=document.createElementNS(svg.namespaceURI,'path');el.setAttribute('d',path.d);svg.append(el);const length=el.getTotalLength();for(let distance=1;distance<length;distance+=2){const point=el.getPointAtLength(distance);for(const card of cards){const x=point.x+base.left,y=point.y+base.top;if(x>card.left+.5&&x<card.right-.5&&y>card.top+.5&&y<card.bottom-.5)throw Error('connector crosses actual card interior')}}}
       }}finally{box.remove()}
