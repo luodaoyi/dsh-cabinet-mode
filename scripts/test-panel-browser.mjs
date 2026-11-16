@@ -10,7 +10,7 @@ const root = process.env.DSH_BROWSER_TEST_ROOT;
 if (!root) throw Error('Set DSH_BROWSER_TEST_ROOT to isolated npm test dependencies');
 const require = createRequire(root + '/package.json');
 const source = fs.readFileSync(new URL('../client.js', import.meta.url), 'utf8')
-  .replace('return { inject, apply };', 'return { inject, apply, CabinetPanel, MemberCard, TaskLine, STYLE_CSS, en, setOpener: fn => cabinetOpenSession = fn, setSessions: s => { cabinetSessions = s; for (const fn of cabinetSessionsListeners) fn(); } };');
+  .replace('return { inject, apply };', 'return { inject, apply, CabinetPanel, MemberCard, TaskLine, buildConnectorPaths, STYLE_CSS, en, setOpener: fn => cabinetOpenSession = fn, setSessions: s => { cabinetSessions = s; for (const fn of cabinetSessionsListeners) fn(); } };');
 const fixture = `
 import React from 'react'; import {createRoot} from 'react-dom/client';
 window.__ModuleLoader__={load:({factory})=>window.cabinet=factory(()=>React)};
@@ -90,7 +90,7 @@ document.getElementById('run').onclick=async()=>{const passed=[];try{
   mounted=true;live=false;render();await wait();document.getElementById('result').textContent='PASS '+passed.length+' '+passed.join('; ');stats();
 }catch(e){document.getElementById('result').textContent='FAIL '+e.stack;stats()}};
 window.taskNavigationCount=()=>opens.length;
-window.motionMount=async(running=false)=>{taskRoot.render(React.createElement(cabinet.MemberCard,{member:{id:'motion',name:'motion',phase:'active'},running,activeTask:{id:'motion-task',subject:'Running',status:'in_progress'},statusLabel:s=>s,t:k=>k}));await wait();};
+window.motionMount=async(running=false,withTask=true)=>{taskRoot.render(React.createElement(cabinet.MemberCard,{member:{id:'motion',name:'motion',phase:'active'},running,activeTask:withTask?{id:'motion-task',subject:'Running',status:'in_progress'}:undefined,statusLabel:s=>s,t:k=>k}));await wait();};
 window.taskKeyboardMount=async()=>{taskRoot.render(React.createElement(cabinet.TaskLine,{task:tasks[0],blockerOf:id=>tasks.find(t=>t.id===id),t:k=>cabinet.en[k]||k,taskLabel:s=>s,onOpenOwner:()=>opens.push(['mate'])}));await wait();return opens.length;};
 window.panelUnmount=async()=>{taskRoot.render(null);mounted=false;render();await wait();assert(timers.size===0,'final unmount cleanup');stats();return{timers:timers.size,errors};};
 render();stats();
@@ -156,8 +156,11 @@ if(process.argv.includes('--headless')){
     if(await mark.evaluate(el=>getComputedStyle(el).animationName)!=='none')throw Error('task pulse ignores reduced motion');
     await page.emulateMedia({reducedMotion:'no-preference'});
     if(await mark.evaluate(el=>getComputedStyle(el).animationName)!=='cabinetPulse')throw Error('task pulse failed to resume');
-    // Stale in-progress task alone must not animate an idle agent.
-    if(await page.locator('#task-fixture [data-cabinet-sweep]').count())throw Error('idle task falsely animates agent');
+    // Process state is independent from stale task bookkeeping.
+    if(await page.locator('#task-fixture [data-cabinet-sweep]').count())throw Error('stale task falsely animates idle agent');
+    if(await page.locator('#task-fixture [data-cabinet-member-status]').innerText()!=='inactive')throw Error('idle state hidden by stale task');
+    await page.evaluate(()=>window.motionMount(true,false));
+    if(await page.locator('#task-fixture [data-cabinet-member-status]').innerText()!=='running'||await page.locator('#task-fixture [data-cabinet-task-desc]').innerText()!=='member.noTask')throw Error('running without task must not claim idle');
     await page.evaluate(()=>window.motionMount(true));
     const runningCard=page.locator('#task-fixture [data-cabinet-sweep]');
     await runningCard.waitFor();
@@ -176,6 +179,15 @@ if(process.argv.includes('--headless')){
     if((await motion()).display!=='none')throw Error('unsupported fallback declaration not applied');
     await page.evaluate(()=>document.getElementById('fallback-probe').remove());
     if(supported&&(await motion()).display==='none')throw Error('fallback probe leaked');
+    // Real browser rectangles + SVG path sampling for staggered 3+2 geometry.
+    await page.evaluate(()=>{
+      const box=document.createElement('div');box.style.cssText='position:relative;width:400px;height:500px';document.body.append(box);
+      const rect=(left,top,height=80)=>{const el=document.createElement('div');el.style.cssText='position:absolute;left:'+left+'px;top:'+top+'px;width:100px;height:'+height+'px';box.append(el);return el.getBoundingClientRect()};
+      try{for(const tall of [false,true]){box.replaceChildren();const lead=rect(130,0),cards=[0,120,240].map(x=>rect(x,150,tall&&x===120?240:80)).concat([60,180].map(x=>rect(x,330))),base=box.getBoundingClientRect();
+      const paths=cabinet.buildConnectorPaths(base,lead,cards,-8);const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');box.append(svg);
+      for(const path of paths){const el=document.createElementNS(svg.namespaceURI,'path');el.setAttribute('d',path.d);svg.append(el);const length=el.getTotalLength();for(let distance=1;distance<length;distance+=2){const point=el.getPointAtLength(distance);for(const card of cards){const x=point.x+base.left,y=point.y+base.top;if(x>card.left+.5&&x<card.right-.5&&y>card.top+.5&&y<card.bottom-.5)throw Error('connector crosses actual card interior')}}}
+      }}finally{box.remove()}
+    });
     if(process.env.CABINET_SCREENSHOT)await page.screenshot({path:process.env.CABINET_SCREENSHOT,fullPage:true});
     const cleanup=await page.evaluate(()=>window.panelUnmount());
     if(errors.length||cleanup.errors.length)throw Error([...errors,...cleanup.errors].join('\n'));

@@ -775,7 +775,14 @@ assert.ok(typeof blockNode.props.style.border === 'string' && blockNode.props.st
 const dotNode = dressed.find((node) => node.props?.['data-cabinet-status'] !== undefined);
 assert.ok(dotNode, 'the head row carries the status dot');
 const descNode = dressed.find((node) => node.props?.['data-cabinet-task-desc'] !== undefined);
-assert.ok(descNode && descNode.children.join('') === '无进行中任务', 'a card without an in_progress task labels task absence independently from process state, got: ' + JSON.stringify(descNode && descNode.children));
+assert.ok(descNode && descNode.children.join('') === '无进行中任务', 'a card without an in_progress task shows the merged idle line, got: ' + JSON.stringify(descNode && descNode.children));
+const idleFlat = JSON.stringify(dressed);
+// 顶层恰好一个渲染中的任务行节点（收集器的嵌套快照不计入），其文本即唯一空闲文案。
+const topDesc = dressed.filter((node) => node.props?.['data-cabinet-task-desc'] !== undefined);
+assert.equal(topDesc.length, 1, 'exactly one rendered task-desc node at the card top level, got ' + topDesc.length);
+assert.equal(topDesc[0].children.join(''), '无进行中任务', 'the single task row owns the only idle text');
+assert.ok(idleFlat.includes('无进行中任务'), 'task absence is independent from process status');
+assert.ok(!dressed.some((node) => node.props?.['data-cabinet-activity-state'] !== undefined), 'no activity placeholder renders without data');
 const meterStyled = dressed.find((node) => node.props?.['data-cabinet-meter'] !== undefined);
 assert.equal(meterStyled.props.style.width, '42%', 'the segmented bar is left-aligned at ~42% card width');
 const footNode = dressed.find((node) => node.props?.key === 'foot');
@@ -853,9 +860,19 @@ const taskOnlyTree = elements(client.MemberCard({
 const taskOnlyDot = taskOnlyTree.find((node) => node.props?.['data-cabinet-status'] !== undefined);
 assert.equal(taskOnlyDot.props['data-cabinet-status'], 'inactive', 'an in_progress task cannot override the idle process status, got: ' + taskOnlyDot.props['data-cabinet-status']);
 assert.equal(taskOnlyDot.props.style.animation, undefined, 'the process dot does not animate merely because a task remains in_progress');
-assert.equal(taskOnlyTree[0].props['data-cabinet-sweep'], undefined, 'an idle process never wears the running card marker');
-assert.equal(taskOnlyTree[0].props.style.overflow, undefined, 'a task alone does not open the sweep window');
-assert.equal(taskOnlyTree[0].props.style['--cab-live-hue'], undefined, 'a task alone does not start the card animation');
+assert.equal(taskOnlyTree[0].props['data-cabinet-sweep'], undefined, 'stale task does not animate idle process');
+assert.equal(taskOnlyTree[0].props.style.overflow, undefined, 'stale task opens no sweep');
+assert.equal(taskOnlyTree[0].props.style['--cab-live-hue'], undefined, 'no task-only sweep hue');
+// Only in_progress moves: a pending task on an idle process must not start the sweep.
+const idlePendingTree = elements(client.MemberCard({
+  member: { id: 'm-pend', name: 'pend', phase: 'active' },
+  running: false,
+  statusLabel: (status) => status,
+  t: zhT,
+  familyColor: 'hsl(138 58% 52%)',
+  activeTask: { id: 'pp', subject: '待办', status: 'pending' },
+}));
+assert.equal(idlePendingTree[0].props['data-cabinet-sweep'], undefined, 'a pending task does not start the sweep (only in_progress moves)');
 const taskOnlyDesc = taskOnlyTree.find((node) => node.props?.['data-cabinet-task-desc'] !== undefined);
 const findMark = (node) => {
   if (Array.isArray(node)) { for (const child of node) { const hit = findMark(child); if (hit) return hit; } return null; }
@@ -875,6 +892,27 @@ assert.ok(pulseCss.includes('@keyframes cabinetSpin'), 'cabinetSpin remains for 
 assert.ok(pulseCss.includes('[data-cabinet-sweep]::before') && pulseCss.includes('offset-path:rect(0 100% 100% 0 round 12px)'), 'the border dot follows the rounded card perimeter');
 assert.ok(pulseCss.includes('cabinetDotRun 2s linear infinite') && pulseCss.includes('@keyframes cabinetDotRun{to{offset-distance:100%}}'), 'the dot runs via offset distance');
 assert.ok(pulseCss.includes('prefers-reduced-motion'), 'the sweep stops under prefers-reduced-motion');
+const sweepBody = (pulseCss.match(/\[data-cabinet-sweep\]::before\{[^{}]*\}/) || [''])[0];
+assert.ok(sweepBody && !sweepBody.includes('conic-gradient'), 'the sweep rule body carries no conic scanner (Motion Path dot only)');
+
+// A running agent can have no task; a stale task cannot hide an idle agent.
+for (const [running,task] of [[true,undefined],[false,{id:'stale',subject:'Old task',status:'in_progress'}]]) {
+  const card=elements(client.MemberCard({member:{id:'state',name:'state',phase:'active'},running,activeTask:task,statusLabel:s=>client.zh['status.'+s],t:zhT}));
+  const state=card.find(node=>node.props?.['data-cabinet-member-status']);
+  assert.equal(state.children.join(''),running?client.zh['status.running']:client.zh['status.inactive'],'real process status always readable');
+  const desc=card.find(node=>node.props?.['data-cabinet-task-desc']);
+  if(running)assert.equal(desc.children.join(''),'无进行中任务');else assert.ok(JSON.stringify(desc.children).includes('Old task'),'stale task stays distinct from idle process');
+  assert.equal(card[0].props['data-cabinet-sweep'],running?'1':undefined,'only true running enables sweep');
+}
+// Incomplete buckets/provider aliases and next-model selection cannot price history.
+assert.ok(!source.includes('MODEL_RATE_TABLE') && !source.includes('function costOf('), 'no unsafe rate matching or currency calculator');
+for (const model of ['auto/deepseek-v4.1-flash', 'other/notdeepseek-v4.1-flash', 'xiaomi/mimo-v2.6-flash']) {
+  for (const buckets of [{outputTokens: 1}, {outputTokens: NaN, uncachedInputTokens: -1}, {uncachedInputTokens: 1000000, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0}]) {
+    const card = elements(client.MemberCard({member:{id:'cost',name:'cost',phase:'active'},running:false,t:zhT,model,usage:{tokens:1000,buckets}}));
+    assert.ok(!card.some(node=>node.props?.key==='cost'), 'billing context unavailable: no currency node');
+    assert.ok(card.some(node=>node.props?.key==='tok'), 'token display retained');
+  }
+}
 assert.ok(pulseCss.includes('will-change:offset-distance'), 'the dot hints only its animated offset distance');
 assert.ok(pulseCss.includes('pointer-events:none'), 'the sweep layer never blocks card clicks');
 // 成本：宿主无 ¥ 数据源（tokenUsage 投影只有 4 个分项 token，无金额字段）——卡上不出现货币符号、不编数。
@@ -1601,7 +1639,8 @@ assert.equal(client.usageFor({tokenUsage:{outputTokens:-1},contextPressure:{cont
     members: [{ id: 'm-idle', name: 'idler', role: 'mate', phase: 'active' }],
     tasks: [{ id: 't-done', subject: '做完了的旧活', status: 'completed', ownerName: 'idler' }],
   }, client.zh)));
-  assert.ok(idleTree.includes('无进行中任务'), 'a member with only completed tasks explicitly has no current task');
+  assert.ok(idleTree.includes('空闲'), 'a member with only completed tasks shows the merged idle line');
+  assert.ok(idleTree.includes('无进行中任务'), 'completed-only members show no active task independently');
   assert.ok(idleTree.includes('做完了的旧活'), 'completed tasks remain available in collapsed details');
   const english = client.TaskLine({
     task: { id: 'en-1', subject: 'sheet', status: 'pending' },
@@ -1666,8 +1705,34 @@ assert.equal(client.usageFor({tokenUsage:{outputTokens:-1},contextPressure:{cont
   assert.equal(arrived, 9, 'every layered card receives an arc ending at its top centre, got ' + arrived);
   const hubFan = connD.filter((d) => d.indexOf('M 300 320 L 300 334 C ') === 0);
   assert.equal(hubFan.length, 0, 'no member is made the parent of the next visual row, got ' + hubFan.length);
-  assert.equal(connPaths.length, 9);
-  assert.ok(connD.every(d => d.startsWith('M 300 60 ')), 'every visual row remains a sibling sourced from Lead');
+  // 总线扇出：3 fan + 1 主干 + 每后续层 1 水平段(2层) + 每卡 1 支线(6卡) = 12。
+  assert.equal(connPaths.length, 12, 'lead fan(3) + trunk(1) + bus segments(2) + branches(6), got ' + connPaths.length);
+  // 主干：M ax ay → L ax ay+8 → L trunkX ay+8 → L trunkX bottomY（列间隙，非中心线）。
+  const trunkOnly = connD.filter((d) => /^M 300 60 L 300 68 L (\d+) 68 L \d+ \d+$/.test(d));
+  assert.equal(trunkOnly.length, 1, 'exactly one neutral trunk with the 8px sideways step, got ' + trunkOnly.length);
+  const connTrunkX = Number((trunkOnly[0] || '').match(/^M 300 60 L 300 68 L (\d+) /)[1]);
+  assert.notEqual(connTrunkX, 300, 'the trunk leaves the lead centre-line for a column gap, got ' + connTrunkX);
+  const coordReConn = /[-+]?\d*\.?\d+/g;
+  const busSegs = connD.filter((d) => {
+    const m = d.match(/^M (\d+) (\d+) L (\d+) (\d+)(?: L (\d+) (\d+))?$/);
+    return !!m && m[2] === m[4] && (m[6] === undefined || m[6] === m[2]);
+  });
+  assert.equal(busSegs.length, 2, 'exactly one horizontal segment per later layer, got ' + busSegs.length);
+  const branches = connD.filter((d) => d.includes(' C ') && d.indexOf('M 300 60 ') !== 0);
+  assert.equal(branches.length, 6, 'one family-coloured branch per later-layer card, got ' + branches.length);
+  // 旧 gutter 横穿的负断言：任何 x 都不得伸到最左卡左缘之外。
+  // trunkX 不穿卡：不得落在任何卡的 [left-1, right+1] 内。
+  for (const node of connNodes) {
+    assert.ok(connTrunkX < node.left - 1 || connTrunkX > node.left + node.width + 1,
+      'trunk x=' + connTrunkX + ' must clear card [' + node.left + ',' + (node.left + node.width) + ']');
+  }
+  const minConnLeft = Math.min(...connNodes.map((node) => node.left));
+  for (const d of connD) {
+    const nums = d.match(coordReConn).map(Number);
+    for (let i = 0; i < nums.length; i += 2) {
+      assert.ok(nums[i] >= minConnLeft - 0.5, 'no segment reaches left of the outermost card (' + minConnLeft + '), got ' + nums[i] + ' in ' + d);
+    }
+  }
   const colored = connPaths.filter((path) => typeof path === 'object' && typeof path.color === 'string' && path.color.indexOf('hsl(') === 0);
   assert.ok(colored.length >= 9, 'arcs carry the target cards family colors, got ' + colored.length);
 
@@ -1681,12 +1746,20 @@ assert.equal(client.usageFor({tokenUsage:{outputTokens:-1},contextPressure:{cont
     }
   }
   const offPaths = client.buildConnectorPaths(offBase, offLead, offNodes, -8);
-  assert.ok(Array.isArray(offPaths) && offPaths.length === 6, 'six arcs build against a non-zero base, got ' + JSON.stringify(offPaths && offPaths.length));
+  const offTrunk = offPaths.find((path) => /^M 300 100 L 300 108 L (\d+) 108 L \d+ \d+$/.test(path.d));
+  assert.ok(offTrunk, 'the non-zero-base trunk keeps the 8px step form, got: ' + JSON.stringify(offPaths.map((path) => path.d)));
+  const offTrunkX = Number(offTrunk.d.match(/^M 300 100 L 300 108 L (\d+) /)[1]);
+  assert.notEqual(offTrunkX, 300, 'the trunk leaves the lead centre-line, got ' + offTrunkX);
+  for (const node of offNodes) {
+    assert.ok(offTrunkX < node.left - 1 || offTrunkX > node.left + node.width + 1,
+      'trunk x=' + offTrunkX + ' must clear card [' + node.left + ',' + (node.left + node.width) + ']');
+  }
+  assert.ok(Array.isArray(offPaths) && offPaths.length === 8, 'fan(3)+trunk(1)+bus(1)+branches(3) build against a non-zero base, got ' + JSON.stringify(offPaths && offPaths.length));
   const coordRe = /[-+]?\d*\.?\d+/g;
   for (const path of offPaths) {
     const nums = path.d.match(coordRe).map(Number);
-    for (const value of nums) {
-      assert.ok(value >= -8 && value <= offBase.width + 0.5, 'x within [0, base.width], got ' + value + ' in ' + path.d);
+    for (let i = 0; i < nums.length; i += 2) {
+      assert.ok(nums[i] >= 300 - 170 - 0.5 && nums[i] <= offBase.width + 0.5, 'x never reaches the old gutter (lead fan opens to 130 at the widest), got ' + nums[i] + ' in ' + path.d);
     }
     for (let i = 1; i < nums.length; i += 2) {
       assert.ok(nums[i] >= -0.5 && nums[i] <= offBase.height + 0.5, 'y within [0, base.height], got ' + nums[i] + ' in ' + path.d);
@@ -1701,6 +1774,21 @@ assert.equal(client.usageFor({tokenUsage:{outputTokens:-1},contextPressure:{cont
     offNodes.map((node) => ({ ...node, left: node.left + dx, top: node.top + dy })),
     -8);
   assert.deepEqual(movedPaths.map((path) => path.d), offPaths.map((path) => path.d), 'translating base+rects leaves every arc byte-identical');
+  // Staggered 3+2: tail-only gap x=172 intersects the FIRST-row middle card.
+  const stagger=[0,120,240].map(left=>({left,top:150,width:100,height:80})).concat([60,180].map(left=>({left,top:330,width:100,height:80})));
+  const staggerPaths=client.buildConnectorPaths({left:0,top:0,width:400,height:500},{left:130,top:0,width:100,height:80},stagger,-8);
+  const trunk=staggerPaths.find(p=>/^M 180 80 L 180 88 L /.test(p.d));
+  assert.ok(trunk,'staggered layout has actual Lead trunk');
+  const tx=Number(trunk.d.split(' ')[7]);
+  for(const card of stagger)assert.ok(tx<card.left-1||tx>card.left+card.width+1,'trunk clears every card including first row');
+  assert.ok(tx<0||tx>340,'no common gap uses outside channel, never overlapping centre');
+  assert.ok(!staggerPaths.some(p=>/^M (50|170|290) 230 /.test(p.d)),'no false member-parent edges');
+  const uneven=stagger.map((card,i)=>i===1?{...card,height:240}:card);
+  const unevenPaths=client.buildConnectorPaths({left:0,top:0,width:400,height:500},{left:130,top:0,width:100,height:80},uneven,-8);
+  const routed=unevenPaths.filter(p=>p.d.startsWith('M 180 80 L ')&&!p.d.includes(' C ')&&(/ L (110|230) 330$/).test(p.d));
+  assert.equal(routed.length,2,'height collision uses two actual Lead-rooted safe routes');
+  for(const path of routed){const pairs=path.d.match(/[-+]?\d*\.?\d+/g).map(Number);for(let i=2;i<pairs.length;i+=2){const ax=pairs[i-2],ay=pairs[i-1],bx=pairs[i],by=pairs[i+1];for(const card of uneven){const hit=ax===bx?ax>card.left&&ax<card.left+card.width&&Math.max(ay,by)>card.top&&Math.min(ay,by)<card.top+card.height:ay>card.top&&ay<card.top+card.height&&Math.max(ax,bx)>card.left&&Math.min(ax,bx)<card.left+card.width;assert.ok(!hit,'detour segment avoids every card interior');}}}
+
   // 收尾：清 CabinetPanel 入队的 effect，防泄漏给后续块（3b47d6a2 教训）。
   recordedEffects.length = 0;
 }
