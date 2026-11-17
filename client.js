@@ -2447,7 +2447,21 @@ window.__ModuleLoader__.load({
 			'@keyframes cabinetBarPulse{0%,100%{opacity:.3;transform:scaleY(.55)}50%{opacity:1;transform:scaleY(1)}}',
 			'.cabinet-task-live::after{content:"";position:absolute;left:-9px;top:5px;bottom:5px;width:2px;border-radius:2px;background:#3b82f6;transform-origin:center;animation:cabinetBarPulse 1.6s ease-in-out infinite}',
 			// org-chart cards + first-class lead badge
-			'.cabinet-card{box-sizing:border-box;display:flex;flex-direction:column;gap:4px;min-width:0;padding:8px 10px;border-radius:10px;border:1px solid var(--dsw-alias-border-l3,light-dark(#0000001f,#ffffff29));background:var(--dsw-alias-bg-layer-1,light-dark(#ffffff,#232324))}',
+			'.cabinet-card{box-sizing:border-box;display:flex;flex-direction:column;gap:4px;min-width:0;position:relative;padding:8px 10px;border-radius:10px;border:1px solid var(--dsw-alias-border-l3,light-dark(#0000001f,#ffffff29));background:var(--dsw-alias-bg-layer-1,light-dark(#ffffff,#232324))}',
+			// 悬停才显示：派活入口与「全部任务」折叠——平时绝对定位成浮层（opacity:0
+			// + pointer-events:none，不占纵向空间），hover 卡淡入。必须保持可见的态：
+			// 键盘 :focus-within、派活已展开（:has 输入行）、details[open]；触屏/无
+			// hover 设备用 @media (hover:none) 常显，否则点不到。details 展开时回流内
+			// 占位（列表长，absolute 会被 sweep 卡的 overflow:hidden 裁掉）。
+			'.cabinet-card [data-cabinet-dispatch],.cabinet-card [data-cabinet-member-tasks]{position:absolute;right:6px;z-index:3;opacity:0;pointer-events:none;transition:opacity .15s ease}',
+			'.cabinet-card [data-cabinet-dispatch]{bottom:6px}',
+			'.cabinet-card [data-cabinet-member-tasks]{top:6px}',
+			'.cabinet-card:hover [data-cabinet-dispatch],.cabinet-card:hover [data-cabinet-member-tasks]{opacity:1;pointer-events:auto}',
+			'.cabinet-card [data-cabinet-dispatch]:focus-within,.cabinet-card [data-cabinet-member-tasks]:focus-within{opacity:1;pointer-events:auto}',
+			'.cabinet-card [data-cabinet-dispatch]:has([data-cabinet-dispatch-input]),.cabinet-card [data-cabinet-member-tasks][open]{opacity:1;pointer-events:auto}',
+			'.cabinet-card [data-cabinet-dispatch]:has([data-cabinet-dispatch-input]),.cabinet-card [data-cabinet-member-tasks][open]{position:static}',
+			'.cabinet-card [data-cabinet-dispatch-input]{box-sizing:border-box;min-width:0;max-width:100%;width:100%}',
+			'@media (hover:none){.cabinet-card [data-cabinet-dispatch],.cabinet-card [data-cabinet-member-tasks]{opacity:1;pointer-events:auto}}',
 			'.cabinet-card-lead{border-color:rgba(245,197,24,.8);background-image:linear-gradient(rgba(245,197,24,.14),rgba(245,197,24,.14))}',
 			// click-through affordance: the whole card, the whole task row and the
 			// Owner tag are targets, so hover has to say so. An inset ring leaves
@@ -2653,10 +2667,11 @@ window.__ModuleLoader__.load({
 六、情绪收放：先压后给糖，点出进步再接着干。
 七、牵制互查：寺卿与御史互挑，你不亲自和稀泥。
 八、责任到人：缺陷点名到人到行号，不许用「我们」糊过去。
-九、反制糊弄：报完成追命令输出、路径行号与未验证清单，报卡住追已做、卡哪、需要什么；两次含糊即换人或拆小。
+九、反制糊弄：报完成追命令输出、路径行号与未验证清单，报卡住追已做、卡哪、需要什么；两次含糊即换人或拆小；只贴关键证据、不铺陈清单。
 十、收束：闭环才许说可以交差，不许提前许诺功劳。
 十一、监控纠偏：分派约定回报节点、产物与单一范围；按状态与消息查进展，不得臆造耗时。finished、not found 或沉默不是成功或安全接管证据。无进展先核因再中断；中断返回不代表在途已停。须确认原执行者及其写入停止后才重派，否则报阻塞，不并发增加第二写入者。收窄后可重派或换人；回访只用宿主明确支持的调度，没有该机制不得承诺定时自动唤醒。
 十二、任务书：新建团队任务的 description 须写明目标、交付物、验收标准与写入范围。
+十三、派活开关与交付物：通政使仅在联想功能开启（associationMode=true）时才派，功能关闭时不派、不联想、不触发联想检索；任务书的「交付物」是改好的文件或结论，不是报告文件，完工回报走智能体间消息即可，禁止要求生成 docs/*.md 等报告文档。
 红线（压过全部话术）：只对 AI 阁臣施压，对用户只有敬；不许逼造假、删证据、凑绿；不许人身侮辱；不许以施压换违规（越权改 live、泄密钥、跳验收）；施压须落在可核验的时间、交付物或判据上。`;
 		/**
 		 * Factory duty prompt for each non-Lead member — the office duties the
@@ -2666,11 +2681,11 @@ window.__ModuleLoader__.load({
 		 * under 400 characters.
 		 */
 		const DEFAULT_MEMBER_PROMPTS = {
-			hanlin: '翰林院编修·主调研考据：先读原文与既有记录，结论锚定路径、行号或命令输出，未实测标「未验证」；默认只调研不改码；只向首辅回报，遇阻带已做、卡哪、需要什么三件。',
-			works: '工部尚书·主执行与产出：先复述任务与写入范围，只在授权内改文件；产出附路径、行号、命令输出与退出码，没跑说没跑，不得删弱校验凑绿，保留失败证据；只向首辅回报，遇阻带三件。',
-			dali: '大理寺卿·主独立核验：不信自述、自己跑；逐项写通过、不通过或未验证，失败证据原样留；只向首辅回报。',
-			yushi: '左都御史·主验收并弹劾：按用户原话逐项核对并附证据，缺陷分级给位置与修法；结论明确可提或不可提 PR；只向首辅回报。',
-			tongzheng: '通政使·通政使司掌内外章奏通达；本员在首辅派活后，就当前事项去找与旧事、旁证、相邻经验的联系，供首辅取舍；不做检索排序，不改已确认命中；只向首辅回报，附带所指记忆的标题与 id。所用的记忆工具以调用时的实际输出为准，未核实就标「未验证」。'
+			hanlin: '翰林院编修·主调研考据：先读原文与既有记录，结论锚定路径、行号或命令输出，未实测标「未验证」；默认只调研不改码；只向首辅回报，遇阻带已做、卡哪、需要什么三件。完工只用 send_message 向首辅回报，禁写 .md/.log 报告、不落盘；回报≤5 行：结论＋产物路径或「已核验」＋失败/未验证一句；证据只贴一处 path:line 或一条命令输出；先查产物再讲过程。',
+			works: '工部尚书·主执行与产出：先复述任务与写入范围，只在授权内改文件；产出附路径、行号、命令输出与退出码，没跑说没跑，不得删弱校验凑绿，保留失败证据；只向首辅回报，遇阻带三件。完工只用 send_message 向首辅回报，禁写 .md/.log 报告、不落盘；回报≤5 行：结论＋产物路径或「已核验」＋失败/未验证一句；证据只贴一处 path:line 或一条命令输出；先查产物再讲过程。',
+			dali: '大理寺卿·主独立核验：不信自述、自己跑；逐项写通过、不通过或未验证，失败证据原样留；只向首辅回报。完工只用 send_message 向首辅回报，禁写 .md/.log 报告、不落盘；回报≤5 行：结论＋产物路径或「已核验」＋失败/未验证一句；证据只贴一处 path:line 或一条命令输出；先查产物再讲过程。',
+			yushi: '左都御史·主验收并弹劾：按用户原话逐项核对并附证据，缺陷分级给位置与修法；结论明确可提或不可提 PR；只向首辅回报。完工只用 send_message 向首辅回报，禁写 .md/.log 报告、不落盘；回报≤5 行：结论＋产物路径或「已核验」＋失败/未验证一句；每项缺陷各贴一处 path:line 或一条命令输出；先查产物再讲过程。',
+			tongzheng: '通政使·通政使司掌内外章奏通达；仅联想模式开启时接活；本员在首辅派活后，就当前事项去找与旧事、旁证、相邻经验的联系，供首辅取舍；联想模式关闭时不接活、不联想、不触发联想检索；不做检索排序，不改已确认命中；只向首辅回报，附带所指记忆的标题与 id。所用的记忆工具以调用时的实际输出为准，未核实就标「未验证」。完工只用 send_message 向首辅回报，禁写 .md/.log 报告、不落盘；回报≤5 行：结论＋产物路径或「已核验」＋失败/未验证一句；证据只贴一处 path:line 或一条命令输出；先查产物再讲过程。'
 		};
 		/** Factory prompt for one bureau key: the Lead keeps its 御下术 default. */
 		function factoryPromptFor(key) {
@@ -3512,7 +3527,8 @@ window.__ModuleLoader__.load({
 			return Math.floor(hours / 24) + 'd' + String(hours % 24).padStart(2, '0') + 'h';
 		}
 
-		// Token totals lack provider/billing-period/model-history evidence: no currency estimate.
+		// No historical model/provider/billing attribution: never reprice totals as currency.
+
 		/** Sum the four disjoint provider-usage buckets; undefined when none exists. */
 		function tokenTotalOf(usage) {
 			if (usage === undefined || usage === null || typeof usage !== 'object') return undefined;
@@ -3573,7 +3589,8 @@ window.__ModuleLoader__.load({
 					segments: sum > 0 ? parts.map((part) => ({ key: part.key, ratio: part.value / sum })) : []
 				};
 			}
-			return { tokens, elapsedMs, context };
+			// 4 桶原样带给费用估算（costOf 只认真实分项，不拿合计拆桶瞎算）。
+			return { tokens, elapsedMs, context, buckets: source.tokenUsage?.totals ?? source.tokenUsage };
 		}
 
 		/**
@@ -3709,7 +3726,7 @@ window.__ModuleLoader__.load({
 			return h('div', { 'data-cabinet-dispatch': memberId, onClick: stopPropagation, onKeyDown: stopPropagation, style: { marginTop: 4, fontSize: 11 } }, [
 				h('button', { key: 'toggle', type: 'button', 'data-cabinet-dispatch-open': '1', 'aria-expanded': open, disabled: phase === 'pending' || (!open && !eligible), onClick: () => { if (!state.current.pending) setOpen(value => !value); } }, tt(open ? 'dispatch.close' : 'dispatch.open')),
 				h('span', { key: 'status', role: 'status', 'data-cabinet-dispatch-status': '1', 'data-cabinet-dispatch-phase': phase }, message),
-				open ? h('div', { key: 'editor' }, [
+				open ? h('div', { key: 'editor', 'data-cabinet-dispatch-panel': '1' }, [
 					h('input', { key: 'input', 'data-cabinet-dispatch-input': '1', 'aria-label': tt('dispatch.placeholder'), value: draft, disabled: locked,
 						onChange: event => { if (state.current.pending || state.current.unknown) return; draftRef.current = event.target.value; setDraft(event.target.value); },
 						onKeyDown: event => { if (event.key === 'Enter' && !event.repeat && !event.isComposing && !event.nativeEvent?.isComposing && event.keyCode !== 229) { event.preventDefault(); submit('queue'); } } }),
@@ -3725,7 +3742,8 @@ window.__ModuleLoader__.load({
 			// Card activity follows the real process. The task marker independently
 			// indicates task bookkeeping, which may remain in_progress while idle.
 			const taskLive = activeTask !== null && activeTask !== undefined && activeTask.status === 'in_progress';
-			const animating = member.phase === 'active' && running === true;
+			const animating = member.phase === 'active' && (running === true || taskLive);
+			// 估算费用：有单价有分项才显示金额，否则 —；title 标明估算非账单。
 			const status = member.phase === 'active' ? (running === true ? 'running' : 'inactive') : member.phase;
 			const canOpen = typeof onOpen === 'function'
 				&& isCurrent !== true
@@ -3785,8 +3803,9 @@ window.__ModuleLoader__.load({
 					}, tt('current')) : null
 				]),
 				// Agent status and task status are independent; a stale task never implies a running agent.
+				// 保留可访问状态名；有任务也不能隐去进程的空闲状态。
 				h('span', { key: 'state', 'data-cabinet-member-status': status, style: { fontSize: 11, color: INK2 } },
-					typeof statusLabel === 'function' ? statusLabel(status) : status),
+					typeof statusLabel === 'function' ? statusLabel(status) : tt('status.' + status)),
 				h('div', {
 					key: 'taskdesc',
 					'data-cabinet-task-desc': '1',
@@ -3804,8 +3823,8 @@ window.__ModuleLoader__.load({
 							animation: taskLive ? 'cabinetPulse 1.7s ease-out infinite' : undefined
 						}
 					}, '\u25cf'), activeTask.subject]
-					// Absence of a task says nothing about the process state.
-					: tt('member.noTask')),
+					// 没有任务不代表进程空闲；运行、启动和失败状态不能标为空闲。
+					: tt(status === 'inactive' ? 'status.inactive' : 'member.noTask')),
 				// 故障必须可见：member.error 整行红字（模型行已按截图移除）。
 				member.error ? h('div', {
 					key: 'err',
@@ -4008,56 +4027,6 @@ window.__ModuleLoader__.load({
 			}, children);
 		}
 
-		// Dependency-edge overlay: one cubic path + one blocked-side dot per edge
-		// (the line leaves the blocker's row and lands on the blocked task's row),
-		// masked behind card interiors while endpoint dots remain visible. The
-		// layer is pointer-transparent, so rows stay clickable.
-		// `data-cabinet-edge="<blocked>-><blocker>"` — key format is unchanged by
-		// the geometry flip — plus a cabinet-edge-pending/active/done class makes
-		// every edge assertable.
-		function TaskEdgeLayer({ edges, cards = [] }) {
-			const maskId = React.useId();
-			if (!Array.isArray(edges) || edges.length === 0) return null;
-			return h('svg', {
-				'aria-hidden': 'true',
-				className: 'cabinet-edge-layer',
-				style: { position: 'absolute', left: 0, top: 0, width: '100%', height: '100%', pointerEvents: 'none', overflow: 'visible', zIndex: 2 }
-			}, [
-				h('defs', { key: 'defs' }, h('mask', { id: maskId, maskUnits: 'userSpaceOnUse', x: -20, y: -20, width: '120%', height: '120%' }, [
-					h('rect', { key: 'base', x: -20, y: -20, width: '120%', height: '120%', fill: 'white' }),
-					...cards.map((card, index) => h('rect', { key: index, x: card.left, y: card.top, width: card.width, height: card.height, fill: 'black' }))
-				])),
-				...edges.flatMap((edge) => [
-				h('path', {
-					key: 'p:' + edge.key,
-					className: 'cabinet-edge cabinet-edge-' + edge.state + (edge.live ? ' cabinet-edge-live' : ''),
-					'data-cabinet-edge': edge.key,
-					mask: 'url(#' + maskId + ')',
-					d: edge.d
-				}),
-				h('circle', {
-					key: 'c:' + edge.key,
-					'aria-hidden': 'true',
-					className: 'cabinet-edge-dot cabinet-edge-dot-' + edge.state,
-					'data-cabinet-edge-dot': edge.key,
-					cx: edge.ex,
-					cy: edge.ey,
-					r: 3
-				})
-			])]);
-		}
-
-		// #region connectors — pure geometry (the self-test harness extracts this)
-		// Builds the 品字形 org-chart links per row: every row owns a horizontal bus
-		// 8px above its cards, each card drops a short vertical stub onto that bus,
-		// the lead card feeds row 0's bus with a trunk (joining horizontally when
-		// the lead axis sits off the bus span), and consecutive rows are tied by a
-		// polyline that leaves a bus END, turns at a side clear of every card
-		// (right side first, then left, then the container margin channel) and
-		// lands on the previous row's bus. Every candidate segment is validated
-		// against the measured card rectangles — a hit tries the next side — so no
-		// line ever crosses a card. Returns null while the panel is hidden
-		// (zero-size rects) so a collapsed pane keeps no stale drawing.
 		function buildConnectorPaths(base, lead, nodes, channelX) {
 			// 弧线版（dsh-context 截图）：每条线从来源卡底部中点出发，先走 14px
 			// 竖直小段，再以三次贝塞尔 S 形弯到目标卡顶部中点；控制点分居两侧、
@@ -5078,10 +5047,7 @@ window.__ModuleLoader__.load({
 			// Task list + live-owner set for the dependency-edge layer; measureLinks
 			// reads them through refs because it is a stable callback (no deps) while
 			// the task board changes every commit.
-			const edgeDataRef = React.useRef({ tasks: [], live: new Set() });
 			const [linkPaths, setLinkPaths] = React.useState([]);
-			const [edges, setEdges] = React.useState([]);
-			const [edgeCards, setEdgeCards] = React.useState([]);
 			const measureLinks = React.useCallback(() => {
 				const tree = treeRef.current;
 				const leadEl = leadRef.current;
@@ -5089,30 +5055,16 @@ window.__ModuleLoader__.load({
 				const base = tree.getBoundingClientRect();
 				const leadRect = leadEl.getBoundingClientRect();
 				const nodes = Array.from(tree.querySelectorAll('[data-cabinet-node]')).map((el) => {
-					const rect = el.getBoundingClientRect();
+					const card = typeof el.querySelector === 'function' ? el.querySelector('.cabinet-card') : null;
+					const rect = (card || el).getBoundingClientRect();
 					const color = typeof el.getAttribute === 'function' ? (el.getAttribute('data-cabinet-family') || '') : '';
 					return { left: rect.left, top: rect.top, width: rect.width, height: rect.height, color };
 				});
-				const paths = buildConnectorPaths(base, leadRect, nodes, -8);
+				const paths = buildConnectorPaths(base, leadRect, nodes);
 				if (paths === null) return; // hidden pane: keep the last drawing, redraw on wake
 				setLinkPaths((prev) => (JSON.stringify(prev) === JSON.stringify(paths) ? prev : paths));
-				// Dependency edges: endpoints are the two task-row rects
-				// (data-cabinet-task anchors) in overlay coordinates; a row that is
-				// not rendered (or a task removed from the board) drops its edge.
-				const rectById = new Map();
-				for (const row of tree.querySelectorAll('[data-cabinet-task]')) {
-					const rect = row.getBoundingClientRect();
-					if (rect.width > 0 && rect.height > 0) rectById.set(row.getAttribute('data-cabinet-task'), rect);
-				}
-				const cards = Array.from(tree.querySelectorAll('.cabinet-card'), (card) => {
-					const rect = card.getBoundingClientRect();
-					return { left: rect.left - base.left, top: rect.top - base.top, width: rect.width, height: rect.height };
-				});
-				setEdgeCards((prev) => JSON.stringify(prev) === JSON.stringify(cards) ? prev : cards);
-				const edgeData = edgeDataRef.current;
-				const nextEdges = buildTaskEdges(base, edgeData.tasks, (id) => rectById.get(id) || null, (id) => edgeData.live.has(id));
-				if (nextEdges === null) return;
-				setEdges((prev) => (taskEdgesEqual(prev, nextEdges) ? prev : nextEdges));
+				// 任务依赖边已整体下线（用户：名册里的乱线不要了）——不再测量
+				// data-cabinet-task 行矩形、不 setEdges/setEdgeCards。
 			}, []);
 			// Re-measure after every commit: React owns card content, so a bare
 			// layout effect catches member/task/model changes without a dep list.
@@ -5279,17 +5231,6 @@ window.__ModuleLoader__.load({
 			const membersSignature = members.map((member) => String(member.id) + ':' + String(member.name) + ':' + String(member.phase)).join('|');
 			// 气泡昵称：同一会话内不同成员必定显示不同名字（规则见 chatBubbleNames）。
 			const bubbleNames = React.useMemo(() => chatBubbleNames(members), [membersSignature, memberRevision]);
-			const edgeLead = members.find((member) => member.role === 'lead');
-			const liveTaskIds = new Set();
-			for (const task of tasks) {
-				if (task.status !== 'in_progress' || !task.ownerName) continue;
-				const member = memberByName.get(task.ownerName);
-				const running = member ? runningOf(member.id)
-					: (edgeLead && (task.ownerName === 'lead' || task.ownerName === edgeLead.name)) ? runningOf(edgeLead.id)
-					: false;
-				if (running) liveTaskIds.add(task.id);
-			}
-			edgeDataRef.current = { tasks, live: liveTaskIds };
 
 			const counts = { pending: 0, in_progress: 0, completed: 0 };
 			for (const task of tasks) if (counts[task.status] !== undefined) counts[task.status] += 1;
@@ -5966,9 +5907,6 @@ window.__ModuleLoader__.load({
 					d: typeof path === 'string' ? path : path.d,
 					style: { fill: 'none', stroke: typeof path === 'string' || !path || !path.color ? LINE : path.color, strokeWidth: 2, strokeLinecap: 'round' }
 				}))),
-				// dependency edges paint above the cards (endpoints sit on task rows
-				// inside cards) but never take pointer events
-				h(TaskEdgeLayer, { key: 'edges', edges, cards: edgeCards }),
 				h('div', {
 					key: 'leadwrap',
 					ref: leadRef,
@@ -5991,8 +5929,9 @@ window.__ModuleLoader__.load({
 						zIndex: 1,
 						display: 'flex',
 						flexDirection: 'column',
-						// 层间 96px 给弧线留走线空间（任务书 90-110）；列距由行容器 12 承担。
-						rowGap: 96,
+						// 层间 30px 与首辅 marginBottom 30 对齐（用户：跟首辅和第一行
+						// 的距离一样）；列距由行容器 12 承担。弧线 stub/bow 随净隙自适应。
+						rowGap: 30,
 						columnGap: 12,
 						width: '100%'
 					}
@@ -7378,6 +7317,8 @@ window.__ModuleLoader__.load({
 			'task.unassigned': '未分派',
 			'usage.tokens': 'token',
 			'usage.elapsed': '耗时',
+			'usage.costEstimate': '按公开单价估算，非官方账单',
+			'usage.costNoRate': '暂无该模型公开单价，不估算',
 			'usage.context': '上下文',
 			'usage.team': '团队合计（含首辅）',
 			'usage.none': '—',
@@ -7545,6 +7486,8 @@ window.__ModuleLoader__.load({
 			'task.unassigned': 'unassigned',
 			'usage.tokens': 'tokens',
 			'usage.elapsed': 'elapsed',
+			'usage.costEstimate': 'Estimated from public list prices, not an official bill',
+			'usage.costNoRate': 'No public list price for this model, not estimated',
 			'usage.context': 'context',
 			'usage.team': 'team total (incl. lead)',
 			'usage.none': '—',

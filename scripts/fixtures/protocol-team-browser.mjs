@@ -181,11 +181,21 @@ export async function teamBrowser({auth,env,repo,members,onCreated}){
   for(const spec of dispatchSpecs){
    stage='actual roster SessionFace '+(spec.id===lead.id?'Lead':'member')+(spec.lost?' accepted ACK lost':' normal acknowledgement');
    const control=rail.locator(`[data-cabinet-dispatch=${JSON.stringify(spec.id)}]`);
+   // 派活容器默认 opacity:0/pointer-events:none，仅 .cabinet-card:hover 可点
+   //（bc17d87 悬停显示）；Playwright click/hover 的 actionability 都要求元素
+   // receives-events——容器自己 pointer-events:none，hover 它也过不了检查，
+   // 所以必须 hover【卡片祖先】：卡片本体可点，:hover 命中后容器才变
+   // pointer-events:auto，此时鼠标已在卡片内，再点目标即通过。
+   const hoverClick=async(loc)=>{
+     const card=control.locator('xpath=ancestor-or-self::*[contains(concat(" ",normalize-space(@class)," ")," cabinet-card ")][1]');
+     await card.hover();
+     await loc.click();
+   };
    const toggle=control.locator('[data-cabinet-dispatch-open]');
-   if(await toggle.getAttribute('aria-expanded')==='false')await toggle.click();
+   if(await toggle.getAttribute('aria-expanded')==='false')await hoverClick(toggle);
    await control.locator('[data-cabinet-dispatch-phase="ready"], [data-cabinet-dispatch-phase="accepted"]').waitFor({state:'attached'});
    const draft=control.locator('[data-cabinet-dispatch-input]');
-   await draft.fill(spec.marker);await control.locator('[data-cabinet-dispatch-send]').click();
+   await draft.fill(spec.marker);await hoverClick(control.locator('[data-cabinet-dispatch-send]'));
    await control.locator(`[data-cabinet-dispatch-phase="${spec.lost?'unknown':'accepted'}"]`).waitFor({state:'attached'});
    if(routeFailed||promptCounts.get(spec.marker)!==1||proofs.filter(p=>p.marker===spec.marker).length!==1)throw Error('dispatch acceptance proof failed');
    await group.locator('[data-cabinet-groupchat-row="assistant"]').filter({has:page.locator(`[data-cabinet-open-session=${JSON.stringify(spec.id)}]`)}).filter({hasText:spec.marker+'_REPLY'}).first().waitFor({state:'visible'});
@@ -193,11 +203,11 @@ export async function teamBrowser({auth,env,repo,members,onCreated}){
    if(spec.lost){
     if(await draft.inputValue()!==spec.marker||!await control.locator('[data-cabinet-dispatch-send]').isDisabled())throw Error('unknown dispatch not protected');
     if(!/Delivery outcome unknown|投递结果未知/.test(await control.locator('[data-cabinet-dispatch-status]').innerText()))throw Error('dispatch unknown warning absent');
-    await control.locator('[data-cabinet-dispatch-confirm]').click();
+    await hoverClick(control.locator('[data-cabinet-dispatch-confirm]'));
     if(promptCounts.get(spec.marker)!==1)throw Error('dispatch confirmation resent');
    }else if(await draft.inputValue()!=='')throw Error('accepted dispatch draft not cleared');
    if(await page.locator('[data-cabinet-page-session]').inputValue()!==lead.id)throw Error('dispatch click navigated away');
-   await toggle.click();
+   await hoverClick(toggle);
   }
   if(pageErrors||routeFailed||[...promptCounts.values()].some(n=>n!==1))throw Error('dispatch runtime or duplicate failure');
   console.log('PASS actual roster dispatch: Lead/member SessionFace normal and accepted-ACK-lost, target and request identity verified');

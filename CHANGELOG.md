@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.9.3] - 2026-11-17
+
+### Changed
+- Keep real lead-to-member hierarchy across visual rows; omit currency estimates without historical billing attribution.
+- Keep task activity animation and compact member controls without task-dependency overlay clutter.
+- Restore accessible process status and unclipped, narrow-card dispatch editors.
+- Make association mode explicit for the association member and preserve per-defect review evidence.
+
 ## [0.9.2] - 2026-11-13
 
 ### Changed

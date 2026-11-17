@@ -93,7 +93,7 @@ const PAGE_NOW = Date.now();
 // ageOf 保序：原值越大 ⇒ 时间越新，且所有映射结果都落在最近 ~12 天内
 // （小于 30 天窗口，不会触发新鲜度过滤），既有排序断言的语义不变。
 const ageOf = (value) => PAGE_NOW - (1000000 - value);
-const exportList = 'return { inject, apply, avatarFor, displayName, chatBubbleName, chatBubbleNames, bureauOf, CabinetPanel, MemberCard, MemberDispatch, TaskLine, TaskEdgeLayer, buildTaskEdges, buildConnectorPaths, taskEdgesEqual, zh, en, BUREAUX, AVATARS, setMemberConfig, memberLabel, configuredAvatar, configuredPrompt, factoryPromptFor, DEFAULT_MEMBER_PROMPTS, DEFAULT_LEAD_PROMPT, CabinetMemberSettings, MemoryPluginCard, memoryPluginInstalledOf, SETTINGS_TABS, formatTokenCount, formatElapsed, tokenTotalOf, usageFor, planProjectionRequests, teamUsageOf, groupChatFold, markdownBlocksOf, markdownBlocksCached, inlineMarkdownTokens, markdownLinkHref, modelOptionsOf, modelCatalogNotice, modelSelectionOf, cabinetSessionChoices, cabinetSessionFilters, cabinetSessionGroups, defaultCabinetSession, CabinetMarkdown, CabinetPage, CabinetPanelIcon, GroupChatRow, STYLE_CSS, cabinetGroupMemberStates, mergeGroupChat, cabinetChatViewRows, chatStampNeeded, nearChatBottom, scrollChatToBottom, scrollFollowingTail, cabinetScopeRows, openCabinetSession };';
+const exportList = 'return { inject, apply, avatarFor, displayName, chatBubbleName, chatBubbleNames, bureauOf, CabinetPanel, MemberCard, MemberDispatch, TaskLine, buildConnectorPaths, zh, en, BUREAUX, AVATARS, setMemberConfig, memberLabel, configuredAvatar, configuredPrompt, factoryPromptFor, DEFAULT_MEMBER_PROMPTS, DEFAULT_LEAD_PROMPT, CabinetMemberSettings, MemoryPluginCard, memoryPluginInstalledOf, SETTINGS_TABS, formatTokenCount, formatElapsed, tokenTotalOf, usageFor, planProjectionRequests, teamUsageOf, groupChatFold, markdownBlocksOf, markdownBlocksCached, inlineMarkdownTokens, markdownLinkHref, modelOptionsOf, modelCatalogNotice, modelSelectionOf, cabinetSessionChoices, cabinetSessionFilters, cabinetSessionGroups, defaultCabinetSession, CabinetMarkdown, CabinetPage, CabinetPanelIcon, GroupChatRow, STYLE_CSS, cabinetGroupMemberStates, mergeGroupChat, cabinetChatViewRows, chatStampNeeded, nearChatBottom, scrollChatToBottom, scrollFollowingTail, cabinetScopeRows, openCabinetSession };';
 runInNewContext(source.replace(exportPoint, exportList), {
   setTimeout: (fn, ms) => setTimeout(fn, ms === 120000 ? 20 : ms), clearTimeout,
   Date: RealmDate,
@@ -307,67 +307,6 @@ const edgeTasks = [
 ];
 const edgeBase = { left: 0, top: 0, width: 800, height: 400 };
 const edgeRectOf = (id) => edgeRects.get(id) || null;
-const built = client.buildTaskEdges(edgeBase, edgeTasks, edgeRectOf, (id) => id === 't-build');
-assert.equal(built.length, 5, 'one edge per resolvable blocker; t-ghost is missing and draws nothing');
-assert.deepEqual(Array.from(built, (edge) => edge.key).sort(), [
-  't-audit->t-build', 't-build->t-research', 't-extra->t-audit', 't-report->t-audit', 't-report->t-research',
-], 'edges come from the vm realm; compare as host arrays');
-const stateByKey = Object.fromEntries(built.map((edge) => [edge.key, edge.state]));
-assert.equal(stateByKey['t-build->t-research'], 'done', 'completed blocker → done');
-assert.equal(stateByKey['t-audit->t-build'], 'active', 'in_progress blocker → active');
-assert.equal(stateByKey['t-extra->t-audit'], 'pending', 'pending blocker → pending');
-const liveByKey = Object.fromEntries(built.map((edge) => [edge.key, edge.live]));
-assert.equal(liveByKey['t-audit->t-build'], true, "blocker's owner running lights the flow edge");
-assert.equal(liveByKey['t-build->t-research'], false, 'done edges never animate');
-for (const edge of built) {
-  assert.match(edge.d, /^M -?[\d.]+ -?[\d.]+ C -?[\d.]+ -?[\d.]+ -?[\d.]+ -?[\d.]+ -?[\d.]+ -?[\d.]+$/, edge.key);
-  assert.equal(typeof edge.ex, 'number', edge.key);
-  assert.equal(typeof edge.ey, 'number', edge.key);
-}
-// hidden panel (zero-size base) keeps the last drawing, like the org connectors
-assert.equal(client.buildTaskEdges({ left: 0, top: 0, width: 0, height: 0 }, edgeTasks, edgeRectOf, () => false), null);
-// a task removed from the board leaves no dangling edge to or from it
-const withoutAudit = edgeTasks.filter((task) => task.id !== 't-audit');
-const orphaned = client.buildTaskEdges(edgeBase, withoutAudit, edgeRectOf, () => false);
-assert.equal(orphaned.length, 2, 'blocker rows that no longer exist are skipped, not crashed on');
-assert.ok(orphaned.every((edge) => !edge.key.includes('t-audit->') && edge.key !== 't-extra->t-audit' && edge.key !== 't-report->t-audit'));
-// duplicated blocker ids inside one task collapse into a single edge
-const dup = client.buildTaskEdges(edgeBase,
-  [{ id: 'a', subject: 'a', ownerName: 'hanlin', status: 'pending', blockedBy: ['b', 'b'] },
-   { id: 'b', subject: 'b', ownerName: 'works', status: 'completed' }],
-  (id) => edgeRects.get(id === 'a' ? 't-extra' : 't-build') || null, () => false);
-assert.equal(dup.length, 1, 'duplicate blockedBy entries draw once');
-// geometry freshness: <0.5px is noise, a real move or a state flip redraws
-const rebuilt = client.buildTaskEdges(edgeBase, edgeTasks, edgeRectOf, (id) => id === 't-build');
-assert.ok(client.taskEdgesEqual(built, rebuilt), 'identical rects need no redraw');
-const nudgedRects = new Map(edgeRects);
-nudgedRects.set('t-build', edgeRect(300.3, 60.2));
-const nudged = client.buildTaskEdges(edgeBase, edgeTasks, (id) => nudgedRects.get(id) || null, (id) => id === 't-build');
-assert.ok(client.taskEdgesEqual(built, nudged), 'a <0.5px rect change must not redraw');
-const shiftedRects = new Map(edgeRects);
-shiftedRects.set('t-build', edgeRect(340, 60));
-const shifted = client.buildTaskEdges(edgeBase, edgeTasks, (id) => shiftedRects.get(id) || null, (id) => id === 't-build');
-assert.ok(!client.taskEdgesEqual(built, shifted), 'a real move must trigger a redraw');
-const progressed = edgeTasks.map((task) => (task.id === 't-audit' ? { ...task, status: 'in_progress' } : task));
-const progressedEdges = client.buildTaskEdges(edgeBase, progressed, edgeRectOf, () => false);
-assert.ok(!client.taskEdgesEqual(built, progressedEdges), 'a blocker status change must switch the edge state');
-// rendered overlay: one path + one dot per edge, data attribute and state class
-const layerEls = elements(client.TaskEdgeLayer({ edges: built }));
-const edgePaths = layerEls.filter((node) => node.type === 'path');
-assert.equal(edgePaths.length, 5, 'one path per dependency edge');
-for (const path of edgePaths) {
-  assert.match(path.props['data-cabinet-edge'], /^[^\s]+->[^\s]+$/, 'data-cabinet-edge is "<blockedId>-><blockerId>"');
-  assert.ok(/^cabinet-edge cabinet-edge-(pending|active|done)\b/.test(path.props.className), path.props.className);
-}
-const classByKey = Object.fromEntries(edgePaths.map((path) => [path.props['data-cabinet-edge'], path.props.className]));
-assert.ok(classByKey['t-build->t-research'].includes('cabinet-edge-done'), classByKey['t-build->t-research']);
-assert.ok(classByKey['t-audit->t-build'].includes('cabinet-edge-active'), classByKey['t-audit->t-build']);
-assert.ok(classByKey['t-audit->t-build'].includes('cabinet-edge-live'), 'running-owner flow edge is distinguishable');
-assert.ok(classByKey['t-extra->t-audit'].includes('cabinet-edge-pending'), classByKey['t-extra->t-audit']);
-const edgeDots = layerEls.filter((node) => node.type === 'circle');
-assert.equal(edgeDots.length, 5, 'every edge ends in a dot on the blocked side');
-assert.ok(edgeDots.every((dot) => dot.props['data-cabinet-edge-dot'].includes('->')));
-assert.equal(client.TaskEdgeLayer({ edges: [] }), null, 'no edges → no overlay layer');
 // panel render: cross-member tasks all expose measurement anchors, no premature edges
 const depTeam = {
   members: [
@@ -389,8 +328,15 @@ const directAnchored = edgeTasks.flatMap((task) => elements(client.TaskLine({ ta
   .filter((node) => node.props && 'data-cabinet-task' in node.props);
 assert.equal(directAnchored.length, edgeTasks.length, 'every TaskLine row carries a data-cabinet-task anchor (component contract)');
 assert.deepEqual(directAnchored.map((node) => node.props['data-cabinet-task']).sort(), edgeTasks.map((task) => task.id).sort());
+// 任务依赖边整体下线（用户：名册里的乱线不要了）：渲染树不得出现边/端点圆点。
 assert.ok(!depEls.some((node) => node.props && 'data-cabinet-edge' in node.props),
-  'edges are drawn only after measurement, never from stale render state');
+  'no data-cabinet-edge path may render (dependency edges are removed)');
+assert.ok(!depEls.some((node) => node.props && 'data-cabinet-edge-dot' in node.props),
+  'no data-cabinet-edge-dot circle may render (dependency edges are removed)');
+// 渲染树 SVG path：静态 render 未跑 measureLinks，linkPaths 初始为空——
+// 此处只锁「一条边线都不渲染」；成员连线数（第一层卡数）由 connPaths=3 单测锁定。
+const rosterPaths = depEls.filter((node) => node.type === 'path');
+assert.equal(rosterPaths.length, 0, 'no edge path may render before measurement, got ' + rosterPaths.length);
 // TaskLine forwards the anchor id through Row onto the row element
 const depLine = client.TaskLine({
   task: edgeTasks[1],
@@ -409,31 +355,6 @@ assert.ok(reducedMedia.includes('.cabinet-edge-active') && reducedMedia.includes
 assert.ok(source.includes('.cabinet-edge-done{stroke:light-dark(#15803d,#4ade80)}'), 'done edge has theme-specific green contrast');
 assert.ok(source.includes('.cabinet-edge-pending{stroke:light-dark(#6b7280,#9ca3af)'), 'pending edge is static grey');
 assert.ok(source.includes('cabinetEdgeFlow'), 'active edge gets the dash-offset flow');
-// --- direction: the path LEAVES the blocker's row and LANDS on the blocked
-// task's row, dot included; the key still reads <blocked>-><blocker> because
-// only the geometry flipped (首辅 → 阁臣) ---
-const rectBoundary = (point, id) => {
-  const rect = edgeRects.get(id);
-  if (!rect) return false;
-  const [x, y] = point;
-  return ((x === rect.left || x === rect.right) && y >= rect.top && y <= rect.bottom)
-    || ((y === rect.top || y === rect.bottom) && x >= rect.left && x <= rect.right);
-};
-const dPoints = (d) => d.split(/[MC]/).slice(1).map((part) => part.trim().split(/\s+/).map(Number));
-const near = (a, b) => Math.abs(a - b) < 0.05;
-for (const edge of built) {
-  const [blockedId, blockerId] = edge.key.split('->');
-  const [start, curve] = dPoints(edge.d);
-  const end = curve.slice(-2);
-  assert.ok(near(start[0], edge.s[0]) && near(start[1], edge.s[1]), `${edge.key}: M must sit on the start anchor`);
-  assert.ok(near(end[0], edge.e[0]) && near(end[1], edge.e[1]), `${edge.key}: path end must sit on the end anchor`);
-  assert.equal(edge.ex, edge.e[0], `${edge.key}: dot x is the path end`);
-  assert.equal(edge.ey, edge.e[1], `${edge.key}: dot y is the path end`);
-  assert.ok(rectBoundary(start, blockerId), `${edge.key}: start anchor lies on the BLOCKER row ${blockerId}`);
-  assert.ok(rectBoundary(end, blockedId), `${edge.key}: end anchor lies on the BLOCKED row ${blockedId}`);
-  assert.ok(!rectBoundary(start, blockedId), `${edge.key}: start is not on the blocked row — direction is blocker → blocked`);
-  assert.ok(!rectBoundary(end, blockerId), `${edge.key}: end is not on the blocker row`);
-}
 // --- click-to-open: only a resolvable, non-inert target binds a handler ---
 const openLog = [];
 const recordOpen = (target) => { openLog.push(target); return true; };
@@ -775,13 +696,13 @@ assert.ok(typeof blockNode.props.style.border === 'string' && blockNode.props.st
 const dotNode = dressed.find((node) => node.props?.['data-cabinet-status'] !== undefined);
 assert.ok(dotNode, 'the head row carries the status dot');
 const descNode = dressed.find((node) => node.props?.['data-cabinet-task-desc'] !== undefined);
-assert.ok(descNode && descNode.children.join('') === '无进行中任务', 'a card without an in_progress task shows the merged idle line, got: ' + JSON.stringify(descNode && descNode.children));
+assert.ok(descNode && descNode.children.join('') === '空闲', 'a card without an in_progress task shows the merged idle line, got: ' + JSON.stringify(descNode && descNode.children));
 const idleFlat = JSON.stringify(dressed);
 // 顶层恰好一个渲染中的任务行节点（收集器的嵌套快照不计入），其文本即唯一空闲文案。
 const topDesc = dressed.filter((node) => node.props?.['data-cabinet-task-desc'] !== undefined);
 assert.equal(topDesc.length, 1, 'exactly one rendered task-desc node at the card top level, got ' + topDesc.length);
-assert.equal(topDesc[0].children.join(''), '无进行中任务', 'the single task row owns the only idle text');
-assert.ok(idleFlat.includes('无进行中任务'), 'task absence is independent from process status');
+assert.equal(topDesc[0].children.join(''), '空闲', 'the single task row owns the only idle text');
+assert.ok(!idleFlat.includes('无进行中任务'), 'the redundant task-absence line is gone');
 assert.ok(!dressed.some((node) => node.props?.['data-cabinet-activity-state'] !== undefined), 'no activity placeholder renders without data');
 const meterStyled = dressed.find((node) => node.props?.['data-cabinet-meter'] !== undefined);
 assert.equal(meterStyled.props.style.width, '42%', 'the segmented bar is left-aligned at ~42% card width');
@@ -860,9 +781,9 @@ const taskOnlyTree = elements(client.MemberCard({
 const taskOnlyDot = taskOnlyTree.find((node) => node.props?.['data-cabinet-status'] !== undefined);
 assert.equal(taskOnlyDot.props['data-cabinet-status'], 'inactive', 'an in_progress task cannot override the idle process status, got: ' + taskOnlyDot.props['data-cabinet-status']);
 assert.equal(taskOnlyDot.props.style.animation, undefined, 'the process dot does not animate merely because a task remains in_progress');
-assert.equal(taskOnlyTree[0].props['data-cabinet-sweep'], undefined, 'stale task does not animate idle process');
-assert.equal(taskOnlyTree[0].props.style.overflow, undefined, 'stale task opens no sweep');
-assert.equal(taskOnlyTree[0].props.style['--cab-live-hue'], undefined, 'no task-only sweep hue');
+assert.equal(taskOnlyTree[0].props['data-cabinet-sweep'], '1', 'an in_progress task keeps the card marker (the task is moving)');
+assert.equal(taskOnlyTree[0].props.style.overflow, 'hidden', 'a live task opens the sweep window');
+assert.equal(taskOnlyTree[0].props.style['--cab-live-hue'], 'hsl(138 58% 52%)', 'the task-only sweep rides the family hue');
 // Only in_progress moves: a pending task on an idle process must not start the sweep.
 const idlePendingTree = elements(client.MemberCard({
   member: { id: 'm-pend', name: 'pend', phase: 'active' },
@@ -888,6 +809,21 @@ assert.ok(String(taskMark.props.style.animation).includes('cabinetPulse'), 'the 
 // keyframes 必须真的在 STYLE_CSS 里——只有 animation 没有 @keyframes 会被浏览器静默忽略。
 const pulseCss = Array.isArray(client.STYLE_CSS) ? client.STYLE_CSS.join('\n') : String(client.STYLE_CSS || '');
 assert.ok(pulseCss.includes('@keyframes cabinetPulse'), 'cabinetPulse keyframes are injected via STYLE_CSS (no silent-ignore)');
+
+// 悬停才显示（用户方案A）：派活入口 + 全部任务折叠四态 CSS——默认浮层隐藏不占位、
+// hover 淡入、键盘 focus 与展开态常显、无 hover 设备常显。
+assert.ok(pulseCss.includes('.cabinet-card:hover [data-cabinet-dispatch]'), 'hover fades the dispatch entry in');
+assert.ok(pulseCss.includes(':focus-within'), 'keyboard focus keeps both entries visible');
+assert.ok(pulseCss.includes('[data-cabinet-dispatch]:has([data-cabinet-dispatch-input])') && pulseCss.includes('[data-cabinet-member-tasks][open]'), 'an open dispatch editor or an open details stays visible');
+assert.ok(pulseCss.includes('@media (hover:none)'), 'touch/no-hover devices see both entries by default');
+const defaultHidden = (pulseCss.match(/\.cabinet-card \[data-cabinet-dispatch\],\.cabinet-card \[data-cabinet-member-tasks\]\{[^{}]*\}/) || [''])[0];
+assert.ok(defaultHidden.includes('opacity:0') && defaultHidden.includes('pointer-events:none'), 'the default state fades both entries out without detaching them, got: ' + defaultHidden);
+assert.ok(defaultHidden.includes('position:absolute'), 'the default state parks both entries as overlays so no vertical row is left blank, got: ' + defaultHidden);
+assert.ok(pulseCss.includes('.cabinet-card [data-cabinet-member-tasks][open]{position:static}'), 'an open details returns to flow so its task list is never clipped by the sweep card');
+// 功能负断言：默认隐藏只是可见性层——派活钩子仍在源码里，点击流程由
+// test-dispatch-browser 真 React 全流程锁定（本静态层只锁节点不消失）。
+assert.ok(source.includes("'data-cabinet-dispatch-open'") && source.includes("'data-cabinet-dispatch-panel'"), 'dispatch hooks stay in the source (CSS hides, never unmounts)');
+assert.ok(pulseCss.includes('[data-cabinet-dispatch]:has([data-cabinet-dispatch-input])'), 'the open editor row (dispatch-panel) is what keeps the entry up');
 assert.ok(pulseCss.includes('@keyframes cabinetSpin'), 'cabinetSpin remains for the avatar ring');
 assert.ok(pulseCss.includes('[data-cabinet-sweep]::before') && pulseCss.includes('offset-path:rect(0 100% 100% 0 round 12px)'), 'the border dot follows the rounded card perimeter');
 assert.ok(pulseCss.includes('cabinetDotRun 2s linear infinite') && pulseCss.includes('@keyframes cabinetDotRun{to{offset-distance:100%}}'), 'the dot runs via offset distance');
@@ -895,23 +831,11 @@ assert.ok(pulseCss.includes('prefers-reduced-motion'), 'the sweep stops under pr
 const sweepBody = (pulseCss.match(/\[data-cabinet-sweep\]::before\{[^{}]*\}/) || [''])[0];
 assert.ok(sweepBody && !sweepBody.includes('conic-gradient'), 'the sweep rule body carries no conic scanner (Motion Path dot only)');
 
-// A running agent can have no task; a stale task cannot hide an idle agent.
-for (const [running,task] of [[true,undefined],[false,{id:'stale',subject:'Old task',status:'in_progress'}]]) {
-  const card=elements(client.MemberCard({member:{id:'state',name:'state',phase:'active'},running,activeTask:task,statusLabel:s=>client.zh['status.'+s],t:zhT}));
-  const state=card.find(node=>node.props?.['data-cabinet-member-status']);
-  assert.equal(state.children.join(''),running?client.zh['status.running']:client.zh['status.inactive'],'real process status always readable');
-  const desc=card.find(node=>node.props?.['data-cabinet-task-desc']);
-  if(running)assert.equal(desc.children.join(''),'无进行中任务');else assert.ok(JSON.stringify(desc.children).includes('Old task'),'stale task stays distinct from idle process');
-  assert.equal(card[0].props['data-cabinet-sweep'],running?'1':undefined,'only true running enables sweep');
-}
-// Incomplete buckets/provider aliases and next-model selection cannot price history.
-assert.ok(!source.includes('MODEL_RATE_TABLE') && !source.includes('function costOf('), 'no unsafe rate matching or currency calculator');
-for (const model of ['auto/deepseek-v4.1-flash', 'other/notdeepseek-v4.1-flash', 'xiaomi/mimo-v2.6-flash']) {
-  for (const buckets of [{outputTokens: 1}, {outputTokens: NaN, uncachedInputTokens: -1}, {uncachedInputTokens: 1000000, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0}]) {
-    const card = elements(client.MemberCard({member:{id:'cost',name:'cost',phase:'active'},running:false,t:zhT,model,usage:{tokens:1000,buckets}}));
-    assert.ok(!card.some(node=>node.props?.key==='cost'), 'billing context unavailable: no currency node');
-    assert.ok(card.some(node=>node.props?.key==='tok'), 'token display retained');
-  }
+// Historical tokens cannot be repriced using a current model selection.
+for (const model of ['deepseek-chat', 'auto/deepseek-v4.1-flash', 'xiaomi/mimo-v2.6-flash', 'openai-codex/gpt-5.x']) {
+  const card = elements(client.MemberCard({ member: { id: 'cost', name: 'cost', phase: 'active' }, model,
+    usage: { tokens: 1000000, buckets: { uncachedInputTokens: 1000000 } }, statusLabel: s => s, t: zhT }));
+  assert.ok(!card.some(node => node.props?.key === 'cost'), 'no unsupported currency estimate for ' + model);
 }
 assert.ok(pulseCss.includes('will-change:offset-distance'), 'the dot hints only its animated offset distance');
 assert.ok(pulseCss.includes('pointer-events:none'), 'the sweep layer never blocks card clicks');
@@ -1114,27 +1038,6 @@ persistentRefs = null;
 // Stateful lifecycle, initial/settled loads and timer cleanup are exercised
 // with real React DOM by scripts/test-panel-browser.mjs, not this hook double.
 console.log('PASS: member usage formatting, missing data, throttle helpers, active.through parity, blocker chips that do not navigate, team total including the lead, and the projection facts — a ready load short-circuits (the retry call reads nothing) while a Host push frame updates the card without another read; lifecycle is tested separately with real React DOM');
-console.log('PASS: task dependency edges — data attributes, three states, missing-blocker tolerance, reduced-motion CSS, geometry refresh gate');
-
-// IDs are opaque; delimiter-bearing pairs must not collide or inject markup.
-const special = client.buildTaskEdges(edgeBase, [
-  {id:'a->b',blockedBy:['c','c']}, {id:'a',blockedBy:['b->c']},
-  {id:'c'}, {id:'b->c'}, null, {id:'deleted',status:'deleted',blockedBy:['c']},
-  {id:'self',blockedBy:['self']}
-], () => edgeRect(20,20));
-assert.equal(special.length,2);
-assert.equal(new Set(special.map(e=>e.key)).size,2);
-assert.equal(client.buildTaskEdges(edgeBase,[{id:'\ud800',blockedBy:['c']},{id:'c'}],()=>edgeRect(20,20)).length,1);
-const masked = elements(client.TaskEdgeLayer({edges:built,cards:[{left:300,top:200,width:140,height:26}]}));
-assert.ok(masked.filter(e=>e.type==='path').every(e=>e.props.mask==='url(#test-mask)'));
-assert.ok(masked.some(e=>e.type==='rect' && e.props.fill==='black' && e.props.x===300));
-console.log('PASS: opaque IDs, malformed/deleted/self dependency filtering and card-content masks');
-
-const adjacent=client.buildTaskEdges(edgeBase,[{id:'top'},{id:'bottom',blockedBy:['top']}],id=>edgeRect(20,id==='top'?100:126));
-assert.equal(adjacent.length,1);assert.notEqual(adjacent[0].s[1],adjacent[0].e[1]);
-assert.ok(adjacent[0].c1[0]>adjacent[0].s[0]);
-console.log('PASS: adjacent same-column rows retain a nonzero gutter curve');
-console.log('PASS: edge direction blocker → blocked (start on blocker row, dot on blocked row) and click-to-open binding rules (lead/unassigned/inert never bind)');
 
 // --- settings page: four tabs + the memory-plugin card ----------------------
 // The shared React double above keeps useState inert; this second instance gives
@@ -1640,7 +1543,7 @@ assert.equal(client.usageFor({tokenUsage:{outputTokens:-1},contextPressure:{cont
     tasks: [{ id: 't-done', subject: '做完了的旧活', status: 'completed', ownerName: 'idler' }],
   }, client.zh)));
   assert.ok(idleTree.includes('空闲'), 'a member with only completed tasks shows the merged idle line');
-  assert.ok(idleTree.includes('无进行中任务'), 'completed-only members show no active task independently');
+  assert.ok(!idleTree.includes('无进行中任务'), 'the redundant task-absence line is gone for completed-only members');
   assert.ok(idleTree.includes('做完了的旧活'), 'completed tasks remain available in collapsed details');
   const english = client.TaskLine({
     task: { id: 'en-1', subject: 'sheet', status: 'pending' },
@@ -1681,7 +1584,7 @@ assert.equal(client.usageFor({tokenUsage:{outputTokens:-1},contextPressure:{cont
   assert.equal(rows2.length, 1, 'two ministers share one row, got ' + rows2.length);
   assert.equal(cardsIn(rows2[0]).length, 2, 'the single row holds both cards');
   const gridBox = elements(render(layerTeam(9), client.zh)).find((node) => node.props?.key === 'grid');
-  assert.ok(gridBox && gridBox.props.style.rowGap >= 90, 'layers keep a 90px+ vertical gap for the arcs, got ' + JSON.stringify(gridBox && gridBox.props.style.rowGap));
+  assert.equal(gridBox && gridBox.props.style.rowGap, 30, 'row gap matches the lead card 30px margin, got ' + JSON.stringify(gridBox && gridBox.props.style.rowGap));
   // 弧线连线几何实测（buildConnectorPaths 真跑合成矩形）：lead 扇形同点出发、
   // 每卡一条贝塞尔止于顶中点、每层居中卡扇形连下一层、线色随目标卡。
   const connBase = { left: 0, top: 0, width: 600, height: 900 };
@@ -3951,19 +3854,21 @@ assert.ok(!/background:\s*'(#fff|white)'/.test(source), 'no bare white backgroun
       }));
     }
 
-    // ---- 联想开关两态：配置项控制，提示词本体两态逐字相同（对齐上游 ed51fb3）----
+    // ---- 联想开关两态：工厂提示词不变，成员上下文明确携带实时开关----
     // leadBlock 两态由 scripts/test-member-settings.mjs 的 associationLine/sectionText
-    // 断言覆盖；这里断言成员提示词层与 client 侧同款开关零改动。
+    // 断言覆盖；这里核对成员上下文的实时状态与不变的工厂文案。
     {
       const offCfg = { associationMode: false, members: [] };
       const onCfg = { associationMode: true, members: [] };
       const tz = { role: 'teammate', name: 'tongzheng' };
       const offText = indexModule.memberBlock(offCfg, tz);
       const onText = indexModule.memberBlock(onCfg, tz);
-      assert.equal(onText, offText, 'the association switch leaves the member prompt text identical in both states');
+      assert.match(onText, /联想模式当前开启（associationMode=true）/);
+      assert.match(offText, /联想模式当前关闭（associationMode=false）/);
+      assert.ok(onText.includes(indexModule.DEFAULT_MEMBER_PROMPTS.tongzheng), 'enabled state keeps the factory prompt verbatim');
       assert.ok(offText.includes(indexModule.DEFAULT_MEMBER_PROMPTS.tongzheng), 'the factory tongzheng prompt is embedded verbatim (section header aside)');
       assert.ok(offText.includes('去找与旧事、旁证、相邻经验的联系'), 'the duty clause stays verbatim, got: ' + offText.slice(0, 160));
-      assert.ok(!offText.includes('联想模式已关闭'), 'no closure sentence is ever injected');
+      assert.ok(!offText.includes('联想模式当前开启'), 'off context must not claim association is enabled');
       assert.equal(indexModule.associationLine(offCfg), '', 'association-off renders nothing at all');
       assert.match(indexModule.associationLine(onCfg), /派活通政使/, 'association-on renders the dispatch-enable line');
       // client 侧 configuredPrompt 两态同文（开关不改提示词，只由配置项决定）。
