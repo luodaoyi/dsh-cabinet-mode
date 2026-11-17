@@ -2459,7 +2459,8 @@ window.__ModuleLoader__.load({
 			'.cabinet-card:hover [data-cabinet-dispatch],.cabinet-card:hover [data-cabinet-member-tasks]{opacity:1;pointer-events:auto}',
 			'.cabinet-card [data-cabinet-dispatch]:focus-within,.cabinet-card [data-cabinet-member-tasks]:focus-within{opacity:1;pointer-events:auto}',
 			'.cabinet-card [data-cabinet-dispatch]:has([data-cabinet-dispatch-input]),.cabinet-card [data-cabinet-member-tasks][open]{opacity:1;pointer-events:auto}',
-			'.cabinet-card [data-cabinet-member-tasks][open]{position:static}',
+			'.cabinet-card [data-cabinet-dispatch]:has([data-cabinet-dispatch-input]),.cabinet-card [data-cabinet-member-tasks][open]{position:static}',
+			'.cabinet-card [data-cabinet-dispatch-input]{box-sizing:border-box;min-width:0;max-width:100%;width:100%}',
 			'@media (hover:none){.cabinet-card [data-cabinet-dispatch],.cabinet-card [data-cabinet-member-tasks]{opacity:1;pointer-events:auto}}',
 			'.cabinet-card-lead{border-color:rgba(245,197,24,.8);background-image:linear-gradient(rgba(245,197,24,.14),rgba(245,197,24,.14))}',
 			// click-through affordance: the whole card, the whole task row and the
@@ -2683,7 +2684,7 @@ window.__ModuleLoader__.load({
 			hanlin: '翰林院编修·主调研考据：先读原文与既有记录，结论锚定路径、行号或命令输出，未实测标「未验证」；默认只调研不改码；只向首辅回报，遇阻带已做、卡哪、需要什么三件。完工只用 send_message 向首辅回报，禁写 .md/.log 报告、不落盘；回报≤5 行：结论＋产物路径或「已核验」＋失败/未验证一句；证据只贴一处 path:line 或一条命令输出；先查产物再讲过程。',
 			works: '工部尚书·主执行与产出：先复述任务与写入范围，只在授权内改文件；产出附路径、行号、命令输出与退出码，没跑说没跑，不得删弱校验凑绿，保留失败证据；只向首辅回报，遇阻带三件。完工只用 send_message 向首辅回报，禁写 .md/.log 报告、不落盘；回报≤5 行：结论＋产物路径或「已核验」＋失败/未验证一句；证据只贴一处 path:line 或一条命令输出；先查产物再讲过程。',
 			dali: '大理寺卿·主独立核验：不信自述、自己跑；逐项写通过、不通过或未验证，失败证据原样留；只向首辅回报。完工只用 send_message 向首辅回报，禁写 .md/.log 报告、不落盘；回报≤5 行：结论＋产物路径或「已核验」＋失败/未验证一句；证据只贴一处 path:line 或一条命令输出；先查产物再讲过程。',
-			yushi: '左都御史·主验收并弹劾：按用户原话逐项核对并附证据，缺陷分级给位置与修法；结论明确可提或不可提 PR；只向首辅回报。完工只用 send_message 向首辅回报，禁写 .md/.log 报告、不落盘；回报≤5 行：结论＋产物路径或「已核验」＋失败/未验证一句；证据只贴一处 path:line 或一条命令输出；先查产物再讲过程。',
+			yushi: '左都御史·主验收并弹劾：按用户原话逐项核对并附证据，缺陷分级给位置与修法；结论明确可提或不可提 PR；只向首辅回报。完工只用 send_message 向首辅回报，禁写 .md/.log 报告、不落盘；回报≤5 行：结论＋产物路径或「已核验」＋失败/未验证一句；每项缺陷各贴一处 path:line 或一条命令输出；先查产物再讲过程。',
 			tongzheng: '通政使·通政使司掌内外章奏通达；仅联想模式开启时接活；本员在首辅派活后，就当前事项去找与旧事、旁证、相邻经验的联系，供首辅取舍；联想模式关闭时不接活、不联想、不触发联想检索；不做检索排序，不改已确认命中；只向首辅回报，附带所指记忆的标题与 id。所用的记忆工具以调用时的实际输出为准，未核实就标「未验证」。完工只用 send_message 向首辅回报，禁写 .md/.log 报告、不落盘；回报≤5 行：结论＋产物路径或「已核验」＋失败/未验证一句；证据只贴一处 path:line 或一条命令输出；先查产物再讲过程。'
 		};
 		/** Factory prompt for one bureau key: the Lead keeps its 御下术 default. */
@@ -3526,54 +3527,7 @@ window.__ModuleLoader__.load({
 			return Math.floor(hours / 24) + 'd' + String(hours % 24).padStart(2, '0') + 'h';
 		}
 
-		// ---- 估算费用：公开单价表（估算值，非官方账单）------------------------
-		// 单位：人民币元 / 百万 tokens。来源与抓取日期逐条如下，产品价格可能变动：
-		//  - DeepSeek 官方「模型 & 价格」页 api-docs.deepseek.com/zh-cn/quick_start/pricing/
-		//    （2026-11 快照）：deepseek-flash(=DeepSeek-V4.1-Flash-1017) 高峰 0.04/2/8，
-		//    DeepSeek V4-Pro 档高峰 0.30/9/27；空闲时段为高峰一半。本表取高峰价（不低估）。
-		//  - Xiaomi MiMo 官方 pay-as-you-go 页 mimo.mi.com/docs/en-US/price/pay-as-you-go
-		//    （Update Oct 21 2026，国内价）：mimo-v2.6-flash 0.02/1/2、mimo-v2.6-pro 0.025/3/6。
-		//  - deepseek-chat / deepseek-reasoner：现行官方目录已由 V4 系列取代，沿用 2025 年
-		//    官方公开价 chat 0.5/2/8、reasoner 1/4/16（旧名实际或按新价计费，仅供估算）。
-		//  - 未收录模型（如 openai-codex/gpt-5.x 无可靠公开单价）→ undefined，卡上显 —，不猜价。
-		// 结构 { provider, match, cacheHit, cacheMiss, output }；match 存模型 id 尾段（endsWith 覆盖
-		// auto/、xiaomi/ 等前缀与官方旧名），既满足按模型查价，也不把完整模型 id 硬编码进选择器。
-		const MODEL_RATE_TABLE = [
-			{ provider: 'deepseek', match: 'v4.1-flash', cacheHit: 0.04, cacheMiss: 2, output: 8 },
-			{ provider: 'deepseek', match: 'v4-flash', cacheHit: 0.04, cacheMiss: 2, output: 8 },
-			{ provider: 'deepseek', match: 'deepseek-flash', cacheHit: 0.04, cacheMiss: 2, output: 8 },
-			{ provider: 'deepseek', match: 'v4-pro', cacheHit: 0.3, cacheMiss: 9, output: 27 },
-			{ provider: 'deepseek', match: 'deepseek-reasoner', cacheHit: 1, cacheMiss: 4, output: 16 },
-			{ provider: 'deepseek', match: 'deepseek-chat', cacheHit: 0.5, cacheMiss: 2, output: 8 },
-			{ provider: 'xiaomi', match: 'mimo-v2.6-pro', cacheHit: 0.025, cacheMiss: 3, output: 6 },
-			{ provider: 'xiaomi', match: 'mimo-v2.6-flash', cacheHit: 0.02, cacheMiss: 1, output: 2 },
-		];
-		/** 按模型 id 尾段查单价；未收录返回 undefined（宁可 —，不猜价）。 */
-		function rateForModel(model) {
-			if (typeof model !== 'string' || model === '') return undefined;
-			const tail = model.slice(model.lastIndexOf('/') + 1);
-			for (const rate of MODEL_RATE_TABLE) if (tail === rate.match || tail.endsWith(rate.match)) return rate;
-			return undefined;
-		}
-		/**
-		 * 估算费用（元）：(uncachedInput×miss + cacheRead×hit + cacheWrite×miss + output×out)/1e6。
-		 * cacheWrite 未命中价计（DeepSeek 无独立写入价；MiMo 写入限免——统一不低估）。
-		 * 无单价或无 4 桶分项 → undefined，界面显示 —。
-		 */
-		function costOf(usage, model) {
-			const rate = rateForModel(model);
-			if (rate === undefined) return undefined;
-			const buckets = usage !== undefined && usage !== null && typeof usage === 'object'
-				? (usage.buckets !== undefined && usage.buckets !== null ? usage.buckets : usage) : undefined;
-			if (buckets === undefined || typeof buckets !== 'object') return undefined;
-			const num = (key) => (typeof buckets[key] === 'number' && Number.isFinite(buckets[key]) && buckets[key] >= 0 ? buckets[key] : 0);
-			if (!['uncachedInputTokens', 'outputTokens', 'cacheReadTokens', 'cacheWriteTokens'].some((key) => typeof buckets[key] === 'number')) return undefined;
-			const yuan = (num('uncachedInputTokens') * rate.cacheMiss
-				+ num('cacheReadTokens') * rate.cacheHit
-				+ num('cacheWriteTokens') * rate.cacheMiss
-				+ num('outputTokens') * rate.output) / 1e6;
-			return yuan;
-		}
+		// No historical model/provider/billing attribution: never reprice totals as currency.
 
 		/** Sum the four disjoint provider-usage buckets; undefined when none exists. */
 		function tokenTotalOf(usage) {
@@ -3790,7 +3744,6 @@ window.__ModuleLoader__.load({
 			const taskLive = activeTask !== null && activeTask !== undefined && activeTask.status === 'in_progress';
 			const animating = member.phase === 'active' && (running === true || taskLive);
 			// 估算费用：有单价有分项才显示金额，否则 —；title 标明估算非账单。
-			const costValue = costOf(usage, model);
 			const status = member.phase === 'active' ? (running === true ? 'running' : 'inactive') : member.phase;
 			const canOpen = typeof onOpen === 'function'
 				&& isCurrent !== true
@@ -3850,9 +3803,9 @@ window.__ModuleLoader__.load({
 					}, tt('current')) : null
 				]),
 				// Agent status and task status are independent; a stale task never implies a running agent.
-				// inactive 的文字与任务行的「空闲」重复，只留状态点（任务行已显空闲）。
+				// 保留可访问状态名；有任务也不能隐去进程的空闲状态。
 				h('span', { key: 'state', 'data-cabinet-member-status': status, style: { fontSize: 11, color: INK2 } },
-					status === 'inactive' ? '' : (typeof statusLabel === 'function' ? statusLabel(status) : status)),
+					typeof statusLabel === 'function' ? statusLabel(status) : tt('status.' + status)),
 				h('div', {
 					key: 'taskdesc',
 					'data-cabinet-task-desc': '1',
@@ -3870,8 +3823,8 @@ window.__ModuleLoader__.load({
 							animation: taskLive ? 'cabinetPulse 1.7s ease-out infinite' : undefined
 						}
 					}, '\u25cf'), activeTask.subject]
-					// 与状态行合并成一处：无任务只显灰字空闲，不再第二行说「无进行中任务」。
-					: tt('status.inactive')),
+					// 没有任务不代表进程空闲；运行、启动和失败状态不能标为空闲。
+					: tt(status === 'inactive' ? 'status.inactive' : 'member.noTask')),
 				// 故障必须可见：member.error 整行红字（模型行已按截图移除）。
 				member.error ? h('div', {
 					key: 'err',
@@ -3892,13 +3845,6 @@ window.__ModuleLoader__.load({
 							style: { fontSize: 14.5, fontWeight: 600, color: INK, flex: 'none' },
 							title: tt('usage.tokens')
 						}, formatTokenCount(usage.tokens) ?? tt('usage.none')),
-						h('span', {
-							key: 'cost',
-							style: { fontSize: 11.5, color: costValue === undefined ? INK3 : INK2, flex: 'none' },
-							title: costValue === undefined ? tt('usage.costNoRate') : tt('usage.costEstimate')
-						}, costValue === undefined
-							? '\u2014'
-							: (costValue > 0 && costValue < 0.01 ? '<\u00a50.01' : '\u00a5' + costValue.toFixed(2))),
 						teamUsage ? h('span', {
 							key: 'team',
 							style: { fontSize: 10.5, color: INK3, marginLeft: 'auto', flex: 'none' },
@@ -4081,11 +4027,11 @@ window.__ModuleLoader__.load({
 			}, children);
 		}
 
-		function buildConnectorPaths(base, lead, nodes) {
-			// 只画第一层（用户：跨层连线露出零碎线段「奇奇怪怪的不要了」）：
-			// 每张第一层卡一条 14px 竖直小段 + 三次贝塞尔 S 形弧到卡顶中点，
-			// 从首辅底部中点出发；第二层及以后不画任何线。线色跟随目标卡
-			// （path.color），无箭头。
+		function buildConnectorPaths(base, lead, nodes, channelX) {
+			// 弧线版（dsh-context 截图）：每条线从来源卡底部中点出发，先走 14px
+			// 竖直小段，再以三次贝塞尔 S 形弯到目标卡顶部中点；控制点分居两侧、
+			// 弧度明显。拓扑：所有层均从首辅出发；后层经外侧通道，
+			// 不将视觉换行伪装成成员父子关系。线色跟随目标卡（path.color），无箭头。
 			if (!base || typeof base !== 'object' || !lead || typeof lead !== 'object') return null;
 			// 隐藏面板：返回 null 让调用方保留上次绘制（旧版语义）。
 			if (base.width === 0 || base.height === 0 || lead.width === 0) return null;
@@ -4106,60 +4052,239 @@ window.__ModuleLoader__.load({
 				else layers.push({ top: node.top, cards: [node] });
 			}
 			const paths = [];
-			const fan = (from, targets, isFirst, firstTop) => {
+			const fan = (from, targets) => {
+				const stub = 14;
+				const y1 = from.y + stub;
 				for (const target of targets) {
 					const cx = target.left + target.width / 2;
 					const top = target.top;
-					// 首辅→第一层与相邻层统一 gap 自适应（rowGap 30 与首辅 30 对齐后，
-					// 固定 stub=14/bow=24 在 30 净隙下 c1y=父底+38>子顶必穿卡）：
-					// gap=top-from.y，stub=min(14,max(4,gap*0.25))、
-					// bow=max(4,(gap-stub)*0.5)，并强制 stub+bow<gap
-					//（不满足压 bow 到 gap-stub-1）。c1x=ax 与 firstTop-6 封顶保留。
-					const gap = top - from.y;
-					const stub = Math.min(14, Math.max(4, gap * 0.25));
-					const y1 = from.y + stub;
-					let bow = Math.max(4, (gap - stub) * 0.5);
-					if (stub + bow >= gap) bow = Math.max(4, gap - stub - 1);
-					const c1x = isFirst ? from.x : cx;
-					const c1y = Math.min(y1 + bow, firstTop - 6);
+					const bow = Math.max(24, (top - y1) * 0.6);
 					const d = 'M ' + from.x + ' ' + from.y + ' L ' + from.x + ' ' + y1
-						+ ' C ' + c1x + ' ' + c1y + ', ' + cx + ' ' + (top - bow) + ', ' + cx + ' ' + top;
+						+ ' C ' + from.x + ' ' + (y1 + bow) + ', ' + cx + ' ' + (top - bow) + ', ' + cx + ' ' + top;
 					paths.push({ d, color: typeof target.color === 'string' ? target.color : '' });
 				}
 			};
-			// 相邻层视觉树（用户：纵向间距太大不和谐 + 长弧露碎段一起解）：
-			// 第一层仍从首辅底部中点 fan（画法不变）；第 i+1 层每张卡从上一层
-			// 中 x 距离最近的那张卡（父卡）底部中点连到自己顶部中点——只跨一层
-			// 高度（rowGap 96 内），弧小而紧，结构上不可能穿到别的卡。
+			fan({ x: leadLocal.left + leadLocal.width / 2, y: leadLocal.top + leadLocal.height }, layers[0].cards);
+			// Later visual rows remain siblings (never a member-to-member parent).
+			// Prefer a compact shared bus where the row gap is clear. Staggered rows
+			// may require an outside channel; uneven heights require per-target routing.
 			const ax = leadLocal.left + leadLocal.width / 2;
 			const ay = leadLocal.top + leadLocal.height;
-			fan({ x: ax, y: ay }, layers[0].cards, true, layers[0].top);
-			for (let index = 1; index < layers.length; index += 1) {
-				const parents = layers[index - 1].cards;
-				for (const card of layers[index].cards) {
-					const cx = card.left + card.width / 2;
-					let best = parents[0];
-					for (const candidate of parents) {
-						const bestDist = Math.abs((best.left + best.width / 2) - cx);
-						const candidateDist = Math.abs((candidate.left + candidate.width / 2) - cx);
-						if (candidateDist < bestDist) best = candidate;
+			const tail = layers.slice(1);
+			if (tail.length > 0) {
+				const busY = (layer) => layer.top - 16;
+				const bottomY = busY(tail[tail.length - 1]);
+				// Check every row, including the first fan row. A staggered layout may
+				// have no common column gap: use a safe outside channel, never ax.
+				const allCards = valid;
+				const clear = x => allCards.every(card => x < card.left - 1 || x > card.left + card.width + 1);
+				const minLeft = Math.min(...allCards.map(card => card.left));
+				const maxRight = Math.max(...allCards.map(card => card.left + card.width));
+				const gaps = allCards.flatMap(card => [card.left - 8, card.left + card.width + 8])
+					.filter(x => x > minLeft && x < maxRight && clear(x)).sort((a, b) => Math.abs(a - ax) - Math.abs(b - ax) || a - b);
+				// Prefer an outer margin inside the SVG viewport. Its overflow is visible
+				// for tight layouts; ancestor clipping may hide a safe edge, never reroute through a card.
+				const outsideX = minLeft >= 16 ? minLeft - 16 : maxRight + 16 <= base.width ? maxRight + 16 : minLeft - 16;
+				const trunkX = gaps.length ? gaps[0] : outsideX;
+				// Neutral trunk: drop8px under the Lead, step sideways into the gap in
+				// that blank band, then straight down to the lowest bus line.
+				paths.push({ d: 'M ' + ax + ' ' + ay + ' L ' + ax + ' ' + (ay + 8) + ' L ' + trunkX + ' ' + (ay + 8) + ' L ' + trunkX + ' ' + bottomY, color: LINE });
+				const intersects = (a,b) => valid.some(r => a.x === b.x
+					? a.x > r.left && a.x < r.left+r.width && Math.max(a.y,b.y)>r.top && Math.min(a.y,b.y)<r.top+r.height
+					: a.y > r.top && a.y < r.top+r.height && Math.max(a.x,b.x)>r.left && Math.min(a.x,b.x)<r.left+r.width);
+				const routeAroundCards = target => {
+					const start={x:ax,y:ay+8}, goal={x:target.left+target.width/2,y:target.top-8};
+					const xs=[...new Set([start.x,goal.x,...valid.flatMap(r=>[r.left-8,r.left+r.width+8])])].sort((a,b)=>a-b);
+					const ys=[...new Set([start.y,goal.y,...valid.flatMap(r=>[r.top-8,r.top+r.height+8])])].sort((a,b)=>a-b);
+					const key=(x,y)=>x+':'+y, first=key(start.x,start.y), last=key(goal.x,goal.y);
+					const parents=new Map([[first,null]]), points=new Map([[first,start]]), queue=[start];
+					for(let i=0;i<queue.length&&!parents.has(last);i++){
+						const from=queue[i], xi=xs.indexOf(from.x), yi=ys.indexOf(from.y);
+						for(const [x,y] of [[xs[xi-1],from.y],[xs[xi+1],from.y],[from.x,ys[yi-1]],[from.x,ys[yi+1]]]){
+							if(x===undefined||y===undefined)continue;const id=key(x,y),to={x,y};
+							if(parents.has(id)||intersects(from,to))continue;
+							parents.set(id,key(from.x,from.y));points.set(id,to);queue.push(to);
+						}
 					}
-					const px = best.left + best.width / 2;
-					const py = best.top + best.height;
-					const top = card.top;
-					// gap 自适应（rowGap 30 档）：gap=top-py=30 → stub=7.5、
-					// bow=11.25、c1y=父底+18.75<子顶 ✓；固定 14/24 必穿卡。
-					const gap = top - py;
-					const stub = Math.min(14, Math.max(4, gap * 0.25));
-					const y1 = py + stub;
-					let bow = Math.max(4, (gap - stub) * 0.5);
-					if (stub + bow >= gap) bow = Math.max(4, gap - stub - 1);
-					const d = 'M ' + px + ' ' + py + ' L ' + px + ' ' + y1
-						+ ' C ' + px + ' ' + (y1 + bow) + ', ' + cx + ' ' + (top - bow) + ', ' + cx + ' ' + top;
-					paths.push({ d, color: typeof card.color === 'string' ? card.color : '' });
+					if(!parents.has(last)||intersects({x:ax,y:ay},start)||intersects(goal,{x:goal.x,y:target.top}))return;
+					const route=[];for(let id=last;id!==null;id=parents.get(id))route.unshift(points.get(id));
+					paths.push({d:'M '+ax+' '+ay+route.map(p=>' L '+p.x+' '+p.y).join('')+' L '+goal.x+' '+target.top,color:typeof target.color==='string'?target.color:''});
+				};
+				for (const layer of tail) {
+					const y = busY(layer);
+					const centres = layer.cards.map((card) => card.left + card.width / 2);
+					const minX = Math.min(...centres);
+					const maxX = Math.max(...centres);
+					if(intersects({x:Math.min(trunkX,minX),y},{x:Math.max(trunkX,maxX),y}) || layer.cards.some(card=>intersects({x:card.left+card.width/2,y},{x:card.left+card.width/2,y:card.top}))){
+						for(const target of layer.cards)routeAroundCards(target);
+						continue;
+					}
+					// One horizontal segment per layer, from the trunk to both ends.
+					paths.push({
+						d: 'M ' + trunkX + ' ' + y + ' L ' + minX + ' ' + y + (maxX !== minX ? ' L ' + maxX + ' ' + y : ''),
+						color: LINE
+					});
+					// One branch per card, family colour, from the bus down to the top centre.
+					for (const target of layer.cards) {
+						const cx = target.left + target.width / 2;
+						const top = target.top;
+						paths.push({
+							d: 'M ' + cx + ' ' + y + ' C ' + cx + ' ' + (y + 6) + ', ' + cx + ' ' + (top - 6) + ', ' + cx + ' ' + top,
+							color: typeof target.color === 'string' ? target.color : ''
+						});
+					}
 				}
 			}
 			return paths;
+		}
+		// One cubic per dependency: from the BLOCKER's row to the blocked task's
+		// row (首辅 → 阁臣 reading on a normal board), both endpoints taken from
+		// task-row DOM rects relative to the overlay container. The edge key stays
+		// `<blocked>-><blocker>` — only the geometry flipped, so data-cabinet-edge
+		// and the CSS class names keep their old form. State mirrors the BLOCKER's
+		// status — completed → solid green, in_progress → flowing dashes
+		// (travelling with the arrow, toward the blocked task, "the dependency is
+		// progressing"), pending → static grey dashes; a missing or deleted
+		// blocker, or an unmeasured row, draws nothing (tolerant, never throws).
+		// Edges sharing a source row or a target row fan their control points
+		// apart so parallel lines never sit exactly on top of each other. Returns
+		// null while the panel is hidden (zero-size base) so a collapsed pane
+		// keeps the last drawing.
+		function buildTaskEdges(base, tasks, rectOf, isLive) {
+			if (!base || base.width === 0 || base.height === 0) return null;
+			const list = Array.isArray(tasks) ? tasks : [];
+			const byId = new Map();
+			for (const task of list) if (task && task.id !== undefined && task.id !== null) byId.set(task.id, task);
+			const seen = new Set();
+			// JSON escaping also handles lone UTF-16 surrogates without URIError.
+			const encodeId = (id) => encodeURIComponent(JSON.stringify(id).slice(1, -1));
+			const edges = [];
+			const rel = (rect) => ({
+				left: rect.left - base.left,
+				top: rect.top - base.top,
+				right: rect.right - base.left,
+				bottom: rect.bottom - base.top
+			});
+			for (const task of list) {
+				if (!task || typeof task.id !== 'string' || task.status === 'deleted') continue;
+				const blockers = Array.isArray(task.blockedBy) ? task.blockedBy : [];
+				for (const blockerId of blockers) {
+					if (typeof blockerId !== 'string' || blockerId === task.id) continue;
+					const key = encodeId(task.id) + '->' + encodeId(blockerId);
+					if (seen.has(key)) continue; // duplicated blocker ids draw once
+					seen.add(key);
+					const blocker = byId.get(blockerId);
+					if (!blocker || blocker.status === 'deleted') continue; // missing/removed task: skip, don't crash
+					// Geometry reversed: the path starts on the blocker's row and
+					// ends on the blocked task's row (the key above still reads
+					// blocked->blocker). from/to drive the anchors, fromId/toId the
+					// parallel-edge fan, and the endpoint dot lands on edge.e — i.e.
+					// on the blocked task.
+					const from = rectOf(blockerId);
+					const to = rectOf(task.id);
+					if (!from || !to || from.width === 0 || from.height === 0 || to.width === 0 || to.height === 0) continue;
+					const state = blocker.status === 'completed' ? 'done'
+						: blocker.status === 'in_progress' ? 'active'
+						: 'pending';
+					edges.push({
+						key,
+						state,
+						live: state === 'active' && typeof isLive === 'function' && isLive(blockerId) === true,
+						fromId: blockerId,
+						toId: task.id,
+						from: rel(from),
+						to: rel(to)
+					});
+				}
+			}
+			// Horizontal pairing faces the other row; same-column pairs use a side gutter.
+			for (const edge of edges) {
+				const f = edge.from;
+				const t = edge.to;
+				const fcx = (f.left + f.right) / 2;
+				const fcy = (f.top + f.bottom) / 2;
+				const tcx = (t.left + t.right) / 2;
+				const tcy = (t.top + t.bottom) / 2;
+				let sx; let sy; let ex; let ey; let c1x; let c1y; let c2x; let c2y;
+				if (Math.abs(tcx - fcx) >= 24) {
+					const dir = tcx >= fcx ? 1 : -1;
+					sx = dir > 0 ? f.right : f.left;
+					sy = fcy;
+					ex = dir > 0 ? t.left : t.right;
+					ey = tcy;
+					const span = Math.max(24, Math.abs(ex - sx) * 0.45);
+					c1x = sx + dir * span; c1y = sy;
+					c2x = ex - dir * span; c2y = ey;
+					edge.axis = 'x';
+				} else {
+					// Adjacent rows can share a top/bottom boundary. Route through
+					// the right gutter instead of collapsing to a zero-length loop.
+					sx = f.right; sy = fcy;
+					ex = t.right; ey = tcy;
+					c1x = c2x = Math.max(f.right, t.right) + 40;
+					c1y = sy; c2y = ey;
+					edge.axis = 'y';
+				}
+				edge.s = [sx, sy];
+				edge.c1 = [c1x, c1y];
+				edge.c2 = [c2x, c2y];
+				edge.e = [ex, ey];
+			}
+			// Parallel-edge offset: edges leaving the same blocker row (or arriving
+			// at the same blocked row) share an anchor, so shift their control
+			// points apart perpendicular to the travel axis (7px pitch, centred on
+			// the group). fromId is the blocker, toId the blocked task.
+			const fan = (pointField, idField, prefix) => {
+				const groups = new Map();
+				for (const edge of edges) {
+					const id = prefix + edge[idField];
+					if (!groups.has(id)) groups.set(id, []);
+					groups.get(id).push(edge);
+				}
+				for (const group of groups.values()) {
+					if (group.length < 2) continue;
+					group.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+					group.forEach((edge, index) => {
+						const shift = (index - (group.length - 1) / 2) * 7;
+						const point = edge[pointField];
+						if (edge.axis === 'x') point[1] += shift;
+						else point[0] += shift;
+					});
+				}
+			};
+			fan('c1', 'fromId', 's:');
+			fan('c2', 'toId', 't:');
+			const r1 = (value) => Math.round(value * 10) / 10;
+			for (const edge of edges) {
+				edge.d = 'M ' + r1(edge.s[0]) + ' ' + r1(edge.s[1])
+					+ ' C ' + r1(edge.c1[0]) + ' ' + r1(edge.c1[1])
+					+ ' ' + r1(edge.c2[0]) + ' ' + r1(edge.c2[1])
+					+ ' ' + r1(edge.e[0]) + ' ' + r1(edge.e[1]);
+				edge.ex = edge.e[0];
+				edge.ey = edge.e[1];
+				delete edge.from;
+				delete edge.to;
+				delete edge.axis;
+			}
+			return edges;
+		}
+
+		// Geometry freshness gate for the edge state: identical key/state sets with
+		// every anchor within 0.5px need no redraw (rAF-throttled re-measure can
+		// fire often; only a real move, state flip or live-toggle updates React).
+		function taskEdgesEqual(prev, next) {
+			if (prev === next) return true;
+			if (!Array.isArray(prev) || !Array.isArray(next) || prev.length !== next.length) return false;
+			for (let index = 0; index < prev.length; index++) {
+				const a = prev[index];
+				const b = next[index];
+				if (a.key !== b.key || a.state !== b.state || !!a.live !== !!b.live) return false;
+				for (const point of ['s', 'c1', 'c2', 'e']) {
+					if (Math.abs(a[point][0] - b[point][0]) >= 0.5) return false;
+					if (Math.abs(a[point][1] - b[point][1]) >= 0.5) return false;
+				}
+			}
+			return true;
 		}
 		// #endregion connectors
 
@@ -4930,7 +5055,8 @@ window.__ModuleLoader__.load({
 				const base = tree.getBoundingClientRect();
 				const leadRect = leadEl.getBoundingClientRect();
 				const nodes = Array.from(tree.querySelectorAll('[data-cabinet-node]')).map((el) => {
-					const rect = el.getBoundingClientRect();
+					const card = typeof el.querySelector === 'function' ? el.querySelector('.cabinet-card') : null;
+					const rect = (card || el).getBoundingClientRect();
 					const color = typeof el.getAttribute === 'function' ? (el.getAttribute('data-cabinet-family') || '') : '';
 					return { left: rect.left, top: rect.top, width: rect.width, height: rect.height, color };
 				});

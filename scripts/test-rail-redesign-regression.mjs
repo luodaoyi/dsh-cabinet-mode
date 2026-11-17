@@ -34,10 +34,10 @@ for (const [phase,running,expected] of [['active',true,'running'],['active',fals
   const nodes=all(client.MemberCard({member:{id:'m',name:'works',phase},running,statusLabel:s=>'status:'+s}));
   const label=nodes.find(n=>n.props['data-cabinet-member-status']===expected);
   assert.ok(label);
-  if(expected==='inactive')assert.ok(!String(label.children[0]??''),'idle hides the redundant status text (the task row owns 空闲)');
+  if(expected==='inactive')assert.equal(String(label.children[0]??''),'status:inactive','idle status remains readable even with a task');
   else assert.equal(label.children[0],'status:'+expected);
   // identity locale (t:x=>x) 下 tt('status.inactive') 原样透出；真中文由 test-client 的 zhT 卡锁。
-  assert.equal(nodes.find(n=>n.props['data-cabinet-task-desc']).children[0],'status.inactive');
+  assert.equal(nodes.find(n=>n.props['data-cabinet-task-desc']).children[0],expected==='inactive'?'status.inactive':'member.noTask');
 }
 const stale=all(client.MemberCard({member:{id:'m',name:'works',phase:'active'},running:false,activeTask:task,statusLabel:s=>s}));
 assert.ok(stale.some(n=>n.props['data-cabinet-member-status']==='inactive'));

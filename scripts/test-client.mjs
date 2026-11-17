@@ -93,7 +93,7 @@ const PAGE_NOW = Date.now();
 // ageOf 保序：原值越大 ⇒ 时间越新，且所有映射结果都落在最近 ~12 天内
 // （小于 30 天窗口，不会触发新鲜度过滤），既有排序断言的语义不变。
 const ageOf = (value) => PAGE_NOW - (1000000 - value);
-const exportList = 'return { inject, apply, avatarFor, displayName, chatBubbleName, chatBubbleNames, bureauOf, CabinetPanel, MemberCard, MemberDispatch, TaskLine, buildConnectorPaths, zh, en, BUREAUX, AVATARS, setMemberConfig, memberLabel, configuredAvatar, configuredPrompt, factoryPromptFor, DEFAULT_MEMBER_PROMPTS, DEFAULT_LEAD_PROMPT, CabinetMemberSettings, MemoryPluginCard, memoryPluginInstalledOf, SETTINGS_TABS, formatTokenCount, formatElapsed, tokenTotalOf, usageFor, costOf, rateForModel, planProjectionRequests, teamUsageOf, groupChatFold, markdownBlocksOf, markdownBlocksCached, inlineMarkdownTokens, markdownLinkHref, modelOptionsOf, modelCatalogNotice, modelSelectionOf, cabinetSessionChoices, cabinetSessionFilters, cabinetSessionGroups, defaultCabinetSession, CabinetMarkdown, CabinetPage, CabinetPanelIcon, GroupChatRow, STYLE_CSS, cabinetGroupMemberStates, mergeGroupChat, cabinetChatViewRows, chatStampNeeded, nearChatBottom, scrollChatToBottom, scrollFollowingTail, cabinetScopeRows, openCabinetSession };';
+const exportList = 'return { inject, apply, avatarFor, displayName, chatBubbleName, chatBubbleNames, bureauOf, CabinetPanel, MemberCard, MemberDispatch, TaskLine, buildConnectorPaths, zh, en, BUREAUX, AVATARS, setMemberConfig, memberLabel, configuredAvatar, configuredPrompt, factoryPromptFor, DEFAULT_MEMBER_PROMPTS, DEFAULT_LEAD_PROMPT, CabinetMemberSettings, MemoryPluginCard, memoryPluginInstalledOf, SETTINGS_TABS, formatTokenCount, formatElapsed, tokenTotalOf, usageFor, planProjectionRequests, teamUsageOf, groupChatFold, markdownBlocksOf, markdownBlocksCached, inlineMarkdownTokens, markdownLinkHref, modelOptionsOf, modelCatalogNotice, modelSelectionOf, cabinetSessionChoices, cabinetSessionFilters, cabinetSessionGroups, defaultCabinetSession, CabinetMarkdown, CabinetPage, CabinetPanelIcon, GroupChatRow, STYLE_CSS, cabinetGroupMemberStates, mergeGroupChat, cabinetChatViewRows, chatStampNeeded, nearChatBottom, scrollChatToBottom, scrollFollowingTail, cabinetScopeRows, openCabinetSession };';
 runInNewContext(source.replace(exportPoint, exportList), {
   setTimeout: (fn, ms) => setTimeout(fn, ms === 120000 ? 20 : ms), clearTimeout,
   Date: RealmDate,
@@ -831,37 +831,12 @@ assert.ok(pulseCss.includes('prefers-reduced-motion'), 'the sweep stops under pr
 const sweepBody = (pulseCss.match(/\[data-cabinet-sweep\]::before\{[^{}]*\}/) || [''])[0];
 assert.ok(sweepBody && !sweepBody.includes('conic-gradient'), 'the sweep rule body carries no conic scanner (Motion Path dot only)');
 
-// --- 费用估算（移植 f4ca9dc）：单价表、四桶、卡片 ¥ 与估算/无价文案 ---
-const RATE_1M = { uncachedInputTokens: 1000000, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 };
-assert.equal(client.costOf({ buckets: RATE_1M }, 'auto/deepseek-v4.1-flash'), 2, 'V4.1-Flash uncached input prices at 2 CNY/M, got: ' + client.costOf({ buckets: RATE_1M }, 'auto/deepseek-v4.1-flash'));
-assert.equal(client.costOf({ buckets: { uncachedInputTokens: 1000000 } }, 'xiaomi/mimo-v2.6-flash'), 1, 'MiMo flash uncached input prices at 1 CNY/M');
-assert.equal(client.costOf({ buckets: RATE_1M }, 'openai-codex/gpt-5.x'), undefined, 'an unlisted model is never given a guessed price');
-assert.equal(client.rateForModel('deepseek-chat').cacheMiss, 2, 'the legacy chat name keeps its public 2025 price');
-const bucketProbe = client.usageFor({ tokenUsage: { totals: RATE_1M } }, 112000);
-assert.equal(bucketProbe.buckets.uncachedInputTokens, 1000000, 'usageFor carries the four buckets through for costOf');
-const costCard = elements(client.MemberCard({
-  member: { id: 'm-cost', name: 'cost', phase: 'active' },
-  running: false,
-  statusLabel: (status) => status,
-  t: zhT,
-  model: 'deepseek-v4.1-flash',
-  usage: { tokens: 1000, elapsedMs: 1000, buckets: RATE_1M },
-  activity: { count: 1, time: 1700000000000 },
-}));
-const costNode = costCard.find((node) => node.props?.key === 'cost');
-assert.ok(costNode && String(costNode.children.join('')).includes('\u00a52.00'), 'the card shows the estimated CNY amount, got: ' + JSON.stringify(costNode && costNode.children));
-assert.ok(String(costNode.props.title).includes('\u4f30\u7b97'), 'the estimate title disclaims an official bill, got: ' + costNode.props.title);
-const noRateCard = elements(client.MemberCard({
-  member: { id: 'm-norate', name: 'nr', phase: 'active' },
-  running: false,
-  statusLabel: (status) => status,
-  t: zhT,
-  model: 'openai-codex/gpt-5.x',
-  usage: { tokens: 1000, elapsedMs: 1000, buckets: RATE_1M },
-  activity: { count: 1, time: 1700000000000 },
-}));
-const noRateNode = noRateCard.find((node) => node.props?.key === 'cost');
-assert.ok(noRateNode && String(noRateNode.children.join('')) === '\u2014' && !JSON.stringify(noRateNode.children).includes('\u00a5'), 'an unlisted model shows an em dash and no currency, got: ' + JSON.stringify(noRateNode && noRateNode.children));
+// Historical tokens cannot be repriced using a current model selection.
+for (const model of ['deepseek-chat', 'auto/deepseek-v4.1-flash', 'xiaomi/mimo-v2.6-flash', 'openai-codex/gpt-5.x']) {
+  const card = elements(client.MemberCard({ member: { id: 'cost', name: 'cost', phase: 'active' }, model,
+    usage: { tokens: 1000000, buckets: { uncachedInputTokens: 1000000 } }, statusLabel: s => s, t: zhT }));
+  assert.ok(!card.some(node => node.props?.key === 'cost'), 'no unsupported currency estimate for ' + model);
+}
 assert.ok(pulseCss.includes('will-change:offset-distance'), 'the dot hints only its animated offset distance');
 assert.ok(pulseCss.includes('pointer-events:none'), 'the sweep layer never blocks card clicks');
 // 成本：宿主无 ¥ 数据源（tokenUsage 投影只有 4 个分项 token，无金额字段）——卡上不出现货币符号、不编数。
@@ -1623,144 +1598,37 @@ assert.equal(client.usageFor({tokenUsage:{outputTokens:-1},contextPressure:{cont
   const connPaths = client.buildConnectorPaths(connBase, connLead, connNodes, -8);
   assert.ok(Array.isArray(connPaths) && connPaths.length > 0, 'connector arcs build for a 3x3 layered tree');
   const connD = connPaths.map((path) => (typeof path === 'string' ? path : path.d));
-  const leadFan = connD.filter((d) => /^M 300 60 L 300 [\d.]+ C /.test(d));
-  assert.equal(leadFan.length, 3, 'the lead still fans out to the first row only, got ' + leadFan.length);
+  const leadFan = connD.filter((d) => d.indexOf('M 300 60 L 300 74 C ') === 0);
+  assert.equal(leadFan.length, 3, 'lead fans out to layer 1 from one point after a vertical stub, got ' + leadFan.length);
   let arrived = 0;
   for (const node of connNodes) {
     const cx = node.left + node.width / 2;
     if (connD.some((d) => d.includes(' C ') && d.endsWith(' ' + cx + ' ' + node.top))) arrived += 1;
   }
-  assert.equal(arrived, connNodes.length, 'every card of every layer receives an arc ending at its top centre, got ' + arrived);
-  // 全层规格：路径数 = 所有层卡数，每条含 C、无长直段。
-  assert.equal(connPaths.length, connNodes.length, 'exactly one arc per card across all layers, got ' + connPaths.length);
-  assert.ok(connD.every((d) => d.includes(' C ')), 'every path is a bezier (no bare polyline)');
+  assert.equal(arrived, 9, 'every layered card receives an arc ending at its top centre, got ' + arrived);
+  const hubFan = connD.filter((d) => d.indexOf('M 300 320 L 300 334 C ') === 0);
+  assert.equal(hubFan.length, 0, 'no member is made the parent of the next visual row, got ' + hubFan.length);
+  // 总线扇出：3 fan + 1 主干 + 每后续层 1 水平段(2层) + 每卡 1 支线(6卡) = 12。
+  assert.equal(connPaths.length, 12, 'lead fan(3) + trunk(1) + bus segments(2) + branches(6), got ' + connPaths.length);
+  // 主干：M ax ay → L ax ay+8 → L trunkX ay+8 → L trunkX bottomY（列间隙，非中心线）。
+  const trunkOnly = connD.filter((d) => /^M 300 60 L 300 68 L (\d+) 68 L \d+ \d+$/.test(d));
+  assert.equal(trunkOnly.length, 1, 'exactly one neutral trunk with the 8px sideways step, got ' + trunkOnly.length);
+  const connTrunkX = Number((trunkOnly[0] || '').match(/^M 300 60 L 300 68 L (\d+) /)[1]);
+  assert.notEqual(connTrunkX, 300, 'the trunk leaves the lead centre-line for a column gap, got ' + connTrunkX);
   const coordReConn = /[-+]?\d*\.?\d+/g;
-  // 负断言：任何 L 段不得是水平长直线（|Δy|≈0 且 |Δx|>40）或垂直长主干
-  //（|Δx|≈0 且 |Δy|>80）；起点 14px 竖直小段（|Δy|=14≤20）是唯一允许的短竖段。
-  for (const d of connD) {
-    const tokens = d.match(/[MLC][^MLC]*/g) || [];
-    let px = 0, py = 0;
-    for (const token of tokens) {
-      const nums = (token.slice(1).match(/-?\d+(?:\.\d+)?/g) || []).map(Number);
-      if (token[0] === 'M') { px = nums[0]; py = nums[1]; }
-      else if (token[0] === 'L') {
-        const x = nums[0], y = nums[1];
-        assert.ok(!(Math.abs(y - py) < 0.01 && Math.abs(x - px) > 40), 'no long horizontal L segment (Δx=' + (x - px) + '), got: ' + d);
-        assert.ok(!(Math.abs(x - px) < 0.01 && Math.abs(y - py) > 80), 'no long vertical L segment (Δy=' + (y - py) + '), got: ' + d);
-        px = x; py = y;
-      } else { px = nums[4]; py = nums[5]; }
-    }
-  }
-  // S 形判据（用户规格）：每条弧第一控制点 x==ax（起点竖直切向）、第二控制点
-  // x==目标 cx（终点竖直切向）；同层 bow 一致 → c1y 同、c2y 同；c1x!==c2x
-  // 除非 ax===cx（居中卡例外）——不得退化成中点抛物线。
-  const sShape = [];
-  for (const d of connD) {
-    const m = d.match(/^M (\d+) (\d+) L \1 \d+ C (\d+) ([\d.]+), (\d+) ([\d.]+), (\d+) (\d+)$/);
-    assert.ok(m, 'arc is M ax ay L ax y1 C c1x c1y, cx c2y, cx top (S shape), got: ' + d);
-    const [, axS, , c1x, c1y, c2x, c2y, cxS, topS] = m;
-    assert.equal(c2x, cxS, 'second control point sits above the target centre, got: ' + d);
-    if (topS === '200') {
-      assert.equal(c1x, axS, 'lead → first row keeps c1x=ax (approved drawing), got: ' + d);
-      sShape.push({ ax: Number(axS), cx: Number(cxS), c1x: Number(c1x), c1y: Number(c1y), c2y: Number(c2y) });
-    } else {
-      // 相邻层弧：c1x 必须是父卡中心 x（配对断言另行验证父卡与相邻性）
-      assert.ok(Number(c1x) === 120 || Number(c1x) === 300 || Number(c1x) === 480,
-        'parent-side control sits on a parent card centre, got: ' + d);
-    }
-  }
-  for (const arc of sShape) {
-    // gap 自适应后 bow=(gap-stub)*0.5 使跨列首辅弧 c1y==c2y（y 方向对称，
-    // 公式预期）；「S 而非退化点」由控制点不重合保证：c1x=ax≠cx=c2x。
-    if (arc.ax !== arc.cx) assert.ok(arc.c1x !== arc.cx || arc.c1y !== arc.c2y, 'the two control points are distinct (S, not a point), got: ' + JSON.stringify(arc));
-  }
-  // 配对断言（相邻层视觉树）：每条 d 的起点 y == 某卡底部、终点 y == 某卡顶部，
-  // 且父卡与子卡在 layers 里相邻（父层 = 子层 - 1）；首辅→第一层起点为首辅底。
-  // 「只跨一层」：终点 top - 起点 py == 相邻层 top 差（fixture 恒 160）。
-  const cardAt = (x, y) => connNodes.find((node) => Math.abs((node.left + node.width / 2) - x) < 0.01 && Math.abs((node.top + node.height) - y) < 0.01);
-  const topAt = (x, y) => connNodes.find((node) => Math.abs((node.left + node.width / 2) - x) < 0.01 && Math.abs(node.top - y) < 0.01);
-  let parentPaired = 0;
-  for (const d of connD) {
-    const m = d.match(/^M (\d+) (\d+) L \1 (\d+) C (\d+) ([\d.]+), (\d+) ([\d.]+), (\d+) (\d+)$/);
-    assert.ok(m, 'arc parses for pairing, got: ' + d);
-    const px = Number(m[1]), py = Number(m[2]);
-    const stub = Number(m[3]) - py;
-    const c1x = Number(m[4]), c1y = Number(m[5]);
-    const c2x = Number(m[6]), c2y = Number(m[7]);
-    const cx = Number(m[8]), top = Number(m[9]);
-    const child = topAt(cx, top);
-    assert.ok(child, 'arc ends on a card top centre, got: ' + d);
-    // gap 自适应公式校验（不写死 stub/bow 数值）：
-    // gap=top-py，stub=min(14,max(4,gap*0.25))，bow=max(4,(gap-stub)*0.5)，
-    // 若 stub+bow>=gap 则压到 gap-stub-1；c1y=min(stub 段顶+bow, 首层顶-6)。
-    const gap = top - py;
-    const expectedStub = Math.min(14, Math.max(4, gap * 0.25));
-    let expectedBow = Math.max(4, (gap - expectedStub) * 0.5);
-    if (expectedStub + expectedBow >= gap) expectedBow = Math.max(4, gap - expectedStub - 1);
-    assert.ok(Math.abs(stub - expectedStub) < 0.01, 'stub follows min(14,max(4,gap*0.25)) (gap=' + gap + '), got: ' + d);
-    const expectedC1y = py + stub + expectedBow <= top ? py + stub + expectedBow : 200 - 6;
-    assert.ok(Math.abs(c1y - expectedC1y) < 0.01, 'bow follows max(4,(gap-stub)*0.5) with the lead-row cap (gap=' + gap + '), got: ' + d);
-    assert.ok(stub + (c1y - py - stub) < gap, 'stub+bow stays strictly inside the gap (no card piercing), got: ' + d);
-    if (py === 60) {
-      // 首辅 → 第一层
-      assert.equal(top, 200, 'lead arc targets the first row, got: ' + d);
-      assert.equal(c1x, 300, 'lead arc c1x is the lead centre, got: ' + d);
-    } else {
-      const parent = cardAt(px, py);
-      assert.ok(parent, 'parent-side arc starts at a parent card bottom centre, got: ' + d);
-      const parentLayer = Math.round((parent.top - 200) / 160);
-      const childLayer = Math.round((child.top - 200) / 160);
-      assert.equal(childLayer, parentLayer + 1, 'parent and child sit on adjacent layers, got: ' + d);
-      assert.equal(child.top - parent.top, 160, 'parent and child tops differ by exactly one layer step, got: ' + d);
-      // 父卡 = 上一层中 x 距离最近者
-      const layerAbove = connNodes.filter((node) => Math.abs(node.top - parent.top) < 0.01);
-      let nearest = layerAbove[0];
-      for (const candidate of layerAbove) {
-        if (Math.abs((candidate.left + candidate.width / 2) - cx) < Math.abs((nearest.left + nearest.width / 2) - cx)) nearest = candidate;
-      }
-      assert.equal(parent.left + parent.width / 2, nearest.left + nearest.width / 2, 'parent is the horizontally nearest card above, got: ' + d);
-      // 控制点全部落在父底与子顶之间的层间隙里
-      assert.ok(c1x === px && c2x === cx, 'parent-side c1x==parent centre, child-side c2x==child centre, got: ' + d);
-      assert.ok(c1y > py && c1y < top && c2y > py && c2y < top, 'both control points stay inside the inter-layer gap, got: ' + d);
-      parentPaired += 1;
-    }
-  }
-  assert.equal(parentPaired, 6, 'every non-first-row card hangs off its nearest parent, got ' + parentPaired);
-  // 真不穿卡：每条弧采样 500 点，除它的起止两卡外不得落进任何卡矩形。
-  for (const d of connD) {
-    const m = d.match(/^M (\d+) (\d+) L \1 (\d+) C (\d+) ([\d.]+), (\d+) ([\d.]+), (\d+) (\d+)$/);
-    const px = Number(m[1]), py = Number(m[2]);
-    const P0y = Number(m[3]), P1x = Number(m[4]), P1y = Number(m[5]);
-    const P2x = Number(m[6]), P2y = Number(m[7]);
-    const P3x = Number(m[8]), P3y = Number(m[9]);
-    const endpoints = new Set();
-    if (py !== 60) { const pc = cardAt(px, py); if (pc) endpoints.add(pc.left + ',' + pc.top); }
-    const cc = topAt(P3x, P3y); if (cc) endpoints.add(cc.left + ',' + cc.top);
-    const bez = (p0, p1, p2, p3, t) => { const u = 1 - t; return u * u * u * p0 + 3 * u * u * t * p1 + 3 * u * t * t * p2 + t * t * t * p3; };
-    for (let i = 0; i <= 500; i += 1) {
-      const t = i / 500;
-      const x = bez(px, P1x, P2x, P3x, t);
-      const y = bez(P0y, P1y, P2y, P3y, t);
-      for (const node of connNodes) {
-        if (endpoints.has(node.left + ',' + node.top)) continue;
-        if (x > node.left && x < node.left + node.width && y > node.top && y < node.top + node.height) {
-          assert.fail('arc must not cross a third card (x=' + x.toFixed(1) + ',y=' + y.toFixed(1) + '), got: ' + d);
-        }
-      }
-    }
-  }
-  // 第一层（top=200）三条弧：c1y 相同、c2y 相同（bow 一致），c2x 随目标互异（扇形分散）。
-  const firstRow = [120, 300, 480].map((cx) => {
-    const d = connD.find((line) => line.endsWith(' ' + cx + ' 200'));
-    assert.ok(d, 'a first-row arc ends at (' + cx + ',200), got: ' + JSON.stringify(connD));
-    const m = d.match(/C \d+ ([\d.]+), (\d+) ([\d.]+), (\d+) 200$/);
-    assert.ok(m, 'first-row arc parses as C _, c2x _, cx 200, got: ' + d);
-    return { c1y: Number(m[1]), c2x: Number(m[2]), c2y: Number(m[3]) };
+  const busSegs = connD.filter((d) => {
+    const m = d.match(/^M (\d+) (\d+) L (\d+) (\d+)(?: L (\d+) (\d+))?$/);
+    return !!m && m[2] === m[4] && (m[6] === undefined || m[6] === m[2]);
   });
-  assert.equal(new Set(firstRow.map((a) => a.c1y)).size, 1, 'first-row arcs share the start-side control y, got: ' + JSON.stringify(firstRow));
-  assert.equal(new Set(firstRow.map((a) => a.c2y)).size, 1, 'first-row arcs share the target-side control y, got: ' + JSON.stringify(firstRow));
-  assert.equal(new Set(firstRow.map((a) => a.c2x)).size, 3, 'first-row arcs fan out with distinct target-side control x, got: ' + JSON.stringify(firstRow));
+  assert.equal(busSegs.length, 2, 'exactly one horizontal segment per later layer, got ' + busSegs.length);
+  const branches = connD.filter((d) => d.includes(' C ') && d.indexOf('M 300 60 ') !== 0);
+  assert.equal(branches.length, 6, 'one family-coloured branch per later-layer card, got ' + branches.length);
   // 旧 gutter 横穿的负断言：任何 x 都不得伸到最左卡左缘之外。
+  // trunkX 不穿卡：不得落在任何卡的 [left-1, right+1] 内。
+  for (const node of connNodes) {
+    assert.ok(connTrunkX < node.left - 1 || connTrunkX > node.left + node.width + 1,
+      'trunk x=' + connTrunkX + ' must clear card [' + node.left + ',' + (node.left + node.width) + ']');
+  }
   const minConnLeft = Math.min(...connNodes.map((node) => node.left));
   for (const d of connD) {
     const nums = d.match(coordReConn).map(Number);
@@ -1769,7 +1637,7 @@ assert.equal(client.usageFor({tokenUsage:{outputTokens:-1},contextPressure:{cont
     }
   }
   const colored = connPaths.filter((path) => typeof path === 'object' && typeof path.color === 'string' && path.color.indexOf('hsl(') === 0);
-  assert.equal(colored.length, connNodes.length, 'every arc carries its target card family color, got ' + colored.length);
+  assert.ok(colored.length >= 9, 'arcs carry the target cards family colors, got ' + colored.length);
 
   // 非零 base 回归用例：矩形是视口坐标，path 必须落在容器内坐标 [0,base.w]×[0,base.h]。
   const offBase = { left: 300, top: 200, width: 800, height: 600 };
@@ -1781,21 +1649,15 @@ assert.equal(client.usageFor({tokenUsage:{outputTokens:-1},contextPressure:{cont
     }
   }
   const offPaths = client.buildConnectorPaths(offBase, offLead, offNodes, -8);
-  assert.ok(Array.isArray(offPaths) && offPaths.length === 6, 'one arc per card across all layers builds against a non-zero base, got ' + JSON.stringify(offPaths && offPaths.length));
-  for (const path of offPaths) {
-    const tokens = path.d.match(/[MLC][^MLC]*/g) || [];
-    let px = 0, py = 0;
-    for (const token of tokens) {
-      const nums = (token.slice(1).match(/-?\d+(?:\.\d+)?/g) || []).map(Number);
-      if (token[0] === 'M') { px = nums[0]; py = nums[1]; }
-      else if (token[0] === 'L') {
-        const x = nums[0], y = nums[1];
-        assert.ok(!(Math.abs(y - py) < 0.01 && Math.abs(x - px) > 40), 'no long horizontal L (Δx=' + (x - px) + '), got: ' + path.d);
-        assert.ok(!(Math.abs(x - px) < 0.01 && Math.abs(y - py) > 80), 'no long vertical L (Δy=' + (y - py) + '), got: ' + path.d);
-        px = x; py = y;
-      } else { px = nums[4]; py = nums[5]; }
-    }
+  const offTrunk = offPaths.find((path) => /^M 300 100 L 300 108 L (\d+) 108 L \d+ \d+$/.test(path.d));
+  assert.ok(offTrunk, 'the non-zero-base trunk keeps the 8px step form, got: ' + JSON.stringify(offPaths.map((path) => path.d)));
+  const offTrunkX = Number(offTrunk.d.match(/^M 300 100 L 300 108 L (\d+) /)[1]);
+  assert.notEqual(offTrunkX, 300, 'the trunk leaves the lead centre-line, got ' + offTrunkX);
+  for (const node of offNodes) {
+    assert.ok(offTrunkX < node.left - 1 || offTrunkX > node.left + node.width + 1,
+      'trunk x=' + offTrunkX + ' must clear card [' + node.left + ',' + (node.left + node.width) + ']');
   }
+  assert.ok(Array.isArray(offPaths) && offPaths.length === 8, 'fan(3)+trunk(1)+bus(1)+branches(3) build against a non-zero base, got ' + JSON.stringify(offPaths && offPaths.length));
   const coordRe = /[-+]?\d*\.?\d+/g;
   for (const path of offPaths) {
     const nums = path.d.match(coordRe).map(Number);
@@ -1818,8 +1680,17 @@ assert.equal(client.usageFor({tokenUsage:{outputTokens:-1},contextPressure:{cont
   // Staggered 3+2: tail-only gap x=172 intersects the FIRST-row middle card.
   const stagger=[0,120,240].map(left=>({left,top:150,width:100,height:80})).concat([60,180].map(left=>({left,top:330,width:100,height:80})));
   const staggerPaths=client.buildConnectorPaths({left:0,top:0,width:400,height:500},{left:130,top:0,width:100,height:80},stagger,-8);
+  const trunk=staggerPaths.find(p=>/^M 180 80 L 180 88 L /.test(p.d));
+  assert.ok(trunk,'staggered layout has actual Lead trunk');
+  const tx=Number(trunk.d.split(' ')[7]);
+  for(const card of stagger)assert.ok(tx<card.left-1||tx>card.left+card.width+1,'trunk clears every card including first row');
+  assert.ok(tx<0||tx>340,'no common gap uses outside channel, never overlapping centre');
+  assert.ok(!staggerPaths.some(p=>/^M (50|170|290) 230 /.test(p.d)),'no false member-parent edges');
   const uneven=stagger.map((card,i)=>i===1?{...card,height:240}:card);
   const unevenPaths=client.buildConnectorPaths({left:0,top:0,width:400,height:500},{left:130,top:0,width:100,height:80},uneven,-8);
+  const routed=unevenPaths.filter(p=>p.d.startsWith('M 180 80 L ')&&!p.d.includes(' C ')&&(/ L (110|230) 330$/).test(p.d));
+  assert.equal(routed.length,2,'height collision uses two actual Lead-rooted safe routes');
+  for(const path of routed){const pairs=path.d.match(/[-+]?\d*\.?\d+/g).map(Number);for(let i=2;i<pairs.length;i+=2){const ax=pairs[i-2],ay=pairs[i-1],bx=pairs[i],by=pairs[i+1];for(const card of uneven){const hit=ax===bx?ax>card.left&&ax<card.left+card.width&&Math.max(ay,by)>card.top&&Math.min(ay,by)<card.top+card.height:ay>card.top&&ay<card.top+card.height&&Math.max(ax,bx)>card.left&&Math.min(ax,bx)<card.left+card.width;assert.ok(!hit,'detour segment avoids every card interior');}}}
 
   // 收尾：清 CabinetPanel 入队的 effect，防泄漏给后续块（3b47d6a2 教训）。
   recordedEffects.length = 0;
@@ -3983,19 +3854,21 @@ assert.ok(!/background:\s*'(#fff|white)'/.test(source), 'no bare white backgroun
       }));
     }
 
-    // ---- 联想开关两态：配置项控制，提示词本体两态逐字相同（对齐上游 ed51fb3）----
+    // ---- 联想开关两态：工厂提示词不变，成员上下文明确携带实时开关----
     // leadBlock 两态由 scripts/test-member-settings.mjs 的 associationLine/sectionText
-    // 断言覆盖；这里断言成员提示词层与 client 侧同款开关零改动。
+    // 断言覆盖；这里核对成员上下文的实时状态与不变的工厂文案。
     {
       const offCfg = { associationMode: false, members: [] };
       const onCfg = { associationMode: true, members: [] };
       const tz = { role: 'teammate', name: 'tongzheng' };
       const offText = indexModule.memberBlock(offCfg, tz);
       const onText = indexModule.memberBlock(onCfg, tz);
-      assert.equal(onText, offText, 'the association switch leaves the member prompt text identical in both states');
+      assert.match(onText, /联想模式当前开启（associationMode=true）/);
+      assert.match(offText, /联想模式当前关闭（associationMode=false）/);
+      assert.ok(onText.includes(indexModule.DEFAULT_MEMBER_PROMPTS.tongzheng), 'enabled state keeps the factory prompt verbatim');
       assert.ok(offText.includes(indexModule.DEFAULT_MEMBER_PROMPTS.tongzheng), 'the factory tongzheng prompt is embedded verbatim (section header aside)');
       assert.ok(offText.includes('去找与旧事、旁证、相邻经验的联系'), 'the duty clause stays verbatim, got: ' + offText.slice(0, 160));
-      assert.ok(!offText.includes('联想模式已关闭'), 'no closure sentence is ever injected');
+      assert.ok(!offText.includes('联想模式当前开启'), 'off context must not claim association is enabled');
       assert.equal(indexModule.associationLine(offCfg), '', 'association-off renders nothing at all');
       assert.match(indexModule.associationLine(onCfg), /派活通政使/, 'association-on renders the dispatch-enable line');
       // client 侧 configuredPrompt 两态同文（开关不改提示词，只由配置项决定）。
