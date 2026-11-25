@@ -2789,13 +2789,17 @@ console.log('PASS 内阁 Bot section removal: no section box, office rows, 现�
       { id: 'm-works', name: 'works', role: 'mate', phase: 'active' },
       { id: 'm-quiet', name: 'quiet', role: 'mate', phase: 'active' }
     ], tasks: [{ id: '7', subject: '时间线联动任务', status: 'in_progress', ownerName: 'works' }] };
-    // lead：3 条真实消息，前两条带 taskId（方块写任务号），第三条没有（写序号）；
-    // works：3 条不带 taskId（全部写序号）；
+    // 脉冲模型的三类协作事件：委派（lead 日志里的 subagent/catalog）、跨 Agent 投递
+    // （agent-message）、子代理办结（subagent-settled）。普通 user/assistant 行只进
+    // 群聊，不上脉冲轴；team/task 只喂任务轨道（开工那一刻的槽位）。
     // quiet：没有 source → 快照读取失败 → 不可用行（time 0）→ 无事件 → 不画泳道。
     sources['lead-session'] = makeSource([
       durable('user/message', 1, 1000, { role: 'user', content: [{ type: 'text', text: '第一问' }], source: { kind: 'user', rpcId: 'r-lead-1' }, taskId: '7' }),
-      durable('assistant/message', 2, 2000, { message: { role: 'assistant', content: [{ type: 'text', text: '答一' }] }, taskId: '7' }),
-      durable('user/message', 3, 3000, { role: 'user', content: [{ type: 'text', text: '第二问' }], source: { kind: 'user', rpcId: 'r-lead-3' } })
+      durable('team/task', 2, 1600, { task: { id: '7', subject: '时间线联动任务', status: 'in_progress', ownerId: 'm-works' } }),
+      durable('subagent/catalog', 3, 2000, { childId: 'm-works', childCreatedAt: 2000, label: 'works' }),
+      durable('assistant/message', 4, 3000, { message: { role: 'assistant', content: [{ type: 'text', text: '答一' }] }, taskId: '7' }),
+      durable('user/message', 5, 4000, { role: 'user', content: [{ type: 'text', text: '交付' }], source: { kind: 'agent-message', senderSessionId: 'm-works', senderName: 'works' } }),
+      durable('user/message', 6, 5000, { role: 'user', content: [{ type: 'text', text: '办结' }], source: { kind: 'subagent-settled', senderSessionId: 'm-works' } })
     ]);
     sources['m-works'] = makeSource([
       durable('user/message', 1, 1500, { role: 'user', content: [{ type: 'text', text: '开工' }], source: { kind: 'user', rpcId: 'r-works-1' } }),
@@ -2829,10 +2833,42 @@ console.log('PASS 内阁 Bot section removal: no section box, office rows, 现�
     const lanes = nodesOf(tlView.tree, 'data-cabinet-timeline-lane');
     assert.deepEqual(lanes.map((node) => node.props['data-cabinet-timeline-lane']), ['lead-session', 'm-works'], 'two event lanes render; the member without events draws no lane');
 
-    const events = nodesOf(tlView.tree, 'data-cabinet-timeline-event');
-    assert.equal(events.length, 6, 'six events render (3 per lane), got ' + events.length);
+    // 脉冲模型：只排协作事件（委派 / 投递 / 办结），一条一个 22px 方块。
+    const squares = nodesOf(tlView.tree, 'data-cabinet-timeline-event-kind');
+    assert.equal(squares.length, 3, 'three collaboration events render as squares, got ' + squares.length);
+    const kindsOf = (lane) => findNodes([lane], (node) => node.props?.['data-cabinet-timeline-event-kind'] !== undefined).map((node) => node.props['data-cabinet-timeline-event-kind']);
+    const leadSquares = findNodes([lanes[0]], (node) => node.props?.['data-cabinet-timeline-event-kind'] !== undefined);
+    const workSquares = findNodes([lanes[1]], (node) => node.props?.['data-cabinet-timeline-event-kind'] !== undefined);
+    assert.deepEqual(kindsOf(lanes[0]), ['relay', 'settled'], 'the lead lane carries the relay and the settled tick, got ' + JSON.stringify(kindsOf(lanes[0])));
+    assert.deepEqual(kindsOf(lanes[1]), ['delegation'], 'the works lane carries its delegation square, got ' + JSON.stringify(kindsOf(lanes[1])));
+    assert.equal(flatText(leadSquares[0]), '+', 'a relay draws a plus, got ' + JSON.stringify(flatText(leadSquares[0])));
+    assert.equal(flatText(leadSquares[1]), '\u2713', 'a settled event draws a check, got ' + JSON.stringify(flatText(leadSquares[1])));
+    assert.equal(leadSquares[0].props['data-cabinet-timeline-event-from'], 'm-works', 'the relay square names its sender');
+    assert.equal(workSquares[0].props['data-cabinet-timeline-event-from'], 'lead-session', 'the delegation square names its sender');
+    assert.equal(workSquares[0].props['data-cabinet-timeline-event-to'], 'm-works', 'the square lands on the receiver lane');
+    assert.equal(workSquares[0].props.style.border, '1.5px solid hsl(138 58% 52%)', 'the receiver lane takes its family hue, got ' + workSquares[0].props.style.border);
+    assert.equal(leadSquares[0].props.style.border, '1.5px solid hsl(217 91% 60%)', 'lane index 0 is the fixed lead blue, got ' + leadSquares[0].props.style.border);
+    assert.ok(String(workSquares[0].props.style.background).indexOf('/ .16') !== -1, 'the square fill is the same hue at 16%, got ' + workSquares[0].props.style.background);
+    assert.equal(nodesOf(tlView.tree, 'data-cabinet-timeline-stem').length, 0, 'the pill timeline stems are gone');
+    assert.equal(nodesOf(tlView.tree, 'data-cabinet-timeline-event-seq').length, 0, 'the pill sequence blocks are gone');
 
-    // 时间线视觉还原：左块两行（头像+名字 / meta）、48px 行高、家族色事件点、顶部计数。
+    // 方块位置：按事件槽位排（32px 一槽），同一泳道内随事件顺序递增。
+    for (const lane of [lanes[0], lanes[1]]) {
+      const lefts = findNodes([lane], (node) => node.props?.['data-cabinet-timeline-event-kind'] !== undefined).map((node) => parseFloat(node.props.style.left));
+      for (let i = 1; i < lefts.length; i += 1) {
+        assert.ok(lefts[i] > lefts[i - 1], 'square X positions follow the event slots: ' + JSON.stringify(lefts));
+      }
+    }
+
+    // 竖线图层：委派与投递从发送方泳道中心画到方块，办结不画线。
+    const arrows = nodesOf(tlView.tree, 'data-cabinet-timeline-arrows')[0];
+    assert.ok(arrows, 'the SVG overlay renders');
+    assert.equal(arrows.props.style.left, 194, 'the overlay starts at the lane-head edge');
+    assert.equal(arrows.props.style.top, 42, 'the overlay top aligns with the lane area');
+    assert.equal(arrows.props.height, 130, 'two lanes anchor at laneHeight 65, got ' + arrows.props.height);
+    assert.equal(findNodes([arrows], (node) => node.type === 'g').length, 2, 'delegation and relay draw a drop line; settled draws none');
+
+    // 泳道与左块：64px 行高、头像、名字、meta 计数、顶部计数行。
     const head0 = findNodes([lanes[0]], (node) => node.props?.['data-cabinet-timeline-lane-head'] !== undefined)[0];
     assert.ok(head0, 'the lane renders its head block (data-cabinet-timeline-lane-head)');
     assert.ok(findNodes([head0], (node) => node.type === 'img' || (typeof node.type === 'function' && node.type.name === 'Avatar')).length >= 1, 'the head block carries the avatar');
@@ -2840,34 +2876,27 @@ console.log('PASS 内阁 Bot section removal: no section box, office rows, 现�
     const meta0 = findNodes([lanes[0]], (node) => node.props?.['data-cabinet-timeline-lane-meta'] !== undefined)[0];
     assert.ok(meta0, 'the head block carries the meta line (data-cabinet-timeline-lane-meta)');
     assert.ok(flatText(meta0).includes('个任务') && flatText(meta0).includes('个事件'), 'meta counts tasks and events, got: ' + JSON.stringify(flatText(meta0)));
-    assert.equal(lanes[0].props.style.height, 48, 'lane rows compress to 48px');
+    assert.ok(flatText(meta0).indexOf('¥') === -1, 'no money shows in the lane meta, got: ' + JSON.stringify(flatText(meta0)));
+    assert.equal(lanes[0].props.style.minHeight, 64, 'lane rows are 64px tall, got ' + lanes[0].props.style.minHeight);
     assert.ok(typeof lanes[0].props.style.borderBottom === 'string' && lanes[0].props.style.borderBottom.includes('1px'), 'lanes keep a 1px separator');
     const countNode = nodesOf(tlView.tree, 'data-cabinet-timeline-count')[0];
     assert.ok(countNode, 'the timeline shows its count row (data-cabinet-timeline-count)');
     assert.ok(flatText(countNode).includes('条泳道'), 'count row reads N 条泳道, got: ' + JSON.stringify(flatText(countNode)));
-    const leadHue = events[0].props.style.background;
-    assert.ok(typeof leadHue === 'string' && leadHue.indexOf('hsl(') === 0, 'events carry the family hue background, got: ' + leadHue);
-    assert.notEqual(leadHue, events[3].props.style.background, 'different lanes use different family hues: ' + leadHue + ' vs ' + events[3].props.style.background);
-    assert.ok(nodesOf(tlView.tree, 'data-cabinet-timeline-stem').length === 6, 'each event draws a stem down to the baseline');
-    // X 位置随时间单调递增：每个泳道内，事件按时间排序，left% 严格递增。
-    for (const lane of lanes) {
-      const laneEvents = findNodes([lane], (node) => node.props?.['data-cabinet-timeline-event'] !== undefined);
-      const lefts = laneEvents.map((node) => parseFloat(node.props.style.left));
-      assert.equal(lefts.length, 3, 'the lane keeps its three events');
-      for (let i = 1; i < lefts.length; i += 1) {
-        assert.ok(lefts[i] > lefts[i - 1], 'event X positions increase with time in ' + lane.props['data-cabinet-timeline-lane'] + ': ' + JSON.stringify(lefts));
-      }
-    }
-    // 方块数字：有任务号写任务号；没有任务号写该行序号。
-    const leadEvents = findNodes([lanes[0]], (node) => node.props?.['data-cabinet-timeline-event'] !== undefined);
-    assert.equal(leadEvents[0].props['data-cabinet-timeline-event-task'], '7', 'the first event carries its task id');
-    assert.ok(flatText(leadEvents[0]).includes('7'), 'the block renders the task number, got: ' + JSON.stringify(flatText(leadEvents[0])));
-    assert.equal(leadEvents[2].props['data-cabinet-timeline-event-task'], undefined, 'an event without a task has no task attr');
-    assert.equal(flatText(leadEvents[2]), String(leadEvents[2].props['data-cabinet-timeline-event-seq']), 'an event without a task shows its sequence number, got: ' + JSON.stringify(flatText(leadEvents[2])));
-    const worksEvents = findNodes([lanes[1]], (node) => node.props?.['data-cabinet-timeline-event'] !== undefined);
-    for (const eventNode of worksEvents) {
-      assert.ok(flatText(eventNode).length > 0, 'every taskless block still shows its sequence number, got: ' + JSON.stringify(flatText(eventNode)));
-    }
+
+    // 任务编号轨道：绝对定位到开工那一刻的事件槽位，前置属主色点，左列写「团队任务」。
+    const track = nodesOf(tlView.tree, 'data-cabinet-timeline-task-track')[0];
+    assert.ok(track, 'the task number track renders');
+    assert.ok(flatText(track).includes('团队任务'), 'the track left column reads 团队任务, got: ' + JSON.stringify(flatText(track)));
+    const chip = nodesOf(tlView.tree, 'data-cabinet-timeline-task-chip')[0];
+    assert.ok(chip, 'the in-progress task gets a chip');
+    assert.equal(chip.props['data-cabinet-timeline-task-chip'], '7', 'the chip carries its task id');
+    assert.ok(flatText(chip).includes('7'), 'the chip renders the task number, got: ' + JSON.stringify(flatText(chip)));
+    assert.ok(typeof chip.props.style.left === 'string' && /px$/.test(chip.props.style.left), 'the chip is absolutely positioned in the event slots, got ' + chip.props.style.left);
+
+    // 工具条：搜索与最早/最新在位；状态存 panelRef，不进条件分支 hooks。
+    assert.equal(nodesOf(tlView.tree, 'data-cabinet-timeline-toolbar').length, 1, 'the timeline toolbar renders');
+    assert.equal(nodesOf(tlView.tree, 'data-cabinet-timeline-search').length, 1, 'the lane search input renders');
+    assert.equal(nodesOf(tlView.tree, 'data-cabinet-timeline-load-older').length + nodesOf(tlView.tree, 'data-cabinet-timeline-all-loaded').length, 1, 'the load-older state is explicit, never silent');
     // 收尾：恢复默认名册。
     groupRender({ activeTab: 'roster', team: tlTeam });
     // 段尾契约：交还 persistentRefs=null，并清空本块写下的群聊布局残留槽——
