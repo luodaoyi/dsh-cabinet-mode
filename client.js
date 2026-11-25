@@ -2870,8 +2870,35 @@ window.__ModuleLoader__.load({
 					// Only an explicit user source represents a human; other producers
 					// are context input. Empty inputs still break legacy ownership.
 					const source = message.source;
+					// 子代理办结回执：时间线上的 ✓，不带竖线（dsh-context 同款语义）。
+					if (source && source.kind === 'subagent-settled') {
+						const child = typeof source.senderSessionId === 'string' ? source.senderSessionId : '';
+						push({ kind: 'settled', time: event.time, seq: event.seq, text, tools: [], from: child !== '' ? child : undefined, pulse: true });
+						continue;
+					}
 					const kind = source?.kind === 'user' && 'rpcId' in source ? 'user' : 'input';
-					push({ kind, time: event.time, seq: event.seq, text, tools: [], taskId: typeof data.taskId === 'string' && data.taskId !== '' ? data.taskId : undefined });
+					// 跨 Agent 投递：agent-message 的发送方在 source.senderSessionId，
+					// team-message 的在 source.senderId。收件人是本会话。
+					const from = source && (source.kind === 'agent-message' || source.kind === 'team-message')
+						? (typeof source.senderSessionId === 'string' && source.senderSessionId !== '' ? source.senderSessionId : (typeof source.senderId === 'string' ? source.senderId : ''))
+						: '';
+					push({ kind, time: event.time, seq: event.seq, text, tools: [], taskId: typeof data.taskId === 'string' && data.taskId !== '' ? data.taskId : undefined, from: from !== '' ? from : undefined, fromName: source && typeof source.senderName === 'string' && source.senderName !== '' ? source.senderName : undefined, pulse: from !== '' });
+					continue;
+				}
+				// 委派：subagent/catalog（创建子会话）与 team/member（入册）都记一次，
+				// 时间线按 from→to 去重（3 秒窗）。两端都在名册里才画线。
+				if (type === 'subagent/catalog') {
+					const child = typeof data.childId === 'string' ? data.childId : '';
+					if (child === '') continue;
+					const at = typeof data.childCreatedAt === 'number' && data.childCreatedAt > 0 ? data.childCreatedAt : event.time;
+					push({ kind: 'delegation', time: at, seq: event.seq, text: typeof data.label === 'string' ? data.label : '', tools: [], to: child, pulse: true });
+					continue;
+				}
+				if (type === 'team/member') {
+					const roster = data.member && typeof data.member === 'object' ? data.member : null;
+					const child = roster && typeof roster.id === 'string' ? roster.id : '';
+					if (child === '') continue;
+					push({ kind: 'delegation', time: event.time, seq: event.seq, text: typeof roster.name === 'string' ? roster.name : '', tools: [], to: child, pulse: true });
 					continue;
 				}
 				if (type === 'tool/call') {
@@ -4310,7 +4337,7 @@ window.__ModuleLoader__.load({
 		 * panel unmount. A member that cannot be retained renders its own 不可用
 		 * row; the other members keep working.
 		 */
-		function useCabinetGroupChat(members, activeTab, service, notify) {
+		function useCabinetGroupChat(members, activeTab, service, notify, leadSessionId) {
 			const [, setRevision] = React.useState(0);
 
 			const key = JSON.stringify(members.map((member) => (member && typeof member.id === 'string' ? member.id : '')).filter((id) => id !== ''));
@@ -4429,21 +4456,58 @@ window.__ModuleLoader__.load({
 							return null;
 						}
 					};
+					// 自动翻页期间压制重折：每页都折一次会让整场日志变成 O(n²)。
+					let paging = false;
 					const sync = () => {
-						if (record.released) return;
+						if (record.released || paging) return;
 						if (foldInto(id, record, false)) bump();
 					};
 					try {
 						const channel = source();
 						if (channel && typeof channel.subscribe === 'function') record.unsubscribe = channel.subscribe(sync);
 					} catch (error) { /* degrade to 不可用 below */ }
-					Promise.resolve(reference.ready).then(() => {
+					Promise.resolve(reference.ready).then(async () => {
 						if (record.released || abort.signal.aborted) return;
 						record.ready = true;
 						sync();
 						if (record.unsubscribe === null) {
 							const channel = source();
 							if (channel && typeof channel.subscribe === 'function') { try { record.unsubscribe = channel.subscribe(sync); } catch (ignored) { /* already unavailable */ } }
+						}
+						// 跨 Agent 的投递记在首辅日志的前段。当前窗口只有最近几页，
+						// 打开时间线时一直向前翻，翻到头或连续翻不动为止。
+						const session = reference.binding && reference.binding.session;
+						const historyChannel = source();
+						if (id === leadSessionId && activeTab === 'timeline' && session && typeof session.loadOlder === 'function' && historyChannel && typeof historyChannel.getSnapshot === 'function') {
+							// 只补最近 4 页：每次翻页都是一次真实读盘加一次快照物化，
+							// 翻多了整页会卡住几秒。更早的按需用「加载更早」按钮一页一页拉。
+							paging = true;
+							try {
+								for (let page = 0; page < 4 && !record.released && !abort.signal.aborted; page += 1) {
+									const current = historyChannel.getSnapshot();
+									if (!current || current.hasMore !== true) break;
+									const before = Array.isArray(current.entries) ? current.entries.length : 0;
+									try { await session.loadOlder(); } catch (error) { break; }
+									const next = historyChannel.getSnapshot();
+									if (!next || !Array.isArray(next.entries) || next.entries.length <= before) break;
+								}
+							} finally { paging = false; }
+							sync();
+						}
+						// 手动翻页：hasMore 时不自动全量（本机 1.4GB/631 会话会卡死），
+						// 由时间线的「加载更早记录」按钮按页拉取；无通道/翻不动直接停。
+						const later = source();
+						if (id === leadSessionId && activeTab === 'timeline' && session && typeof session.loadOlder === 'function' && later && typeof later.getSnapshot === 'function') {
+							const loadOlderOnce = async () => {
+								const before = later.getSnapshot();
+								if (!before || before.hasMore !== true) return;
+								const count = Array.isArray(before.entries) ? before.entries.length : 0;
+								try { await session.loadOlder(); } catch (error) { return; }
+								const after = later.getSnapshot();
+								if (!after || !Array.isArray(after.entries) || after.entries.length <= count) return;
+								sync();
+							};
+							if (id === leadSessionId) state.loadOlder = loadOlderOnce;
 						}
 						// After `ready` a session without any event channel can never
 						// produce a row on its own, so it degrades explicitly instead
@@ -4476,7 +4540,7 @@ window.__ModuleLoader__.load({
 					state.records.clear();
 					state.views.clear();
 				};
-			}, [activeTab, service, key]);
+			}, [activeTab, service, key, leadSessionId]);
 			// A service that appears/disappears behind an already-active tab must
 			// re-run the same effect (its cleanup released the old references).
 			React.useEffect(() => { setRevision((revision) => revision + 1); }, [service]);
@@ -4498,11 +4562,24 @@ window.__ModuleLoader__.load({
 				}
 				if (changed) setRevision((revision) => revision + 1);
 			}, [refilled]);
-			return {
+						// 是否还有更早的事件没加载（SessionEventWindow.hasMore）。
+			// 时间线只对 lead 会话翻页，所以只有 lead 这一条记录有真值。
+			const hasMoreOlder = (id) => {
+				const record = state.records.get(id);
+				if (record === undefined || record.released) return false;
+				try {
+					const channel = record.reference.binding && record.reference.binding.eventSource;
+					const snapshot = channel && typeof channel.getSnapshot === 'function' ? channel.getSnapshot() : null;
+					return Boolean(snapshot && snapshot.hasMore === true);
+				} catch (error) { return false; }
+			};
+return {
 				views: (id) => {
 					const view = state.views.get(id);
 					return view === undefined ? groupChatEmptyView() : view;
 				},
+				state,
+				hasMoreOlder,
 				members: () => Array.from(state.views.keys()),
 				canPrompt,
 				promptSession,
@@ -5206,7 +5283,7 @@ window.__ModuleLoader__.load({
 				for (const member of orderedMembers) push(member);
 				return list;
 			}, [rosterSignature, leadSessionId]);
-			const group = useCabinetGroupChat(chatMembers, activeTab, groupService);
+			const group = useCabinetGroupChat(chatMembers, activeTab, groupService, undefined, leadSessionId);
 			// The 5s usage tick also folds the newest event window while the tab is
 			// open, so a settled message lands without waiting for the next frame.
 			React.useEffect(() => {
@@ -5337,7 +5414,7 @@ window.__ModuleLoader__.load({
 			const groupRows = React.useMemo(() => mergeGroupChat(chatMembers.flatMap((member) => {
 				const view = group.views(member.id);
 				// 行上同时保留 member（头像/中文名）与 memberName（不认 member 的旧路径：同人判定、气泡兜底）。
-				return view.fold === null ? [] : view.fold.rows.filter((row) => row.kind !== 'input').map((row) => ({ ...row, member, memberName: member.name }));
+				return view.fold === null ? [] : view.fold.rows.filter((row) => row.kind !== 'input' && row.kind !== 'delegation' && row.kind !== 'settled').map((row) => ({ ...row, member, memberName: member.name }));
 			})), [groupRowsSignature]).slice();
 
 
@@ -5690,49 +5767,282 @@ window.__ModuleLoader__.load({
 			// 不算事件，对应成员落进「安静泳道」折叠）。右栏 <420px 时横向滚动。
 			if (activeTab === 'timeline') {
 				const authorOf = (row) => (row !== null && row !== undefined && row.member !== null && row.member !== undefined && typeof row.member.id === 'string' && row.member.id !== '' ? row.member.id : (typeof row.memberName === 'string' ? row.memberName : ''));
-				const lanes = chatMembers.filter((member) => member !== null && member !== undefined && typeof member.id === 'string' && member.id !== '');
+				// 发送方：消息源里的会话 id 优先，其次按发送方名字对名册。对不上就空。
+				const senderOf = (row) => {
+					if (typeof row.from === 'string' && row.from !== '') {
+						const byId = lanes.find((member) => member && (member.id === row.from || (member.id.length > 8 && member.id.endsWith(row.from))));
+						if (byId !== undefined) return byId.id;
+					}
+					if (typeof row.fromName === 'string' && row.fromName !== '') {
+						const byName = lanes.find((member) => member && (member.name === row.fromName || member.id === row.fromName));
+						if (byName !== undefined) return byName.id;
+					}
+					return '';
+				};
+				// ---- 顶部工具条状态（搜索 / 最早最新）----
+				// 受控 state：搜索只过滤泳道（lane），滚动位置由用户按钮接管；
+				// 两者都不新建 RPC、不触发自动翻页。Hook 用 panelRef 兜底存取，
+				// 保证本分支在 vm 降级渲染（test-rail）里不依赖 React 全局。
+				const timelineState = (typeof panelRef === 'object' && panelRef !== null && panelRef._timelineState !== undefined
+					? panelRef._timelineState
+					: (panelRef._timelineState = { query: '', anchor: 'latest' }));
+				// vm 降级渲染（test-rail）只注入 INK2：名字行/输入框颜色兜底到 INK2，
+				// 不引入 React 全局。
+				const timelineInk = typeof INK === 'string' ? INK : INK2;
+				// 状态存在 panelRef._timelineState（ref 对象，不受 hooks 规则约束）。
+				// 绝不在本条件分支里调用 React.useState/useMemo——本分支是 activeTab==='timeline'
+				// 条件块，新增 hook 会让 React 抛 "Rendered fewer hooks than expected" 整页崩溃
+				//（2026-11-24 装盘黑屏事故）。
+				// 重渲染走面板顶层的 setMemberRevision（组件顶层的合法 hook；0.9.3 底没有 setRevision）。
+				const bump = () => setMemberRevision((revision) => revision + 1);
+				const laneQuery = timelineState.query;
+				const scrollAnchor = timelineState.anchor;
+				const setLaneQuery = (value) => {
+					const next = typeof value === 'function' ? value(laneQuery) : value;
+					if (next === laneQuery) return;
+					timelineState.query = next;
+					bump();
+				};
+				const setScrollAnchor = (value) => {
+					const next = typeof value === 'function' ? value(scrollAnchor) : value;
+					if (next === scrollAnchor) return;
+					timelineState.anchor = next;
+					bump();
+				};
+				const searchKey = String(laneQuery).trim().toLowerCase();
+				const queryMatches = (member) => searchKey === ''
+					|| String(member.name || '').toLowerCase().includes(searchKey)
+					|| String(member.id || '').toLowerCase().includes(searchKey)
+					|| String(bureauOfName(member.name || '')).toLowerCase().includes(searchKey);
+				const allLanes = chatMembers.filter((member) => member !== null && member !== undefined && typeof member.id === 'string' && member.id !== '');
+				const lanes = searchKey === '' ? allLanes : allLanes.filter(queryMatches);
+				// hasMore 只读 lead 会话窗口（时间线只对 lead 翻页）；不自动全量翻。
+				// vm 降级渲染里 group 只有 views()，没有 hasMoreOlder/state，按「未知」处理。
+				const leadOlderPending = group !== null && typeof group === 'object' && typeof group.hasMoreOlder === 'function'
+					? group.hasMoreOlder(leadSessionId)
+					: false;
+				const loadOlderRecords = () => {
+					const action = group !== null && typeof group === 'object' && group.state && typeof group.state.loadOlder === 'function' ? group.state.loadOlder : null;
+					if (action !== null) Promise.resolve(action()).catch(() => {});
+				};
+				// 方块画在收件人那条泳道上：行归属的会话就是收件人。
+				const laneHasWork = (member) => eventsOf(member).length > 0 || spansOf(member.id).length > 0;
 				const eventsOf = (member) => groupRows.filter((row) => authorOf(row) === member.id && typeof row.time === 'number' && row.time > 0);
 				const timed = groupRows.filter((row) => row.kind !== 'error' && typeof row.time === 'number' && row.time > 0);
+				// 任务板只有当前状态。起止时间从首辅日志的 team/task 快照取：
+				// 第一次 in_progress 是开工，第一次 completed 是收工；还在做的收到现在。
+				const taskHistory = [];
+				try {
+					const leadRecord = group.state && group.state.records ? group.state.records.get(leadSessionId) : undefined;
+					const channel = leadRecord && leadRecord.reference && leadRecord.reference.binding ? leadRecord.reference.binding.eventSource : undefined;
+					const snapshot = channel && typeof channel.getSnapshot === 'function' ? channel.getSnapshot() : undefined;
+					for (const entry of snapshot && Array.isArray(snapshot.entries) ? snapshot.entries : []) {
+						const event = entry && entry.event;
+						if (!event || event.type !== 'team/task' || typeof event.time !== 'number') continue;
+						const task = event.data && event.data.task;
+						if (!task || typeof task.id !== 'string' || task.id === '') continue;
+						taskHistory.push({ id: task.id, status: task.status, ownerId: typeof task.ownerId === 'string' ? task.ownerId : '', time: event.time, subject: typeof task.subject === 'string' ? task.subject : '' });
+					}
+				} catch (error) { taskHistory.length = 0; }
+				taskHistory.sort((left, right) => left.time - right.time);
+				const spansOf = (memberId) => {
+					const spans = [];
+					const open = new Map();
+					const close = (id, time) => {
+						const span = open.get(id);
+						if (span === undefined || time < span.start) return;
+						span.end = time;
+						span.open = false;
+						spans.push(span);
+						open.delete(id);
+					};
+					for (const item of taskHistory) {
+						if (item.status === 'in_progress' && item.ownerId === memberId) {
+							const span = open.get(item.id);
+							if (span === undefined) open.set(item.id, { id: item.id, subject: item.subject, start: item.time, end: 0, open: true });
+							else if (item.subject !== '') span.subject = item.subject;
+							continue;
+						}
+						if (!open.has(item.id)) continue;
+						if (item.subject !== '') open.get(item.id).subject = item.subject;
+						if (item.status !== 'in_progress' || item.ownerId !== memberId) close(item.id, item.time);
+					}
+					const now = Date.now();
+					for (const span of open.values()) {
+						span.end = now;
+						spans.push(span);
+					}
+					return spans;
+				};
 				const unresolved = lanes.map(member => ({ member, view: group.views(member.id) })).filter(({view}) => view.error !== null || view.fold === null);
-				const minTime = timed.reduce((min, row) => Math.min(min, row.time), Infinity);
-				const maxTime = timed.reduce((max, row) => Math.max(max, row.time), -Infinity);
-				const span = maxTime - minTime;
-				// 线性映射 [最早, 最新] → [2%, 98%]：首尾方块不被容器裁掉。
-				const percentOf = (time) => (span > 0 ? 2 + ((time - minTime) / span) * 96 : 50);
+				// 泳道按记录序号等距排，不按日历拉宽：与 dsh-context 编队泳道同款，
+				// 每条记录占 32px，方块居中。日历空白不再占宽度。
+				const SLOT = 32;
+				// 时间线只排协作事件（对齐 dsh-context 的 pulse）：委派、跨 Agent 投递、
+				// 子代理办结。普通的 assistant/tool 记录不是协作事件，画上去只是噪声。
+				const pulseOf = (member) => {
+					const rows = [];
+					const view = group.views(member.id);
+					for (const row of (view && view.fold && view.fold.rows) || []) {
+						if (typeof row.time !== 'number' || row.time <= 0) continue;
+						if (row.kind === 'delegation') {
+							const to = typeof row.to === 'string' ? row.to : '';
+							if (to !== '') rows.push({ from: member.id, to, time: row.time, seq: row.seq, kind: 'delegation', text: row.text, edge: true });
+							continue;
+						}
+						if (row.kind === 'settled') {
+							rows.push({ from: senderOf(row), to: member.id, time: row.time, seq: row.seq, kind: 'settled', text: row.text, edge: false });
+							continue;
+						}
+						const from = senderOf(row);
+						if (from === '') continue;
+						rows.push({ from, to: member.id, time: row.time, seq: row.seq, kind: 'relay', text: row.text, edge: true });
+					}
+					return rows;
+				};
+				const laneIds = new Set(lanes.map((member) => member.id));
+				// 事件列表按折叠令牌缓存：面板每次重渲染（5 秒心跳、任一 snapshot）
+				// 都重走几万行折叠行会把主线程拖死，这里只在成员窗口真变时才算一次。
+				const pulseSig = lanes.map((member) => member.id + ':' + groupFoldToken(group.views(member.id).fold)).join('|');
+				let pulseCache = panelRef._pulseCache;
+				if (pulseCache === undefined || pulseCache.sig !== pulseSig) {
+					const rawPulse = [];
+					for (const member of lanes) for (const item of pulseOf(member)) rawPulse.push(item);
+					rawPulse.sort((left, right) => left.time - right.time || left.seq - right.seq);
+					// 一次委派会同时产生 catalog 与 member 两条事件，相隔几十毫秒：
+					// 按 from→to 加 3 秒窗配成一条。
+					const delegated = new Set();
+					const kept = [];
+					for (const item of rawPulse) {
+						if (item.kind === 'delegation') {
+							const key = item.from + '>' + item.to + '@' + Math.round(item.time / 3000);
+							if (delegated.has(key)) continue;
+							delegated.add(key);
+						}
+						kept.push(item);
+					}
+					pulseCache = { sig: pulseSig, pulse: kept };
+					panelRef._pulseCache = pulseCache;
+				}
+				const pulse = pulseCache.pulse;
+				const sequence = pulse.map((item) => ({ time: item.time, seq: item.seq }));
+				const slotOf = new Map();
+				pulse.forEach((item, index) => slotOf.set(item.time + '#' + item.seq + '#' + item.kind + '#' + item.from + '#' + item.to, index));
+				const indexOfTime = (time) => {
+					let low = 0;
+					let high = sequence.length;
+					while (low < high) {
+						const mid = (low + high) >> 1;
+						if (sequence[mid].time < time) low = mid + 1;
+						else high = mid;
+					}
+					return Math.min(low, Math.max(0, sequence.length - 1));
+				};
+				const xOfIndex = (index) => 16 + index * SLOT + SLOT / 2;
+				const axisWidth = Math.max(420, 16 + sequence.length * SLOT + 16);
+				const clockOf = (time) => {
+					const date = new Date(time);
+					const pad = (value) => String(value).padStart(2, '0');
+					return pad(date.getMonth() + 1) + '-' + pad(date.getDate()) + ' ' + pad(date.getHours()) + ':' + pad(date.getMinutes());
+				};
+				const marks = [];
+				let lastHour = -1;
+				sequence.forEach((item, index) => {
+					const hour = Math.floor(item.time / 3600000);
+					if (hour === lastHour) return;
+					lastHour = hour;
+					if (marks.length > 0 && index - marks[marks.length - 1].index < 3) return;
+					marks.push({ key: 'hour-' + item.time, left: xOfIndex(index) - 24, index, text: clockOf(item.time) });
+				});
 				// 家族色：黄金角散列，与宿主编队同式 hsl(round(i*137.508)%360 58% 52%)。
-				const hueOf = (index) => 'hsl(' + (Math.round(index * 137.508) % 360) + ' 58% 52%)';
+				// 首辅固定蓝色系（与截图的 lead 蓝一致），阁臣按黄金角散列。
+				const hueOf = (index) => (index === 0 ? 'hsl(217 91% 60%)' : 'hsl(' + (Math.round(index * 137.508) % 360) + ' 58% 52%)');
+				// 方块底色：同色相压到 16% 透明，边框和字形仍用纯色（对齐截图的浅底块）。
+				const hueFillOf = (index) => (index === 0 ? 'hsl(217 91% 60% / .16)' : 'hsl(' + (Math.round(index * 137.508) % 360) + ' 58% 52% / .16)');
 				// 无事件的成员不画泳道（本步不做静默折叠，留后续）。
-				const laneNodes = lanes.filter((member) => eventsOf(member).length > 0).map((member) => {
+				let barCount = 0;
+				// 一个协作事件一个 22px 方块，落在接收方泳道，位置对齐事件槽。
+				// 委派/投递的方块画加号，办结的方块画对勾；颜色取接收方的家族色。
+				const squaresByLane = new Map();
+				const dropEdges = [];
+				pulse.forEach((item) => {
+					const index = slotOf.get(item.time + '#' + item.seq + '#' + item.kind + '#' + item.from + '#' + item.to);
+					if (index === undefined) return;
+					const square = {
+						kind: item.kind,
+						index,
+						at: Math.round(xOfIndex(index) - 11),
+						time: item.time,
+						seq: item.seq,
+						from: item.from,
+						to: item.to,
+						text: item.text,
+						hue: hueOf(Math.max(0, lanes.findIndex((member) => member.id === item.to))),
+						fill: hueFillOf(Math.max(0, lanes.findIndex((member) => member.id === item.to)))
+					};
+					if (laneIds.has(item.to)) {
+						const bucket = squaresByLane.get(item.to) || [];
+						bucket.push(square);
+						squaresByLane.set(item.to, bucket);
+					}
+					if (item.edge && item.from !== item.to && laneIds.has(item.from) && laneIds.has(item.to)) {
+						dropEdges.push({ from: item.from, to: item.to, index, time: item.time, seq: item.seq });
+					}
+				});
+				// 泳道纵向锚点：laneNodes 在 map 里写入 laneYs，SVG overlay 渲染时读。
+				const laneYs = new Map();
+				let laneCursorY = 0;
+				const laneNodes = lanes.filter(laneHasWork).map((member) => {
 					const laneIndex = lanes.findIndex((candidate) => candidate !== null && candidate !== undefined && candidate.id === member.id);
 					const rows = eventsOf(member);
 					const hue = hueOf(laneIndex);
+					// 事件方块（P0-3）按 kind 语义色，与 hueOf 任务条家族色分层。
+					const eventSquares = squaresByLane.get(member.id) || [];
+					const orderedSpans = spansOf(member.id).sort((left, right) => left.start - right.start || left.id.localeCompare(right.id));
+					barCount += orderedSpans.length;
 					// 左块第二行数据：模型/Token 来自会话投影（无投影不显示），任务数
 					// 与事件数是真实计数——缺的不编。
 					const model = modelOf(member.id);
 					const usage = usageOfMember(member);
+					// 档位（P0-2③）：modelSelection.next.reasoningEffort，缺省显示
+					// 「默认」不编造（T28 §2.1 真实来源，投影里就有）。
+					const selection = projections && projections[member.id] && projections[member.id].values && projections[member.id].values.modelSelection ? projections[member.id].values.modelSelection : undefined;
+					const effortOf = (entry) => (entry && typeof entry.reasoningEffort === 'string' && entry.reasoningEffort !== '' ? entry.reasoningEffort : '默认');
+					const effort = effortOf(selection && selection.next);
 					const taskCount = tasks.filter((task) => task !== null && task !== undefined && task.ownerName === (member.name || member.id)).length;
 					const canOpen = typeof openMemberSession === 'function' && openableMember(member);
+					// 泳道纵向锚点：从上往下累计，供 SVG overlay 定位箭头端点。
+					const laneHeight = 65;
+					laneYs.set(member.id, laneCursorY + laneHeight / 2);
+					laneCursorY += laneHeight;
 					return h('div', {
 						key: member.id,
 						'data-cabinet-timeline-lane': member.id,
 						// 行高 48 + 1px 分隔线：对齐截图密度。
-						style: { display: 'flex', alignItems: 'stretch', height: 48, borderBottom: '1px solid rgba(127,127,127,.18)' }
+						style: { display: 'flex', alignItems: 'stretch', minHeight: 64, borderBottom: '1px solid rgba(127,127,127,.18)' }
 					}, [
-						// 左块（固定 144px）：行1 头像(家族色环)+粗体名+↗；行2 模型/token/任务·事件。
+						// 左块：三行各自一行，不再用 48px 行高把第三行任务/事件数裁掉。
 						h('div', {
 							key: 'head',
 							'data-cabinet-timeline-lane-head': '1',
-							style: { width: 144, flex: 'none', minWidth: 0, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 2, padding: '4px 6px 4px 2px', boxSizing: 'border-box', borderRight: '1px solid rgba(127,127,127,.10)' }
+							style: { width: 194, flex: 'none', minWidth: 0, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 1, padding: '4px 6px 4px 2px', boxSizing: 'border-box', borderRight: '1px solid rgba(127,127,127,.10)', position: 'sticky', left: 0, zIndex: 6, background: 'var(--dsw-alias-bg-layer-1, light-dark(#ffffff, #26292d))' }
 						}, [
 							h('div', {
 								key: 'r1',
 								style: { display: 'flex', alignItems: 'center', gap: 5, minWidth: 0 }
 							}, [
 								h(Avatar, { key: 'a', name: member.name || member.id, size: 18, live: member.phase === 'running', ring: hue }),
+								// 主控徽章（P0-2②）：role==='lead' 才显示，复用既有 lead 徽章样式。
+								member.role === 'lead' ? h('span', {
+									key: 'lead',
+									'data-cabinet-timeline-lead-badge': member.id,
+									className: 'cabinet-badge-lead',
+									style: { flex: 'none' }
+								}, '主控') : null,
 								h('span', {
 									key: 'n',
 									title: memberLabel(member.name || member.id),
-									style: { fontSize: 12, fontWeight: 600, color: INK, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: '1 1 auto' }
+									style: { fontSize: 12, fontWeight: 600, color: timelineInk, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: '1 1 auto' }
 								}, memberLabel(member.name || member.id)),
 								canOpen ? h('button', {
 									key: 'open',
@@ -5746,59 +6056,54 @@ window.__ModuleLoader__.load({
 							h('div', {
 								key: 'meta',
 								'data-cabinet-timeline-lane-meta': '1',
-								style: { display: 'flex', flexWrap: 'wrap', gap: 4, minWidth: 0, fontSize: 10, color: INK2, lineHeight: '13px' }
+								style: { display: 'flex', flexDirection: 'column', gap: 1, minWidth: 0, fontSize: 10, color: INK2, lineHeight: '13px' }
 							}, [
 								model ? h('span', {
 									key: 'model',
-									title: model,
-									style: { minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: '1 1 100%' }
-								}, model) : null,
-								usage ? h('span', {
-									key: 'tok',
-									style: { flex: 'none' },
-									title: tt('usage.tokens')
-								}, tt('usage.tokens') + ' ' + (formatTokenCount(usage.tokens) ?? tt('usage.none'))) : null,
-								h('span', { key: 'cnt', style: { flex: 'none', color: INK3 } },
-									taskCount + ' 个任务 · ' + rows.length + ' 个事件')
+									title: model + ' · 档位 ' + effort,
+									style: { minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }
+								}, model + ' (' + effort + ')') : null,
+								h('span', {
+									key: 'stats',
+									style: { minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+									title: (usage ? tt('usage.tokens') + ' ' + (formatTokenCount(usage.tokens) ?? tt('usage.none')) + ' · ' : '') + taskCount + ' 个任务 · ' + rows.length + ' 个事件'
+								}, (usage ? (formatTokenCount(usage.tokens) ?? tt('usage.none')) + ' · ' : '') + taskCount + ' 个任务 · ' + rows.length + ' 个事件')
 							])
 						]),
 						h('div', {
 							key: 'axis',
 							'data-cabinet-timeline-axis': '1',
-							style: { position: 'relative', flex: '1 1 auto', minWidth: 0, height: '100%' }
+							style: { position: 'relative', flex: '1 1 auto', minWidth: axisWidth, minHeight: 30 }
 						}, [
+							...marks.map((mark) => h('div', {
+								key: mark.key,
+								style: { position: 'absolute', left: (mark.left + 24) + 'px', top: 0, bottom: 0, width: 1, background: 'rgba(127,127,127,.10)' }
+							})),
 							// 淡色基线（1px，主题边框令牌低透明度）。
 							h('div', {
 								key: 'base',
 								'data-cabinet-timeline-baseline': '1',
 								style: { position: 'absolute', left: 0, right: 0, bottom: 6, height: 1, background: 'var(--dsw-alias-border-l2, rgba(127,127,127,.28))' }
 							}),
-							...rows.flatMap((row, rowIndex) => {
-								const taskId = typeof row.taskId === 'string' && row.taskId !== '' ? row.taskId : '';
-								// 方块数字：有任务号写任务号，没有写该行序号。
-								const mark = taskId !== '' ? taskId : String(row.seq);
-								const left = percentOf(row.time) + '%';
-								return [
-									// 方块到基线的家族色短连线（40% 透明）。
-									h('div', {
-										key: member.id + '#stem#' + rowIndex,
-										'data-cabinet-timeline-stem': mark,
-										style: { position: 'absolute', left, top: 21, width: 1, height: 19, transform: 'translateX(-50%)', background: hue, opacity: 0.4 }
-									}),
-									h('div', {
-										key: member.id + '#' + rowIndex,
-										'data-cabinet-timeline-event': mark,
-										'data-cabinet-timeline-event-task': taskId !== '' ? taskId : undefined,
-										'data-cabinet-timeline-event-seq': String(row.seq),
-										className: 'cabinet-timeline-event',
-										style: {
-											position: 'absolute', left, top: 7, transform: 'translateX(-50%)',
-											width: 14, height: 14, borderRadius: 4, boxSizing: 'border-box',
-											background: hue, color: '#fff', fontSize: 10, lineHeight: '14px', textAlign: 'center',
-											padding: 0, border: 'none', cursor: 'pointer', overflow: 'hidden', zIndex: 1
-										}
-									}, [h('span', { key: 't', style: { display: 'inline-block', maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', verticalAlign: 'top', lineHeight: '14px' } }, mark)])
-								];
+							// 事件方块层：一条记录一个 22px 方块，任务编号放顶部轨道。
+							...eventSquares.map((mark) => {
+								const glyph = mark.kind === 'settled' ? '✓' : '+';
+								const sender = lanes.find((candidate) => candidate && candidate.id === mark.from);
+								return h('div', {
+									key: 'ev#' + mark.index + '#' + mark.kind,
+									'data-cabinet-timeline-event-kind': mark.kind,
+									'data-cabinet-timeline-event-from': mark.from,
+									'data-cabinet-timeline-event-to': mark.to,
+									'data-cabinet-timeline-event-time': String(mark.time),
+									className: 'cabinet-timeline-event cabinet-timeline-event-square',
+									title: (mark.from !== '' ? memberLabel((sender && (sender.name || sender.id)) || mark.from) + ' → ' : '') + memberLabel(member.name || member.id) + ' · ' + clockOf(mark.time) + (mark.text !== '' && typeof mark.text === 'string' ? ' · ' + String(mark.text).slice(0, 40) : ''),
+									style: {
+										position: 'absolute', left: mark.at + 'px', top: 21, width: 22, height: 22,
+										borderRadius: 6, boxSizing: 'border-box', border: '1.5px solid ' + mark.hue,
+										background: mark.fill, color: mark.hue,
+										fontSize: 13, fontWeight: 700, lineHeight: '19px', textAlign: 'center', padding: 0, zIndex: 2
+									}
+								}, glyph);
 							})
 						])
 					]);
@@ -5806,21 +6111,152 @@ window.__ModuleLoader__.load({
 				body.push(h('div', {
 					key: 'timeline',
 					'data-cabinet-timeline': '1',
+					'data-cabinet-timeline-tasks': String(taskHistory.length),
+					ref: (node) => {
+						if (!node) return;
+						if (panelRef._timelineNode === node && panelRef._timelinePinned === barCount) return;
+						panelRef._timelineNode = node;
+						panelRef._timelinePinned = barCount;
+						// 最早/最新（P1-2）：挂载默认钉最右（最新），用户点了「最早」
+						// 就钉最左；此后 barCount 变化沿用当前锚点，不再强制回最右。
+						node.scrollLeft = scrollAnchor === 'earliest' ? 0 : node.scrollWidth;
+					},
 					// 与群聊面板同款撑满右栏的 flex 列；宽度不足时区域自身横向滚动。
 					style: { ...PANEL, display: 'flex', flexDirection: 'column', overflow: 'auto', marginTop: 12, gap: 6 }
 				}, [
-					// 顶部计数行：记录总量 · 泳道数（都从现有 groupRows/lanes 算）。
+					// 顶部工具条（P0-1/P1-1/P1-2）：标题 + 搜索 + 最早/最新。
+					h('div', {
+						key: 'toolbar',
+						'data-cabinet-timeline-toolbar': '1',
+						style: { display: 'flex', alignItems: 'center', gap: 6, flex: 'none', minWidth: 0, flexWrap: 'wrap' }
+					}, [
+						h('span', {
+							key: 'title',
+							'data-cabinet-timeline-title': '1',
+							style: { fontSize: 12, fontWeight: 600, color: timelineInk, flex: 'none' }
+						}, '跨 Agent 协作'),
+						h('input', {
+							key: 'search',
+							type: 'search',
+							'data-cabinet-timeline-search': '1',
+							placeholder: '搜索 Agent...',
+							'aria-label': '搜索 Agent',
+							value: laneQuery,
+							onInput: (event) => setLaneQuery(event && event.target ? String(event.target.value) : ''),
+							style: { flex: '1 1 120px', minWidth: 90, maxWidth: 180, fontSize: 11, lineHeight: '18px', padding: '1px 6px', borderRadius: 6, border: '1px solid var(--dsw-alias-border-l3, rgba(127,127,127,.35))', background: 'transparent', color: timelineInk, outline: 'none' }
+						}),
+						h('button', {
+							key: 'earliest',
+							type: 'button',
+							'data-cabinet-timeline-earliest': '1',
+							'aria-pressed': scrollAnchor === 'earliest' ? 'true' : 'false',
+							onClick: () => setScrollAnchor('earliest'),
+							style: { fontSize: 10.5, lineHeight: '16px', padding: '1px 7px', borderRadius: 6, flex: 'none', cursor: 'pointer', border: '1px solid var(--dsw-alias-border-l3, rgba(127,127,127,.35))', background: scrollAnchor === 'earliest' ? 'var(--dsw-alias-interactive-bg-hover, rgba(127,127,127,.18))' : 'transparent', color: INK2 }
+						}, '最早'),
+						h('button', {
+							key: 'latest',
+							type: 'button',
+							'data-cabinet-timeline-latest': '1',
+							'aria-pressed': scrollAnchor === 'latest' ? 'true' : 'false',
+							onClick: () => setScrollAnchor('latest'),
+							style: { fontSize: 10.5, lineHeight: '16px', padding: '1px 7px', borderRadius: 6, flex: 'none', cursor: 'pointer', border: '1px solid var(--dsw-alias-border-l3, rgba(127,127,127,.35))', background: scrollAnchor === 'latest' ? 'var(--dsw-alias-interactive-bg-hover, rgba(127,127,127,.18))' : 'transparent', color: INK2 }
+						}, '最新')
+					]),
+					// 顶部计数行（P0-1）：已加载 N 条（总数口径，含 error 之外的带时
+					// 间行）+ hasMore 真值说明；不自动全量翻页。
 					h('div', {
 						key: 'count',
 						'data-cabinet-timeline-count': '1',
 						style: { fontSize: 10.5, color: INK2, display: 'flex', alignItems: 'center', gap: 6, flex: 'none' }
-					}, timed.length + ' 条记录 · ' + laneNodes.length + ' 条泳道'),
+					}, [
+						h('span', { key: 'c' }, '已加载 ' + timed.length + ' 条记录 · ' + laneNodes.length + ' 条泳道 · ' + barCount + ' 条任务'),
+						leadOlderPending
+							? h('button', {
+								key: 'more',
+								type: 'button',
+								'data-cabinet-timeline-load-older': '1',
+								onClick: loadOlderRecords,
+								style: { fontSize: 10.5, lineHeight: '16px', padding: '0 6px', borderRadius: 6, cursor: 'pointer', border: '1px solid var(--dsw-alias-border-l3, rgba(127,127,127,.35))', background: 'transparent', color: INK2 }
+							}, '可加载更早')
+							: h('span', { key: 'all', 'data-cabinet-timeline-all-loaded': '1' }, '· 已全部加载'),
+						searchKey !== '' ? h('span', { key: 'hit', 'data-cabinet-timeline-hit': '1' }, '· 命中 ' + laneNodes.length + '/' + allLanes.length + ' 条泳道（上为总数口径）') : null
+					]),
 					...unresolved.map(({member,view}) => h('div', { key: 'state:' + member.id, role: 'status', 'data-cabinet-timeline-state': view.error !== null ? 'error' : 'pending', 'data-cabinet-timeline-state-member': member.id, style: { fontSize: 12, color: INK2 } }, memberLabel(member.name || member.id) + ' · ' + tt(view.error !== null ? 'groupchat.unavailable' : 'groupchat.pending'))),
 					h('div', {
 						key: 'inner',
 						'data-cabinet-timeline-inner': '1',
-						style: { minWidth: 420 }
-					}, laneNodes.length > 0 ? laneNodes : unresolved.length > 0 ? null : h('div', { key: 'empty', 'data-cabinet-timeline-empty': '1', style: { fontSize: 12, color: INK2, padding: '8px 2px' } }, '暂无事件'))
+						style: { position: 'relative', minWidth: 194 + axisWidth }
+					}, [
+						h('div', {
+							key: 'scale',
+							style: { display: 'flex', minHeight: 16, height: 16, position: 'sticky', top: 0, zIndex: 5, background: 'var(--dsw-alias-bg-layer-1, light-dark(#ffffff, #26292d))' }
+						}, [
+							h('div', { key: 'pad', style: { width: 194, flex: 'none', position: 'sticky', left: 0, zIndex: 4, background: 'var(--dsw-alias-bg-layer-1, light-dark(#ffffff, #26292d))' } }),
+						h('div', { key: 'marks', style: { position: 'relative', flex: '1 1 auto', minWidth: axisWidth } }, [
+							...marks.map((mark) => h('span', {
+								key: mark.key,
+								style: { position: 'absolute', left: mark.left + 'px', top: 0, fontSize: 10, lineHeight: '14px', color: INK2, whiteSpace: 'nowrap' }
+							}, mark.text)),
+					])
+						]),
+						// 任务编号轨：每条任务落在它开工那一刻的事件槽位上（不挤到右边），
+						// 前面带一个属主家族色的小点，左列写「团队任务」。
+						h('div', { key: 'tasks', 'data-cabinet-timeline-task-track': '1', style: { position: 'sticky', top: 16, left: 0, zIndex: 4, display: 'flex', alignItems: 'center', height: 26, marginLeft: 0, boxSizing: 'border-box', background: 'var(--dsw-alias-bg-layer-1, light-dark(#ffffff, #26292d))' } }, [
+							h('span', { key: 'cap', style: { width: 194, flex: 'none', paddingLeft: 4, fontSize: 10.5, color: INK2, position: 'sticky', left: 0, zIndex: 5, background: 'var(--dsw-alias-bg-layer-1, light-dark(#ffffff, #26292d))' } }, '团队任务'),
+							h('div', { key: 'chips', style: { position: 'relative', flex: '1 1 auto', minWidth: axisWidth, height: 26 } }, taskHistory.filter((item, index, list) => item.status === 'in_progress' && list.findIndex((candidate) => candidate.id === item.id && candidate.status === 'in_progress') === index).map((item) => {
+							const at = Math.round(xOfIndex(indexOfTime(item.time)) - 15);
+							const number = item.id.replace(/^task-/, '');
+							const ownerIndex = lanes.findIndex((member) => member.id === item.ownerId);
+							const ownerHue = hueOf(Math.max(0, ownerIndex));
+							return h('span', {
+								key: 'task#' + item.id,
+								'data-cabinet-timeline-task-chip': item.id,
+								title: (item.subject !== '' ? item.subject + ' · ' : '') + item.id,
+								style: { position: 'absolute', left: at + 'px', top: 2, display: 'inline-flex', alignItems: 'center', gap: 3, height: 22, padding: '0 5px', boxSizing: 'border-box', border: '1px solid var(--dsw-alias-border-l2, rgba(127,127,127,.4))', borderRadius: 5, background: 'var(--dsw-alias-bg-layer-2, #262626)', color: 'var(--dsw-alias-label-primary, #ddd)', fontSize: 10, fontWeight: 650, lineHeight: '20px', whiteSpace: 'nowrap' }
+							}, [
+								h('i', { key: 'd', style: { width: 5, height: 5, borderRadius: '50%', background: ownerHue, flex: 'none' } }),
+								number
+							]);
+						}))]),
+						// P2：跨泳道投递箭头 SVG overlay——绝对定位覆盖泳道区，
+						// pointer-events:none 不挡任务条/方块交互；颜色跟源事件语义色。
+						h('svg', {
+							key: 'arrows',
+							'data-cabinet-timeline-arrows': '1',
+							width: axisWidth,
+							height: Math.max(1, laneCursorY),
+							style: { position: 'absolute', left: 194, top: 42, pointerEvents: 'none', zIndex: 3, overflow: 'visible' }
+						}, [
+							...dropEdges.map((edge, index) => {
+								const fromY = laneYs.get(edge.from);
+								const toY = laneYs.get(edge.to);
+								if (fromY === undefined || toY === undefined) return null;
+								const x = Math.round(xOfIndex(edge.index));
+								const laneIndex = lanes.findIndex((candidate) => candidate && candidate.id === edge.from);
+								const color = hueOf(Math.max(0, laneIndex));
+								const down = toY >= fromY;
+								const tip = down ? toY - 16 : toY + 16;
+								return h('g', { key: 'edge#' + edge.from + '#' + edge.to + '#' + edge.time + '#' + edge.seq + '#' + index }, [
+									h('line', { key: 'l', x1: x, y1: fromY, x2: x, y2: tip, stroke: color, strokeWidth: 1.4, strokeOpacity: .85 }),
+									h('path', { key: 'h', d: 'M ' + (x - 4) + ' ' + (tip + (down ? -6 : 6)) + ' L ' + x + ' ' + tip + ' L ' + (x + 4) + ' ' + (tip + (down ? -6 : 6)), fill: 'none', stroke: color, strokeWidth: 1.4 }),
+									h('circle', { key: 's', cx: x, cy: fromY, r: 3.5, fill: color })
+								]);
+							}),
+							// 箭头头部标记：一次定义，全部边复用。
+							h('defs', { key: 'defs' }, [
+								h('marker', {
+									key: 'ah',
+									id: 'cabinet-timeline-arrowhead',
+									markerWidth: 6,
+									markerHeight: 6,
+									refX: 5,
+									refY: 3,
+									orient: 'auto'
+								}, [h('path', { key: 'm', d: 'M0,0 L6,3 L0,6 z', fill: 'currentColor' })])
+							])
+						]),
+						...(laneNodes.length > 0 ? laneNodes : [unresolved.length > 0 ? null : h('div', { key: 'empty', 'data-cabinet-timeline-empty': '1', style: { fontSize: 12, color: INK2, padding: '8px 2px' } }, '暂无事件')])
+					])
 				]));
 				return h('div', { ref: panelRef, style: PANEL }, body);
 			}
